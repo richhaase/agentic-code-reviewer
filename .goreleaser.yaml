@@ -128,6 +128,22 @@ homebrew_casks:
       ACR runs parallel code reviews using AI agents and summarizes findings.
       It requires the 'codex' CLI to be installed.
 
+# Sign and notarize macOS binaries
+notarize:
+  macos:
+    - enabled: '{{ isEnvSet "QUILL_SIGN_P12" }}'
+      ids:
+        - acr
+      sign:
+        certificate: "{{.Env.QUILL_SIGN_P12}}"
+        password: "{{.Env.QUILL_SIGN_PASSWORD}}"
+      notarize:
+        issuer_id: "{{.Env.QUILL_NOTARY_ISSUER}}"
+        key_id: "{{.Env.QUILL_NOTARY_KEY_ID}}"
+        key: "{{.Env.QUILL_NOTARY_KEY}}"
+        wait: true
+        timeout: 20m
+
 # Announce releases on social media (optional)
 announce:
   skip: true
