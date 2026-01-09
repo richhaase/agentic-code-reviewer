@@ -33,7 +33,7 @@ func (s *Spinner) Completed() *atomic.Int32 {
 	return s.completed
 }
 
-// Run runs the spinner until the context is cancelled.
+// Run runs the spinner until the context is canceled.
 func (s *Spinner) Run(ctx context.Context) {
 	if !s.isTTY {
 		<-ctx.Done()
@@ -83,7 +83,7 @@ func NewPhaseSpinner(label string) *PhaseSpinner {
 	}
 }
 
-// Run runs the phase spinner until the context is cancelled.
+// Run runs the phase spinner until the context is canceled.
 func (s *PhaseSpinner) Run(ctx context.Context) {
 	if !s.isTTY {
 		<-ctx.Done()

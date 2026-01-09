@@ -1,0 +1,42 @@
+name: Security
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    # Allow manual trigger
+
+jobs:
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+
+    - name: Run govulncheck
+      run: |
+        echo "Checking for vulnerabilities in dependencies..."
+        go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      continue-on-error: true
+
+    - name: Run gosec
+      run: |
+        echo "Running security analysis..."
+        go run github.com/securego/gosec/v2/cmd/gosec@latest ./...
+      continue-on-error: true
+
+    - name: Summary
+      if: always()
+      run: echo "Security checks completed. Review any findings above."

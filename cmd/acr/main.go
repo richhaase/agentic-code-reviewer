@@ -142,7 +142,7 @@ func runReview(cmd *cobra.Command, args []string) error {
 		}
 		defer func() {
 			logger.Log("Cleaning up worktree", terminal.StyleDim)
-			wt.Remove()
+			_ = wt.Remove()
 		}()
 
 		logger.Logf(terminal.StyleSuccess, "Worktree ready %s(%s)%s",

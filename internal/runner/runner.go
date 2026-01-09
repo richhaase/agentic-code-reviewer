@@ -133,7 +133,7 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	timeoutCtx, cancel := context.WithTimeout(ctx, r.config.Timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(timeoutCtx, "codex", "exec", "--json", "--color", "never", "review", "--base", r.config.BaseRef)
+	cmd := exec.CommandContext(timeoutCtx, "codex", "exec", "--json", "--color", "never", "review", "--base", r.config.BaseRef) //nolint:gosec // BaseRef is validated CLI input
 	if r.config.WorkDir != "" {
 		cmd.Dir = r.config.WorkDir
 	}
