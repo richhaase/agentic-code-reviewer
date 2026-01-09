@@ -39,12 +39,6 @@ jobs:
       with:
         go-version-file: 'go.mod'
 
-    - name: Install golangci-lint
-      uses: golangci/golangci-lint-action@v6
-      with:
-        version: latest
-        args: --timeout=10m
-
     - name: Install just
       uses: extractions/setup-just@v2
 

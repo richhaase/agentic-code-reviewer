@@ -49,14 +49,10 @@ fmt:
     go fmt ./...
     @echo "Formatting complete!"
 
-# Run golangci-lint
+# Run golangci-lint v2
 lint:
-    @echo "Running golangci-lint..."
-    @if ! command -v golangci-lint &> /dev/null; then \
-        echo "golangci-lint not found. Install with: brew install golangci-lint"; \
-        exit 1; \
-    fi
-    golangci-lint run ./...
+    @echo "Running golangci-lint v2..."
+    go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint run --timeout=10m ./...
     @echo "Linting passed!"
 
 # Run go vet
