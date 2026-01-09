@@ -22,7 +22,7 @@ func (w *Worktree) Remove() error {
 	if w.Path == "" {
 		return nil
 	}
-	cmd := exec.Command("git", "worktree", "remove", "--force", w.Path)
+	cmd := exec.Command("git", "worktree", "remove", "--force", w.Path) //nolint:gosec // w.Path is controlled internally
 	cmd.Dir = w.repoRoot
 	_ = cmd.Run() // Best effort cleanup
 	return nil

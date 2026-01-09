@@ -119,7 +119,7 @@ func Summarize(ctx context.Context, aggregated []domain.AggregatedFinding) (*Res
 		} else if ctx.Err() != nil {
 			return &Result{
 				ExitCode: -1,
-				Stderr:   "context cancelled",
+				Stderr:   "context canceled",
 				Duration: duration,
 			}, nil
 		} else {
