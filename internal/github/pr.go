@@ -86,11 +86,19 @@ func CheckCIStatus(prNumber string) CIStatus {
 		return CIStatus{Error: errMsg}
 	}
 
-	var checks []struct {
-		Name   string `json:"name"`
-		Bucket string `json:"bucket"`
-	}
-	if err := json.Unmarshal(out, &checks); err != nil {
+	return ParseCIChecks(out)
+}
+
+// CICheck represents a single CI check from the GitHub API.
+type CICheck struct {
+	Name   string `json:"name"`
+	Bucket string `json:"bucket"`
+}
+
+// ParseCIChecks parses CI check JSON output and categorizes results.
+func ParseCIChecks(data []byte) CIStatus {
+	var checks []CICheck
+	if err := json.Unmarshal(data, &checks); err != nil {
 		return CIStatus{Error: "failed to parse CI status"}
 	}
 
