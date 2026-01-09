@@ -1,2 +1,2 @@
-# ai-code-reviewer
+# agentic-code-reviewer
 Automated parallel code reviewer using Codex CLI
