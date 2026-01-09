@@ -101,10 +101,10 @@ func TestParseCIChecks_CancelTreatedAsFailure(t *testing.T) {
 	status := ParseCIChecks([]byte(json))
 
 	if status.AllPassed {
-		t.Error("expected AllPassed to be false with cancelled check")
+		t.Error("expected AllPassed to be false with canceled check")
 	}
 	if len(status.Failed) != 1 || status.Failed[0] != "slow-test" {
-		t.Errorf("cancelled check should be in failed, got %v", status.Failed)
+		t.Errorf("canceled check should be in failed, got %v", status.Failed)
 	}
 }
 
