@@ -341,9 +341,9 @@ func handleLGTM(ctx context.Context, allFindings []domain.Finding, stats domain.
 			return domain.ExitError
 		}
 
-		prNumber := github.GetCurrentPRNumber(worktreeBranch)
+		prNumber := github.GetCurrentPRNumber(ctx, worktreeBranch)
 		if prNumber != "" {
-			ciStatus := github.CheckCIStatus(prNumber)
+			ciStatus := github.CheckCIStatus(ctx, prNumber)
 
 			if ciStatus.Error != "" {
 				logger.Logf(terminal.StyleError, "Failed to check CI status: %s", ciStatus.Error)
@@ -446,7 +446,7 @@ type prAction struct {
 	promptTemplate  string
 	successTemplate string
 	skipMessage     string
-	execute         func(string, string) error
+	execute         func(context.Context, string, string) error
 }
 
 func confirmAndExecutePRAction(ctx context.Context, action prAction, logger *terminal.Logger) error {
@@ -476,7 +476,7 @@ func confirmAndExecutePRAction(ctx context.Context, action prAction, logger *ter
 		return fmt.Errorf("gh not available")
 	}
 
-	prNumber := github.GetCurrentPRNumber(worktreeBranch)
+	prNumber := github.GetCurrentPRNumber(ctx, worktreeBranch)
 	if prNumber == "" {
 		branchDesc := "current branch"
 		if worktreeBranch != "" {
@@ -509,7 +509,7 @@ func confirmAndExecutePRAction(ctx context.Context, action prAction, logger *ter
 	}
 
 	// Execute
-	if err := action.execute(prNumber, action.body); err != nil {
+	if err := action.execute(ctx, prNumber, action.body); err != nil {
 		logger.Logf(terminal.StyleError, "Failed: %v", err)
 		return err
 	}

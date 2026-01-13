@@ -3,6 +3,7 @@ package github
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,14 +21,14 @@ type CIStatus struct {
 
 // GetCurrentPRNumber returns the PR number for the given branch (or current branch).
 // Returns empty string if no PR is found.
-func GetCurrentPRNumber(branch string) string {
+func GetCurrentPRNumber(ctx context.Context, branch string) string {
 	args := []string{"pr", "view"}
 	if branch != "" {
 		args = append(args, branch)
 	}
 	args = append(args, "--json", "number", "--jq", ".number")
 
-	cmd := exec.Command("gh", args...)
+	cmd := exec.CommandContext(ctx, "gh", args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
@@ -36,8 +37,8 @@ func GetCurrentPRNumber(branch string) string {
 }
 
 // PostPRComment posts a comment to a PR.
-func PostPRComment(prNumber, body string) error {
-	cmd := exec.Command("gh", "pr", "comment", prNumber, "--body-file", "-")
+func PostPRComment(ctx context.Context, prNumber, body string) error {
+	cmd := exec.CommandContext(ctx, "gh", "pr", "comment", prNumber, "--body-file", "-")
 	cmd.Stdin = strings.NewReader(body)
 
 	var stderr bytes.Buffer
@@ -54,8 +55,8 @@ func PostPRComment(prNumber, body string) error {
 }
 
 // ApprovePR approves a PR with the given body.
-func ApprovePR(prNumber, body string) error {
-	cmd := exec.Command("gh", "pr", "review", prNumber, "--approve", "--body-file", "-")
+func ApprovePR(ctx context.Context, prNumber, body string) error {
+	cmd := exec.CommandContext(ctx, "gh", "pr", "review", prNumber, "--approve", "--body-file", "-")
 	cmd.Stdin = strings.NewReader(body)
 
 	var stderr bytes.Buffer
@@ -72,8 +73,8 @@ func ApprovePR(prNumber, body string) error {
 }
 
 // CheckCIStatus checks the CI status for a PR.
-func CheckCIStatus(prNumber string) CIStatus {
-	cmd := exec.Command("gh", "pr", "checks", prNumber, "--json", "name,bucket")
+func CheckCIStatus(ctx context.Context, prNumber string) CIStatus {
+	cmd := exec.CommandContext(ctx, "gh", "pr", "checks", prNumber, "--json", "name,bucket")
 	out, err := cmd.Output()
 	if err != nil {
 		var stderr bytes.Buffer
