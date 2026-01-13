@@ -52,7 +52,7 @@ fmt:
 # Run golangci-lint v2
 lint:
     @echo "Running golangci-lint v2..."
-    go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint run --timeout=10m ./...
+    go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0 run --timeout=10m ./...
     @echo "Linting passed!"
 
 # Run go vet
