@@ -2,11 +2,42 @@
 package terminal
 
 import (
+	"fmt"
 	"sort"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/anthropics/agentic-code-reviewer/internal/domain"
+)
+
+// Styles for the selector UI.
+var (
+	selectorTitleStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("15"))
+
+	selectorItemStyle = lipgloss.NewStyle().
+				PaddingLeft(2)
+
+	selectorCursorStyle = lipgloss.NewStyle().
+				PaddingLeft(2).
+				Background(lipgloss.Color("236"))
+
+	selectorCheckboxSelected   = lipgloss.NewStyle().Foreground(lipgloss.Color("10")).Render("[x]")
+	selectorCheckboxUnselected = lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("[ ]")
+
+	selectorHelpStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("8"))
+
+	selectorSummaryStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("7")).
+				PaddingLeft(6)
+
+	selectorConfirmStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("11"))
 )
 
 // selectorState represents the current state of the selector UI.
@@ -105,8 +136,107 @@ func (m SelectorModel) updateConfirmQuit(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View implements tea.Model.
 func (m SelectorModel) View() string {
-	// Placeholder - will be implemented in issue #9
-	return ""
+	if len(m.findings) == 0 {
+		return "No findings to select.\n"
+	}
+
+	var b strings.Builder
+
+	// Header
+	b.WriteString(selectorTitleStyle.Render("Select findings to post"))
+	b.WriteString("\n\n")
+
+	// Quit confirmation overlay
+	if m.state == stateConfirmQuit {
+		b.WriteString(selectorConfirmStyle.Render("Skip posting findings? [y/N] "))
+		return b.String()
+	}
+
+	// Findings list
+	for i, finding := range m.findings {
+		// Checkbox
+		checkbox := selectorCheckboxUnselected
+		if m.selected[i] {
+			checkbox = selectorCheckboxSelected
+		}
+
+		// Title with number and reviewer count
+		title := fmt.Sprintf("%s %d. %s", checkbox, i+1, finding.Title)
+		if finding.ReviewerCount > 0 {
+			title += fmt.Sprintf(" (%d reviewer", finding.ReviewerCount)
+			if finding.ReviewerCount > 1 {
+				title += "s"
+			}
+			title += ")"
+		}
+
+		// Apply cursor highlighting
+		if i == m.cursor {
+			b.WriteString(selectorCursorStyle.Render(title))
+		} else {
+			b.WriteString(selectorItemStyle.Render(title))
+		}
+		b.WriteString("\n")
+
+		// Show summary if expanded
+		if m.expanded[i] && finding.Summary != "" {
+			summary := wordWrap(finding.Summary, 70)
+			for _, line := range strings.Split(summary, "\n") {
+				b.WriteString(selectorSummaryStyle.Render(line))
+				b.WriteString("\n")
+			}
+		}
+	}
+
+	// Footer with help
+	b.WriteString("\n")
+	help := "↑/↓ navigate • space toggle • e expand • a all • n none • enter confirm • q quit"
+	b.WriteString(selectorHelpStyle.Render(help))
+	b.WriteString("\n")
+
+	return b.String()
+}
+
+// wordWrap wraps text to the specified width.
+func wordWrap(text string, width int) string {
+	if width <= 0 {
+		return text
+	}
+
+	var result strings.Builder
+	var lineLen int
+
+	words := strings.Fields(text)
+	for i, word := range words {
+		wordLen := len(word)
+
+		if lineLen+wordLen+1 > width && lineLen > 0 {
+			result.WriteString("\n")
+			lineLen = 0
+		}
+
+		if lineLen > 0 {
+			result.WriteString(" ")
+			lineLen++
+		}
+
+		// Handle words longer than width
+		if wordLen > width {
+			if lineLen > 0 {
+				result.WriteString("\n")
+			}
+			result.WriteString(word)
+			if i < len(words)-1 {
+				result.WriteString("\n")
+			}
+			lineLen = 0
+		} else {
+			result.WriteString(word)
+			lineLen += wordLen
+		}
+	}
+
+	return result.String()
 }
 
 // SelectedIndices returns the indices of selected findings in sorted order.
