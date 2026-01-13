@@ -115,18 +115,34 @@ By default, concurrency equals the reviewer count (all run in parallel).
 Create `.acr.yaml` in your repository root to configure persistent settings:
 
 ```yaml
+# All fields are optional - defaults shown in comments
+reviewers: 5              # Number of parallel reviewers
+concurrency: 5            # Max concurrent reviewers (defaults to reviewers)
+base: main                # Base ref for diff comparison
+timeout: 5m               # Timeout per reviewer (supports "5m", "300s", or 300)
+retries: 1                # Retry failed reviewers N times
+
 filters:
-  exclude_patterns:
-    - "Next\\.js forbids"      # Regex patterns to exclude
+  exclude_patterns:       # Regex patterns to exclude from findings
+    - "Next\\.js forbids"
     - "deprecated API"
     - "consider using"
 ```
+
+### Precedence
+
+Configuration is resolved with the following precedence (highest to lowest):
+1. CLI flags (e.g., `--reviewers 10`)
+2. Environment variables (e.g., `ACR_REVIEWERS=10`)
+3. Config file (`.acr.yaml`)
+4. Built-in defaults
 
 ### Behavior
 
 - Config file is loaded from the git repository root
 - Missing config file is not an error (empty defaults used)
 - Invalid YAML or regex patterns produce an error
+- Unknown keys in config file produce a warning with "did you mean?" suggestions
 - CLI `--exclude-pattern` flags are merged with config patterns (union)
 - Use `--no-config` to skip loading the config file for a single run
 

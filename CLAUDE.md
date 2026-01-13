@@ -30,10 +30,14 @@ go install ./cmd/acr  # Install locally
 ```
 cmd/acr/main.go          # CLI entry point, flag parsing, orchestration
 internal/
+  config/                # Configuration file support
+    config.go            # Load/parse .acr.yaml, resolve precedence (flags > env > config > defaults)
   domain/                # Core types: Finding, AggregatedFinding, GroupedFindings
     finding.go           # Finding types and aggregation logic
     result.go            # ReviewerResult and ReviewStats
     exitcode.go          # Exit code constants
+  filter/                # Finding filtering
+    filter.go            # Exclude findings by regex pattern matching
   runner/                # Review execution engine
     runner.go            # Parallel reviewer orchestration
     report.go            # Report rendering (terminal + markdown)
@@ -68,7 +72,7 @@ internal/
 
 - **Error handling**: Return errors up the call stack. Log at the top level in main.go.
 - **Context propagation**: All long-running operations accept `context.Context` for cancellation.
-- **Configuration**: Flags with env var fallbacks. See `getEnvStr`, `getEnvInt`, `getEnvDuration`.
+- **Configuration**: Three-tier precedence (flags > env vars > .acr.yaml > defaults). See `internal/config/config.go` for resolution logic.
 - **Testing**: Table-driven tests preferred. See `internal/domain/finding_test.go` for examples.
 
 ## Adding New Features
