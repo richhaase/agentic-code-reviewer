@@ -8,21 +8,21 @@ ACR (Agentic Code Reviewer) is a Go CLI that runs parallel code reviews using Co
 
 ## Build & Test Commands
 
+Use `just` recipes for all build/test/lint operations. Run `just` to see available recipes.
+
 ```bash
-# Run all tests
-go test ./...
+just build    # Build with version info (outputs to bin/)
+just test     # Run all tests
+just lint     # Run golangci-lint v2
+just fmt      # Format code
+just clean    # Clean build artifacts
+```
 
-# Run tests with verbose output
-go test -v ./...
+Direct go commands (if needed):
 
-# Run linter (uses golangci-lint v2)
-go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run
-
-# Build the binary
-go build -o acr ./cmd/acr
-
-# Install locally
-go install ./cmd/acr
+```bash
+go test ./...      # Run tests directly
+go install ./cmd/acr  # Install locally
 ```
 
 ## Architecture
@@ -78,7 +78,7 @@ When adding features:
 1. **Domain types go in `internal/domain/`** - Keep them simple, no external dependencies.
 2. **New CLI flags** - Add to `cmd/acr/main.go`, follow existing pattern with env var defaults.
 3. **Tests required** - Add `_test.go` files alongside implementation.
-4. **Lint clean** - Run golangci-lint before committing.
+4. **Lint clean** - Run `just lint` before committing.
 
 ## Common Tasks
 

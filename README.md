@@ -74,6 +74,7 @@ acr --verbose
 | Flag                | Short | Default | Description                              |
 | ------------------- | ----- | ------- | ---------------------------------------- |
 | `--reviewers`       | `-r`  | 5       | Number of parallel reviewers             |
+| `--concurrency`     | `-c`  | -r      | Max concurrent reviewers (see below)     |
 | `--base`            | `-b`  | main    | Base ref for diff comparison             |
 | `--timeout`         | `-t`  | 5m      | Timeout per reviewer                     |
 | `--retries`         | `-R`  | 1       | Retry failed reviewers N times           |
@@ -85,13 +86,30 @@ acr --verbose
 | `--exclude-pattern` |       |         | Exclude findings matching regex (repeat) |
 | `--no-config`       |       | false   | Skip loading .acr.yaml config file       |
 
+### Concurrency Control
+
+The `--concurrency` flag limits how many reviewers run simultaneously, independent of the total reviewer count. This helps avoid API rate limits when running many reviewers or using high retry counts.
+
+```bash
+# Run 15 total reviewers, but only 5 at a time
+acr -r 15 -c 5
+
+# With retries, -c prevents retry storms from overwhelming the API
+acr -r 10 -R 3 -c 3
+```
+
+By default, concurrency equals the reviewer count (all run in parallel).
+
 ### Environment Variables
 
-- `REVIEW_REVIEWERS` - Default number of reviewers
-- `REVIEW_BASE_REF` - Default base ref
-- `REVIEW_TIMEOUT` - Default timeout (e.g., "5m" or "300")
-- `REVIEW_RETRIES` - Default retry count
-- `REVIEW_EXCLUDE_PATTERNS` - Comma-separated list of exclude patterns
+| Variable                  | Description                              |
+| ------------------------- | ---------------------------------------- |
+| `REVIEW_REVIEWERS`        | Default number of reviewers              |
+| `REVIEW_CONCURRENCY`      | Default max concurrent reviewers         |
+| `REVIEW_BASE_REF`         | Default base ref                         |
+| `REVIEW_TIMEOUT`          | Default timeout (e.g., "5m" or "300")    |
+| `REVIEW_RETRIES`          | Default retry count                      |
+| `REVIEW_EXCLUDE_PATTERNS` | Comma-separated list of exclude patterns |
 
 ## Configuration
 
@@ -133,15 +151,26 @@ Requires the `gh` CLI to be authenticated.
 
 ## Development
 
+Requires [just](https://github.com/casey/just) command runner.
+
 ```bash
+# List available tasks
+just
+
+# Build with version info (outputs to bin/)
+just build
+
 # Run tests
-go test ./...
+just test
 
 # Run linter
-go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run
+just lint
 
-# Build
-go build -o acr ./cmd/acr
+# Format code
+just fmt
+
+# Clean build artifacts
+just clean
 ```
 
 ## License
