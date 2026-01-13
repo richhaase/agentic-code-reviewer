@@ -49,20 +49,20 @@ func (s *Spinner) Run(ctx context.Context) {
 		case <-ctx.Done():
 			// Final state
 			progress := fmt.Sprintf("%d/%d", s.completed.Load(), s.total)
-			tag := fmt.Sprintf("%s[%s%sreview%s%s]%s",
+			tag := fmt.Sprintf("%s[%s%s✓%s%s]%s",
 				Color(Dim), Color(Reset), Color(Green), Color(Reset), Color(Dim), Color(Reset))
-			final := fmt.Sprintf("\r%s %s✓%s Reviewers complete %s(%s)%s",
-				tag, Color(Green), Color(Reset), Color(Dim), progress, Color(Reset))
+			final := fmt.Sprintf("\r%s Reviewers complete %s(%s)%s",
+				tag, Color(Dim), progress, Color(Reset))
 			fmt.Fprint(os.Stderr, final+"          \n")
 			return
 
 		case <-ticker.C:
 			frame := string(spinnerFrames[idx%len(spinnerFrames)])
 			progress := fmt.Sprintf("%d/%d", s.completed.Load(), s.total)
-			tag := fmt.Sprintf("%s[%s%sreview%s%s]%s",
-				Color(Dim), Color(Reset), Color(Cyan), Color(Reset), Color(Dim), Color(Reset))
-			line := fmt.Sprintf("\r%s %s%s%s Running reviewers %s(%s)%s",
-				tag, Color(Cyan), frame, Color(Reset), Color(Dim), progress, Color(Reset))
+			tag := fmt.Sprintf("%s[%s%s%s%s%s]%s",
+				Color(Dim), Color(Reset), Color(Cyan), frame, Color(Reset), Color(Dim), Color(Reset))
+			line := fmt.Sprintf("\r%s Running reviewers %s(%s)%s",
+				tag, Color(Dim), progress, Color(Reset))
 			fmt.Fprint(os.Stderr, line+"          ")
 			idx++
 		}
@@ -98,19 +98,19 @@ func (s *PhaseSpinner) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			// Final state
-			tag := fmt.Sprintf("%s[%s%sreview%s%s]%s",
+			tag := fmt.Sprintf("%s[%s%s✓%s%s]%s",
 				Color(Dim), Color(Reset), Color(Green), Color(Reset), Color(Dim), Color(Reset))
-			final := fmt.Sprintf("\r%s %s✓%s %s",
-				tag, Color(Green), Color(Reset), s.label)
+			final := fmt.Sprintf("\r%s %s",
+				tag, s.label)
 			fmt.Fprint(os.Stderr, final+"          \n")
 			return
 
 		case <-ticker.C:
 			frame := string(spinnerFrames[idx%len(spinnerFrames)])
-			tag := fmt.Sprintf("%s[%s%sreview%s%s]%s",
-				Color(Dim), Color(Reset), Color(Cyan), Color(Reset), Color(Dim), Color(Reset))
-			line := fmt.Sprintf("\r%s %s%s%s %s",
-				tag, Color(Cyan), frame, Color(Reset), s.label)
+			tag := fmt.Sprintf("%s[%s%s%s%s%s]%s",
+				Color(Dim), Color(Reset), Color(Cyan), frame, Color(Reset), Color(Dim), Color(Reset))
+			line := fmt.Sprintf("\r%s %s",
+				tag, s.label)
 			fmt.Fprint(os.Stderr, line+"          ")
 			idx++
 		}

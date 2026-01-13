@@ -33,19 +33,26 @@ func NewLogger() *Logger {
 // Log prints a styled log message to stderr.
 func (l *Logger) Log(msg string, style Style) {
 	styleColor := Cyan
+	symbol := "I"
 	switch style {
 	case StyleInfo:
 		styleColor = Cyan
+		symbol = "I"
 	case StyleSuccess:
 		styleColor = Green
+		symbol = "✓"
 	case StyleWarning:
 		styleColor = Yellow
+		symbol = "W"
 	case StyleError:
 		styleColor = Red
+		symbol = "!"
 	case StyleDim:
 		styleColor = Dim
+		symbol = "·"
 	case StylePhase:
 		styleColor = Magenta + Bold
+		symbol = "▸"
 	}
 
 	// Clear line if TTY
@@ -53,8 +60,8 @@ func (l *Logger) Log(msg string, style Style) {
 		fmt.Fprint(os.Stderr, "\r"+strings.Repeat(" ", 100)+"\r")
 	}
 
-	tag := fmt.Sprintf("%s[%s%sreview%s%s]%s",
-		Color(Dim), Color(Reset), Color(styleColor), Color(Reset), Color(Dim), Color(Reset))
+	tag := fmt.Sprintf("%s[%s%s%s%s%s]%s",
+		Color(Dim), Color(Reset), Color(styleColor), symbol, Color(Reset), Color(Dim), Color(Reset))
 	fmt.Fprintf(os.Stderr, "%s %s\n", tag, msg)
 }
 
