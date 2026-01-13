@@ -401,7 +401,7 @@ func TestResolve_EnvOverridesConfig(t *testing.T) {
 
 func TestResolve_ConfigOverridesDefault(t *testing.T) {
 	cfg := &Config{Reviewers: ptr(3)}
-	envState := EnvState{} // no env vars set
+	envState := EnvState{}   // no env vars set
 	flagState := FlagState{} // no flags set
 	flagValues := ResolvedConfig{}
 

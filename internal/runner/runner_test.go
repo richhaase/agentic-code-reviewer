@@ -116,7 +116,7 @@ func TestCollectFindings_FlattensFromAllReviewers(t *testing.T) {
 		},
 		{
 			ReviewerID: 3,
-			Findings: nil, // no findings
+			Findings:   nil, // no findings
 		},
 	}
 

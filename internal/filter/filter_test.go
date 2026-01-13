@@ -61,12 +61,12 @@ func TestNew(t *testing.T) {
 
 func TestFilter_Apply(t *testing.T) {
 	tests := []struct {
-		name           string
-		patterns       []string
-		input          domain.GroupedFindings
-		wantFindings   int
-		wantInfoCount  int
-		wantTitles     []string
+		name          string
+		patterns      []string
+		input         domain.GroupedFindings
+		wantFindings  int
+		wantInfoCount int
+		wantTitles    []string
 	}{
 		{
 			name:     "no patterns - no filtering",
