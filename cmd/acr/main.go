@@ -445,7 +445,7 @@ func confirmAndExecutePRAction(ctx context.Context, action prAction, logger *ter
 
 		reader := bufio.NewReader(os.Stdin)
 		response, _ := reader.ReadString('\n')
-		response = response[:len(response)-1] // Remove newline
+		response = strings.TrimSuffix(response, "\n")
 		confirmed = response == "y" || response == "yes"
 	}
 
