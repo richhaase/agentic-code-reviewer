@@ -1,4 +1,3 @@
-// Package terminal provides terminal output formatting and TTY detection.
 package terminal
 
 import (
