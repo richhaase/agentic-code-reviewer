@@ -96,8 +96,7 @@ Exit codes:
 	rootCmd.MarkFlagsMutuallyExclusive("yes", "no")
 
 	// Filtering options
-	rootCmd.Flags().StringArrayVar(&excludePatterns, "exclude-pattern",
-		getEnvStringSlice("ACR_EXCLUDE_PATTERNS", nil),
+	rootCmd.Flags().StringArrayVar(&excludePatterns, "exclude-pattern", nil,
 		"Exclude findings matching regex pattern (repeatable)")
 	rootCmd.Flags().BoolVar(&noConfig, "no-config", false,
 		"Skip loading .acr.yaml config file")
@@ -542,22 +541,6 @@ func getEnvDuration(key string, defaultVal time.Duration) time.Duration {
 		var secs int
 		if _, err := fmt.Sscanf(v, "%d", &secs); err == nil {
 			return time.Duration(secs) * time.Second
-		}
-	}
-	return defaultVal
-}
-
-func getEnvStringSlice(key string, defaultVal []string) []string {
-	if v := os.Getenv(key); v != "" {
-		parts := strings.Split(v, ",")
-		result := make([]string, 0, len(parts))
-		for _, p := range parts {
-			if trimmed := strings.TrimSpace(p); trimmed != "" {
-				result = append(result, trimmed)
-			}
-		}
-		if len(result) > 0 {
-			return result
 		}
 	}
 	return defaultVal

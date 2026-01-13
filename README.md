@@ -109,7 +109,6 @@ By default, concurrency equals the reviewer count (all run in parallel).
 | `ACR_BASE_REF`         | Default base ref                         |
 | `ACR_TIMEOUT`          | Default timeout (e.g., "5m" or "300")    |
 | `ACR_RETRIES`          | Default retry count                      |
-| `ACR_EXCLUDE_PATTERNS` | Comma-separated list of exclude patterns |
 
 ## Configuration
 
