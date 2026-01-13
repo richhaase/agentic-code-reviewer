@@ -39,6 +39,14 @@ func Load() (*Config, error) {
 	return LoadFromPath(configPath)
 }
 
+// LoadFromDir reads .acr.yaml from the specified directory.
+// Returns an empty config (not error) if the file doesn't exist.
+// Returns an error if the file exists but is invalid YAML or contains invalid regex patterns.
+func LoadFromDir(dir string) (*Config, error) {
+	configPath := filepath.Join(dir, ConfigFileName)
+	return LoadFromPath(configPath)
+}
+
 // LoadFromPath reads a config file from the specified path.
 // Returns an empty config (not error) if the file doesn't exist.
 // Returns an error if the file exists but is invalid YAML or contains invalid regex patterns.

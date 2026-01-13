@@ -163,9 +163,16 @@ func runReview(cmd *cobra.Command, args []string) error {
 	}
 
 	// Load config and merge exclude patterns
+	// When using a worktree, load config from the worktree (branch-specific settings)
 	allExcludePatterns := excludePatterns
 	if !noConfig {
-		cfg, err := config.Load()
+		var cfg *config.Config
+		var err error
+		if workDir != "" {
+			cfg, err = config.LoadFromDir(workDir)
+		} else {
+			cfg, err = config.Load()
+		}
 		if err != nil {
 			logger.Logf(terminal.StyleError, "Config error: %v", err)
 			return exitCode(domain.ExitError)

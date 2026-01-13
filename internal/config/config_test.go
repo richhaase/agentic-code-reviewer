@@ -6,6 +6,43 @@ import (
 	"testing"
 )
 
+func TestLoadFromDir_ValidConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	content := `filters:
+  exclude_patterns:
+    - "test pattern"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadFromDir(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(cfg.Filters.ExcludePatterns) != 1 {
+		t.Fatalf("expected 1 pattern, got %d", len(cfg.Filters.ExcludePatterns))
+	}
+	if cfg.Filters.ExcludePatterns[0] != "test pattern" {
+		t.Errorf("expected 'test pattern', got %q", cfg.Filters.ExcludePatterns[0])
+	}
+}
+
+func TestLoadFromDir_NoConfig(t *testing.T) {
+	dir := t.TempDir()
+
+	cfg, err := LoadFromDir(dir)
+	if err != nil {
+		t.Fatalf("expected no error for missing file, got: %v", err)
+	}
+	if len(cfg.Filters.ExcludePatterns) != 0 {
+		t.Errorf("expected empty patterns, got: %v", cfg.Filters.ExcludePatterns)
+	}
+}
+
 func TestLoadFromPath_FileNotFound(t *testing.T) {
 	cfg, err := LoadFromPath("/nonexistent/path/.acr.yaml")
 	if err != nil {
