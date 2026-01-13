@@ -50,7 +50,56 @@ func (m SelectorModel) Init() tea.Cmd {
 
 // Update implements tea.Model.
 func (m SelectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Placeholder - will be implemented in issue #7
+	if m.state == stateConfirmQuit {
+		return m.updateConfirmQuit(msg)
+	}
+
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+		case "down", "j":
+			if m.cursor < len(m.findings)-1 {
+				m.cursor++
+			}
+		case " ":
+			m.selected[m.cursor] = !m.selected[m.cursor]
+		case "e":
+			m.expanded[m.cursor] = !m.expanded[m.cursor]
+		case "a":
+			for i := range m.findings {
+				m.selected[i] = true
+			}
+		case "n":
+			for i := range m.findings {
+				m.selected[i] = false
+			}
+		case "enter":
+			m.confirmed = true
+			return m, tea.Quit
+		case "q", "esc":
+			m.state = stateConfirmQuit
+		}
+	}
+	return m, nil
+}
+
+// updateConfirmQuit handles input in the quit confirmation state.
+func (m SelectorModel) updateConfirmQuit(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "y", "Y":
+			m.quitted = true
+			return m, tea.Quit
+		default:
+			// Any other key returns to normal state
+			m.state = stateNormal
+		}
+	}
 	return m, nil
 }
 
