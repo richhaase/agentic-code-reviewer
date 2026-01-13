@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gh issue list:*)"
+      "Bash(gh issue list:*)",
+      "Bash(gh issue create:*)",
+      "Bash(just check:*)",
+      "Bash(just fmt:*)",
+      "Bash(just lint:*)",
+      "Bash(just vet:*)",
+      "Bash(just test:*)"
     ]
   }
 }
