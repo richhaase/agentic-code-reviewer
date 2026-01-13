@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/anthropics/agentic-code-reviewer/internal/config"
 	"github.com/anthropics/agentic-code-reviewer/internal/domain"
 	"github.com/anthropics/agentic-code-reviewer/internal/filter"
 	"github.com/anthropics/agentic-code-reviewer/internal/git"
@@ -42,6 +43,7 @@ var (
 	autoYes         bool
 	autoNo          bool
 	excludePatterns []string
+	noConfig        bool
 )
 
 func main() {
@@ -94,6 +96,8 @@ Exit codes:
 	rootCmd.Flags().StringArrayVar(&excludePatterns, "exclude-pattern",
 		getEnvStringSlice("REVIEW_EXCLUDE_PATTERNS", nil),
 		"Exclude findings matching regex pattern (repeatable)")
+	rootCmd.Flags().BoolVar(&noConfig, "no-config", false,
+		"Skip loading .acr.yaml config file")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -158,12 +162,30 @@ func runReview(cmd *cobra.Command, args []string) error {
 		workDir = wt.Path
 	}
 
+	// Load config and merge exclude patterns
+	// When using a worktree, load config from the worktree (branch-specific settings)
+	allExcludePatterns := excludePatterns
+	if !noConfig {
+		var cfg *config.Config
+		var err error
+		if workDir != "" {
+			cfg, err = config.LoadFromDir(workDir)
+		} else {
+			cfg, err = config.Load()
+		}
+		if err != nil {
+			logger.Logf(terminal.StyleError, "Config error: %v", err)
+			return exitCode(domain.ExitError)
+		}
+		allExcludePatterns = config.Merge(cfg, excludePatterns)
+	}
+
 	// Run the review
-	code := executeReview(ctx, workDir, logger)
+	code := executeReview(ctx, workDir, allExcludePatterns, logger)
 	return exitCode(code)
 }
 
-func executeReview(ctx context.Context, workDir string, logger *terminal.Logger) domain.ExitCode {
+func executeReview(ctx context.Context, workDir string, excludePatterns []string, logger *terminal.Logger) domain.ExitCode {
 	logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, base=%s)%s",
 		terminal.Color(terminal.Dim), reviewers, baseRef, terminal.Color(terminal.Reset))
 
