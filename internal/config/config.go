@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -15,9 +17,47 @@ import (
 // ConfigFileName is the name of the config file.
 const ConfigFileName = ".acr.yaml"
 
+// Duration is a custom type that handles YAML duration parsing.
+// Supports both Go duration format ("5m", "300s") and numeric seconds.
+type Duration time.Duration
+
+// UnmarshalYAML implements the yaml.Unmarshaler interface.
+func (d *Duration) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var raw interface{}
+	if err := unmarshal(&raw); err != nil {
+		return err
+	}
+
+	switch v := raw.(type) {
+	case string:
+		parsed, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid duration %q: %w", v, err)
+		}
+		*d = Duration(parsed)
+	case int:
+		*d = Duration(time.Duration(v) * time.Second)
+	case float64:
+		*d = Duration(time.Duration(v) * time.Second)
+	default:
+		return fmt.Errorf("invalid duration type: %T", v)
+	}
+	return nil
+}
+
+// Duration returns the underlying time.Duration.
+func (d Duration) AsDuration() time.Duration {
+	return time.Duration(d)
+}
+
 // Config represents the acr configuration file.
 type Config struct {
-	Filters FilterConfig `yaml:"filters"`
+	Reviewers   *int         `yaml:"reviewers"`
+	Concurrency *int         `yaml:"concurrency"`
+	Base        *string      `yaml:"base"`
+	Timeout     *Duration    `yaml:"timeout"`
+	Retries     *int         `yaml:"retries"`
+	Filters     FilterConfig `yaml:"filters"`
 }
 
 // FilterConfig holds filter-related configuration.
@@ -69,6 +109,11 @@ func LoadFromPath(path string) (*Config, error) {
 		return nil, err
 	}
 
+	// Validate config values
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("%s: %w", ConfigFileName, err)
+	}
+
 	return &cfg, nil
 }
 
@@ -89,4 +134,162 @@ func Merge(cfg *Config, cliPatterns []string) []string {
 		return cliPatterns
 	}
 	return append(cfg.Filters.ExcludePatterns, cliPatterns...)
+}
+
+// Validate checks that all config values are valid.
+func (c *Config) Validate() error {
+	if c.Reviewers != nil && *c.Reviewers < 1 {
+		return fmt.Errorf("reviewers must be >= 1, got %d", *c.Reviewers)
+	}
+	if c.Concurrency != nil && *c.Concurrency < 0 {
+		return fmt.Errorf("concurrency must be >= 0, got %d", *c.Concurrency)
+	}
+	if c.Retries != nil && *c.Retries < 0 {
+		return fmt.Errorf("retries must be >= 0, got %d", *c.Retries)
+	}
+	if c.Timeout != nil && *c.Timeout <= 0 {
+		return fmt.Errorf("timeout must be > 0, got %s", time.Duration(*c.Timeout))
+	}
+	return nil
+}
+
+// Defaults holds the built-in default values.
+var Defaults = ResolvedConfig{
+	Reviewers:   5,
+	Concurrency: 0, // means "same as reviewers"
+	Base:        "main",
+	Timeout:     5 * time.Minute,
+	Retries:     1,
+}
+
+// ResolvedConfig holds the final resolved configuration values.
+type ResolvedConfig struct {
+	Reviewers   int
+	Concurrency int
+	Base        string
+	Timeout     time.Duration
+	Retries     int
+}
+
+// FlagState tracks whether a flag was explicitly set.
+type FlagState struct {
+	ReviewersSet   bool
+	ConcurrencySet bool
+	BaseSet        bool
+	TimeoutSet     bool
+	RetriesSet     bool
+}
+
+// EnvState captures env var values and whether they were set.
+type EnvState struct {
+	Reviewers      int
+	ReviewersSet   bool
+	Concurrency    int
+	ConcurrencySet bool
+	Base           string
+	BaseSet        bool
+	Timeout        time.Duration
+	TimeoutSet     bool
+	Retries        int
+	RetriesSet     bool
+}
+
+// LoadEnvState reads environment variables and returns their state.
+func LoadEnvState() EnvState {
+	var state EnvState
+
+	if v := os.Getenv("ACR_REVIEWERS"); v != "" {
+		if i, err := strconv.Atoi(v); err == nil {
+			state.Reviewers = i
+			state.ReviewersSet = true
+		}
+	}
+	if v := os.Getenv("ACR_CONCURRENCY"); v != "" {
+		if i, err := strconv.Atoi(v); err == nil {
+			state.Concurrency = i
+			state.ConcurrencySet = true
+		}
+	}
+	if v := os.Getenv("ACR_BASE_REF"); v != "" {
+		state.Base = v
+		state.BaseSet = true
+	}
+	if v := os.Getenv("ACR_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			state.Timeout = d
+			state.TimeoutSet = true
+		} else if secs, err := strconv.Atoi(v); err == nil {
+			state.Timeout = time.Duration(secs) * time.Second
+			state.TimeoutSet = true
+		}
+	}
+	if v := os.Getenv("ACR_RETRIES"); v != "" {
+		if i, err := strconv.Atoi(v); err == nil {
+			state.Retries = i
+			state.RetriesSet = true
+		}
+	}
+
+	return state
+}
+
+// Resolve merges config file values with env vars and flags.
+// Precedence: flags > env vars > config file > defaults
+func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues ResolvedConfig) ResolvedConfig {
+	result := Defaults
+
+	// Apply config file values (if set)
+	if cfg != nil {
+		if cfg.Reviewers != nil {
+			result.Reviewers = *cfg.Reviewers
+		}
+		if cfg.Concurrency != nil {
+			result.Concurrency = *cfg.Concurrency
+		}
+		if cfg.Base != nil {
+			result.Base = *cfg.Base
+		}
+		if cfg.Timeout != nil {
+			result.Timeout = cfg.Timeout.AsDuration()
+		}
+		if cfg.Retries != nil {
+			result.Retries = *cfg.Retries
+		}
+	}
+
+	// Apply env var values (if set)
+	if envState.ReviewersSet {
+		result.Reviewers = envState.Reviewers
+	}
+	if envState.ConcurrencySet {
+		result.Concurrency = envState.Concurrency
+	}
+	if envState.BaseSet {
+		result.Base = envState.Base
+	}
+	if envState.TimeoutSet {
+		result.Timeout = envState.Timeout
+	}
+	if envState.RetriesSet {
+		result.Retries = envState.Retries
+	}
+
+	// Apply flag values (if explicitly set)
+	if flagState.ReviewersSet {
+		result.Reviewers = flagValues.Reviewers
+	}
+	if flagState.ConcurrencySet {
+		result.Concurrency = flagValues.Concurrency
+	}
+	if flagState.BaseSet {
+		result.Base = flagValues.Base
+	}
+	if flagState.TimeoutSet {
+		result.Timeout = flagValues.Timeout
+	}
+	if flagState.RetriesSet {
+		result.Retries = flagValues.Retries
+	}
+
+	return result
 }

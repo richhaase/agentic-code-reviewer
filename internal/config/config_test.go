@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestLoadFromDir_ValidConfig(t *testing.T) {
@@ -224,4 +227,290 @@ func TestMerge_BothEmpty(t *testing.T) {
 	if len(result) != 0 {
 		t.Errorf("expected empty result, got: %v", result)
 	}
+}
+
+// Tests for expanded config schema
+
+func TestLoadFromPath_FullConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	content := `reviewers: 10
+concurrency: 5
+base: develop
+timeout: 10m
+retries: 3
+filters:
+  exclude_patterns:
+    - "test"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadFromPath(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Reviewers == nil || *cfg.Reviewers != 10 {
+		t.Errorf("expected reviewers=10, got %v", cfg.Reviewers)
+	}
+	if cfg.Concurrency == nil || *cfg.Concurrency != 5 {
+		t.Errorf("expected concurrency=5, got %v", cfg.Concurrency)
+	}
+	if cfg.Base == nil || *cfg.Base != "develop" {
+		t.Errorf("expected base=develop, got %v", cfg.Base)
+	}
+	if cfg.Timeout == nil || cfg.Timeout.AsDuration() != 10*time.Minute {
+		t.Errorf("expected timeout=10m, got %v", cfg.Timeout)
+	}
+	if cfg.Retries == nil || *cfg.Retries != 3 {
+		t.Errorf("expected retries=3, got %v", cfg.Retries)
+	}
+	if len(cfg.Filters.ExcludePatterns) != 1 || cfg.Filters.ExcludePatterns[0] != "test" {
+		t.Errorf("expected exclude_patterns=[test], got %v", cfg.Filters.ExcludePatterns)
+	}
+}
+
+func TestLoadFromPath_PartialConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	content := `reviewers: 3
+base: feature-branch
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadFromPath(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.Reviewers == nil || *cfg.Reviewers != 3 {
+		t.Errorf("expected reviewers=3, got %v", cfg.Reviewers)
+	}
+	if cfg.Concurrency != nil {
+		t.Errorf("expected concurrency=nil, got %v", cfg.Concurrency)
+	}
+	if cfg.Base == nil || *cfg.Base != "feature-branch" {
+		t.Errorf("expected base=feature-branch, got %v", cfg.Base)
+	}
+	if cfg.Timeout != nil {
+		t.Errorf("expected timeout=nil, got %v", cfg.Timeout)
+	}
+	if cfg.Retries != nil {
+		t.Errorf("expected retries=nil, got %v", cfg.Retries)
+	}
+}
+
+func TestDuration_UnmarshalYAML(t *testing.T) {
+	tests := []struct {
+		name     string
+		yaml     string
+		expected time.Duration
+		wantErr  bool
+	}{
+		{"duration string 5m", "timeout: 5m", 5 * time.Minute, false},
+		{"duration string 300s", "timeout: 300s", 5 * time.Minute, false},
+		{"duration string 1h30m", "timeout: 1h30m", 90 * time.Minute, false},
+		{"integer seconds", "timeout: 300", 5 * time.Minute, false},
+		{"invalid string", "timeout: invalid", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var cfg struct {
+				Timeout *Duration `yaml:"timeout"`
+			}
+			err := yaml.Unmarshal([]byte(tt.yaml), &cfg)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if cfg.Timeout == nil {
+				t.Fatal("expected timeout to be set")
+			}
+			if cfg.Timeout.AsDuration() != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, cfg.Timeout.AsDuration())
+			}
+		})
+	}
+}
+
+func TestValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     Config
+		wantErr bool
+	}{
+		{"valid config", Config{Reviewers: ptr(5), Retries: ptr(2)}, false},
+		{"reviewers zero", Config{Reviewers: ptr(0)}, true},
+		{"reviewers negative", Config{Reviewers: ptr(-1)}, true},
+		{"concurrency negative", Config{Concurrency: ptr(-1)}, true},
+		{"concurrency zero valid", Config{Concurrency: ptr(0)}, false},
+		{"retries negative", Config{Retries: ptr(-1)}, true},
+		{"retries zero valid", Config{Retries: ptr(0)}, false},
+		{"timeout negative", Config{Timeout: durationPtr(-time.Second)}, true},
+		{"timeout zero", Config{Timeout: durationPtr(0)}, true},
+		{"all nil valid", Config{}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestResolve_FlagOverridesAll(t *testing.T) {
+	cfg := &Config{Reviewers: ptr(3)}
+	envState := EnvState{Reviewers: 5, ReviewersSet: true}
+	flagState := FlagState{ReviewersSet: true}
+	flagValues := ResolvedConfig{Reviewers: 10}
+
+	result := Resolve(cfg, envState, flagState, flagValues)
+
+	if result.Reviewers != 10 {
+		t.Errorf("expected flag value 10, got %d", result.Reviewers)
+	}
+}
+
+func TestResolve_EnvOverridesConfig(t *testing.T) {
+	cfg := &Config{Reviewers: ptr(3)}
+	envState := EnvState{Reviewers: 5, ReviewersSet: true}
+	flagState := FlagState{} // no flags set
+	flagValues := ResolvedConfig{}
+
+	result := Resolve(cfg, envState, flagState, flagValues)
+
+	if result.Reviewers != 5 {
+		t.Errorf("expected env value 5, got %d", result.Reviewers)
+	}
+}
+
+func TestResolve_ConfigOverridesDefault(t *testing.T) {
+	cfg := &Config{Reviewers: ptr(3)}
+	envState := EnvState{} // no env vars set
+	flagState := FlagState{} // no flags set
+	flagValues := ResolvedConfig{}
+
+	result := Resolve(cfg, envState, flagState, flagValues)
+
+	if result.Reviewers != 3 {
+		t.Errorf("expected config value 3, got %d", result.Reviewers)
+	}
+}
+
+func TestResolve_DefaultsUsedWhenNothingSet(t *testing.T) {
+	cfg := &Config{} // empty config
+	envState := EnvState{}
+	flagState := FlagState{}
+	flagValues := ResolvedConfig{}
+
+	result := Resolve(cfg, envState, flagState, flagValues)
+
+	if result.Reviewers != Defaults.Reviewers {
+		t.Errorf("expected default reviewers %d, got %d", Defaults.Reviewers, result.Reviewers)
+	}
+	if result.Base != Defaults.Base {
+		t.Errorf("expected default base %q, got %q", Defaults.Base, result.Base)
+	}
+	if result.Timeout != Defaults.Timeout {
+		t.Errorf("expected default timeout %v, got %v", Defaults.Timeout, result.Timeout)
+	}
+	if result.Retries != Defaults.Retries {
+		t.Errorf("expected default retries %d, got %d", Defaults.Retries, result.Retries)
+	}
+}
+
+func TestResolve_NilConfig(t *testing.T) {
+	result := Resolve(nil, EnvState{}, FlagState{}, ResolvedConfig{})
+
+	if result.Reviewers != Defaults.Reviewers {
+		t.Errorf("expected default reviewers %d, got %d", Defaults.Reviewers, result.Reviewers)
+	}
+}
+
+func TestResolve_MixedSources(t *testing.T) {
+	// reviewers from config, base from env, timeout from flag
+	cfg := &Config{
+		Reviewers: ptr(3),
+		Base:      strPtr("config-base"),
+		Timeout:   durationPtr(1 * time.Minute),
+	}
+	envState := EnvState{
+		Base:    "env-base",
+		BaseSet: true,
+	}
+	flagState := FlagState{
+		TimeoutSet: true,
+	}
+	flagValues := ResolvedConfig{
+		Timeout: 10 * time.Minute,
+	}
+
+	result := Resolve(cfg, envState, flagState, flagValues)
+
+	if result.Reviewers != 3 {
+		t.Errorf("expected config reviewers 3, got %d", result.Reviewers)
+	}
+	if result.Base != "env-base" {
+		t.Errorf("expected env base 'env-base', got %q", result.Base)
+	}
+	if result.Timeout != 10*time.Minute {
+		t.Errorf("expected flag timeout 10m, got %v", result.Timeout)
+	}
+}
+
+func TestLoadFromPath_InvalidReviewers(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	content := `reviewers: 0
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadFromPath(configPath)
+	if err == nil {
+		t.Fatal("expected error for reviewers=0")
+	}
+}
+
+func TestLoadFromPath_InvalidTimeout(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	content := `timeout: -5m
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadFromPath(configPath)
+	if err == nil {
+		t.Fatal("expected error for negative timeout")
+	}
+}
+
+// Helper functions
+func ptr(i int) *int { return &i }
+
+func strPtr(s string) *string { return &s }
+
+func durationPtr(d time.Duration) *Duration {
+	dur := Duration(d)
+	return &dur
 }

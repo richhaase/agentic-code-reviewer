@@ -70,17 +70,17 @@ Exit codes:
 
 	rootCmd.SetVersionTemplate("{{.Version}}\n")
 
-	// Configuration flags
-	rootCmd.Flags().IntVarP(&reviewers, "reviewers", "r", getEnvInt("ACR_REVIEWERS", 5),
-		"Number of parallel reviewers to run")
-	rootCmd.Flags().IntVarP(&concurrency, "concurrency", "c", getEnvInt("ACR_CONCURRENCY", 0),
-		"Max concurrent reviewers (default: same as --reviewers)")
-	rootCmd.Flags().StringVarP(&baseRef, "base", "b", getEnvStr("ACR_BASE_REF", "main"),
-		"Base ref for review command")
-	rootCmd.Flags().DurationVarP(&timeout, "timeout", "t", getEnvDuration("ACR_TIMEOUT", 5*time.Minute),
-		"Timeout per reviewer (e.g., 5m, 300s)")
-	rootCmd.Flags().IntVarP(&retries, "retries", "R", getEnvInt("ACR_RETRIES", 1),
-		"Retry failed reviewers N times")
+	// Configuration flags (defaults are resolved via config.Resolve with precedence: flag > env > config > default)
+	rootCmd.Flags().IntVarP(&reviewers, "reviewers", "r", 0,
+		"Number of parallel reviewers (default: 5, env: ACR_REVIEWERS)")
+	rootCmd.Flags().IntVarP(&concurrency, "concurrency", "c", 0,
+		"Max concurrent reviewers (default: same as --reviewers, env: ACR_CONCURRENCY)")
+	rootCmd.Flags().StringVarP(&baseRef, "base", "b", "",
+		"Base ref for review command (default: main, env: ACR_BASE_REF)")
+	rootCmd.Flags().DurationVarP(&timeout, "timeout", "t", 0,
+		"Timeout per reviewer (default: 5m, env: ACR_TIMEOUT)")
+	rootCmd.Flags().IntVarP(&retries, "retries", "R", 0,
+		"Retry failed reviewers N times (default: 1, env: ACR_RETRIES)")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false,
 		"Print agent messages as they arrive")
 	rootCmd.Flags().BoolVarP(&local, "local", "l", false,
@@ -116,20 +116,6 @@ func runReview(cmd *cobra.Command, args []string) error {
 	}
 
 	logger := terminal.NewLogger()
-
-	// Validate inputs
-	if reviewers < 1 {
-		logger.Log("--reviewers must be >= 1", terminal.StyleError)
-		return exitCode(domain.ExitError)
-	}
-
-	// Default concurrency to reviewers if not specified
-	if concurrency <= 0 {
-		concurrency = reviewers
-	}
-	if concurrency > reviewers {
-		concurrency = reviewers
-	}
 
 	// Check dependencies
 	if _, err := exec.LookPath("codex"); err != nil {
@@ -172,11 +158,10 @@ func runReview(cmd *cobra.Command, args []string) error {
 		workDir = wt.Path
 	}
 
-	// Load config and merge exclude patterns
+	// Load config file (unless --no-config)
 	// When using a worktree, load config from the worktree (branch-specific settings)
-	allExcludePatterns := excludePatterns
+	var cfg *config.Config
 	if !noConfig {
-		var cfg *config.Config
 		var err error
 		if workDir != "" {
 			cfg, err = config.LoadFromDir(workDir)
@@ -187,8 +172,55 @@ func runReview(cmd *cobra.Command, args []string) error {
 			logger.Logf(terminal.StyleError, "Config error: %v", err)
 			return exitCode(domain.ExitError)
 		}
-		allExcludePatterns = config.Merge(cfg, excludePatterns)
 	}
+
+	// Build flag state from cobra's Changed() method
+	flagState := config.FlagState{
+		ReviewersSet:   cmd.Flags().Changed("reviewers"),
+		ConcurrencySet: cmd.Flags().Changed("concurrency"),
+		BaseSet:        cmd.Flags().Changed("base"),
+		TimeoutSet:     cmd.Flags().Changed("timeout"),
+		RetriesSet:     cmd.Flags().Changed("retries"),
+	}
+
+	// Load env var state
+	envState := config.LoadEnvState()
+
+	// Build flag values struct
+	flagValues := config.ResolvedConfig{
+		Reviewers:   reviewers,
+		Concurrency: concurrency,
+		Base:        baseRef,
+		Timeout:     timeout,
+		Retries:     retries,
+	}
+
+	// Resolve final configuration (precedence: flags > env vars > config file > defaults)
+	resolved := config.Resolve(cfg, envState, flagState, flagValues)
+
+	// Apply resolved values
+	reviewers = resolved.Reviewers
+	concurrency = resolved.Concurrency
+	baseRef = resolved.Base
+	timeout = resolved.Timeout
+	retries = resolved.Retries
+
+	// Validate resolved config
+	if reviewers < 1 {
+		logger.Log("reviewers must be >= 1", terminal.StyleError)
+		return exitCode(domain.ExitError)
+	}
+
+	// Default concurrency to reviewers if not specified (0 means same as reviewers)
+	if concurrency <= 0 {
+		concurrency = reviewers
+	}
+	if concurrency > reviewers {
+		concurrency = reviewers
+	}
+
+	// Merge exclude patterns (config patterns + CLI patterns)
+	allExcludePatterns := config.Merge(cfg, excludePatterns)
 
 	// Run the review
 	code := executeReview(ctx, workDir, allExcludePatterns, logger)
@@ -510,42 +542,6 @@ func exitCode(code domain.ExitCode) error {
 		return nil
 	}
 	return exitCodeError{code: code}
-}
-
-// Helper functions for environment variables
-
-func getEnvStr(key, defaultVal string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return defaultVal
-}
-
-func getEnvInt(key string, defaultVal int) int {
-	if v := os.Getenv(key); v != "" {
-		var i int
-		if _, err := fmt.Sscanf(v, "%d", &i); err == nil {
-			return i
-		}
-		terminal.Logf(terminal.StyleWarning, "invalid value for %s (%q), using default (%d)", key, v, defaultVal)
-	}
-	return defaultVal
-}
-
-func getEnvDuration(key string, defaultVal time.Duration) time.Duration {
-	if v := os.Getenv(key); v != "" {
-		// Try parsing as duration first
-		if d, err := time.ParseDuration(v); err == nil {
-			return d
-		}
-		// Fall back to parsing as seconds (integer)
-		var secs int
-		if _, err := fmt.Sscanf(v, "%d", &secs); err == nil {
-			return time.Duration(secs) * time.Second
-		}
-		terminal.Logf(terminal.StyleWarning, "invalid value for %s (%q), using default (%s)", key, v, defaultVal)
-	}
-	return defaultVal
 }
 
 // buildVersionString formats version information for display.
