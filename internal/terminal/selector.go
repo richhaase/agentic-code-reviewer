@@ -260,3 +260,33 @@ func (m SelectorModel) Confirmed() bool {
 func (m SelectorModel) Quitted() bool {
 	return m.quitted
 }
+
+// RunSelector runs the interactive finding selector.
+// Returns:
+//   - selectedIndices: indices of findings the user selected
+//   - canceled: true if user quit without confirming
+//   - err: any error from the TUI program
+func RunSelector(findings []domain.FindingGroup) (selectedIndices []int, canceled bool, err error) {
+	if len(findings) == 0 {
+		return nil, false, nil
+	}
+
+	model := NewSelector(findings)
+	p := tea.NewProgram(model)
+
+	finalModel, err := p.Run()
+	if err != nil {
+		return nil, false, err
+	}
+
+	m, ok := finalModel.(SelectorModel)
+	if !ok {
+		return nil, false, fmt.Errorf("unexpected model type")
+	}
+
+	if m.Quitted() {
+		return nil, true, nil
+	}
+
+	return m.SelectedIndices(), false, nil
+}
