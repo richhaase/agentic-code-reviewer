@@ -44,7 +44,6 @@ var (
 	autoNo          bool
 	excludePatterns []string
 	noConfig        bool
-	interactive     bool
 )
 
 func main() {
@@ -99,10 +98,6 @@ Exit codes:
 		"Exclude findings matching regex pattern (repeatable)")
 	rootCmd.Flags().BoolVar(&noConfig, "no-config", false,
 		"Skip loading .acr.yaml config file")
-
-	// Interactive selection
-	rootCmd.Flags().BoolVarP(&interactive, "interactive", "i", false,
-		"Enable interactive finding selection (requires TTY)")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -350,12 +345,8 @@ func handleLGTM(ctx context.Context, allFindings []domain.Finding, stats domain.
 func handleFindings(ctx context.Context, grouped domain.GroupedFindings, aggregated []domain.AggregatedFinding, stats domain.ReviewStats, logger *terminal.Logger) domain.ExitCode {
 	selectedFindings := grouped.Findings
 
-	// Interactive selection if enabled
-	if interactive {
-		if !terminal.IsStdoutTTY() {
-			logger.Log("--interactive requires a TTY", terminal.StyleError)
-			return domain.ExitError
-		}
+	// Interactive selection when in TTY and not auto-submitting
+	if !autoYes && !autoNo && terminal.IsStdoutTTY() {
 		indices, canceled, err := terminal.RunSelector(grouped.Findings)
 		if err != nil {
 			logger.Logf(terminal.StyleError, "Selector error: %v", err)
