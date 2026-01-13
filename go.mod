@@ -3,6 +3,7 @@ module github.com/anthropics/agentic-code-reviewer
 go 1.24.0
 
 require (
+	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/golangci/golangci-lint/v2 v2.8.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/term v0.38.0
@@ -50,7 +51,6 @@ require (
 	github.com/ccojocar/zxcvbn-go v1.0.4 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charithe/durationcheck v0.0.11 // indirect
-	github.com/charmbracelet/bubbletea v1.3.10 // indirect
 	github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc // indirect
 	github.com/charmbracelet/lipgloss v1.1.0 // indirect
 	github.com/charmbracelet/x/ansi v0.10.1 // indirect
