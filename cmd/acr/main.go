@@ -34,6 +34,7 @@ var (
 
 var (
 	reviewers       int
+	concurrency     int
 	baseRef         string
 	timeout         time.Duration
 	retries         int
@@ -72,6 +73,8 @@ Exit codes:
 	// Configuration flags
 	rootCmd.Flags().IntVarP(&reviewers, "reviewers", "r", getEnvInt("REVIEW_REVIEWERS", getEnvInt("REVIEW_WORKERS", 5)),
 		"Number of parallel reviewers to run")
+	rootCmd.Flags().IntVarP(&concurrency, "concurrency", "c", getEnvInt("REVIEW_CONCURRENCY", 0),
+		"Max concurrent reviewers (default: same as --reviewers)")
 	rootCmd.Flags().StringVarP(&baseRef, "base", "b", getEnvStr("REVIEW_BASE_REF", "main"),
 		"Base ref for review command")
 	rootCmd.Flags().DurationVarP(&timeout, "timeout", "t", getEnvDuration("REVIEW_TIMEOUT", 5*time.Minute),
@@ -119,6 +122,14 @@ func runReview(cmd *cobra.Command, args []string) error {
 	if reviewers < 1 {
 		logger.Log("--reviewers must be >= 1", terminal.StyleError)
 		return exitCode(domain.ExitError)
+	}
+
+	// Default concurrency to reviewers if not specified
+	if concurrency <= 0 {
+		concurrency = reviewers
+	}
+	if concurrency > reviewers {
+		concurrency = reviewers
 	}
 
 	// Check dependencies
@@ -186,8 +197,13 @@ func runReview(cmd *cobra.Command, args []string) error {
 }
 
 func executeReview(ctx context.Context, workDir string, excludePatterns []string, logger *terminal.Logger) domain.ExitCode {
-	logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, base=%s)%s",
-		terminal.Color(terminal.Dim), reviewers, baseRef, terminal.Color(terminal.Reset))
+	if concurrency < reviewers {
+		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, %d concurrent, base=%s)%s",
+			terminal.Color(terminal.Dim), reviewers, concurrency, baseRef, terminal.Color(terminal.Reset))
+	} else {
+		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, base=%s)%s",
+			terminal.Color(terminal.Dim), reviewers, baseRef, terminal.Color(terminal.Reset))
+	}
 
 	if verbose {
 		logger.Logf(terminal.StyleDim, "%sCommand: codex exec --json --color never review --base %s%s",
@@ -196,12 +212,13 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 
 	// Run reviewers
 	r := runner.New(runner.Config{
-		Reviewers: reviewers,
-		BaseRef:   baseRef,
-		Timeout:   timeout,
-		Retries:   retries,
-		Verbose:   verbose,
-		WorkDir:   workDir,
+		Reviewers:   reviewers,
+		Concurrency: concurrency,
+		BaseRef:     baseRef,
+		Timeout:     timeout,
+		Retries:     retries,
+		Verbose:     verbose,
+		WorkDir:     workDir,
 	}, logger)
 
 	results, wallClock, err := r.Run(ctx)

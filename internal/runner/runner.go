@@ -16,12 +16,13 @@ import (
 
 // Config holds the runner configuration.
 type Config struct {
-	Reviewers int
-	BaseRef   string
-	Timeout   time.Duration
-	Retries   int
-	Verbose   bool
-	WorkDir   string
+	Reviewers   int
+	Concurrency int
+	BaseRef     string
+	Timeout     time.Duration
+	Retries     int
+	Verbose     bool
+	WorkDir     string
 }
 
 // Runner executes parallel code reviews.
@@ -57,10 +58,34 @@ func (r *Runner) Run(ctx context.Context) ([]domain.ReviewerResult, time.Duratio
 	// Create result channel
 	resultCh := make(chan domain.ReviewerResult, r.config.Reviewers)
 
+	// Determine concurrency limit (default to reviewers if not set)
+	concurrency := r.config.Concurrency
+	if concurrency <= 0 {
+		concurrency = r.config.Reviewers
+	}
+
+	// Create semaphore to limit concurrent reviewers
+	sem := make(chan struct{}, concurrency)
+
 	// Launch reviewers
 	for i := 1; i <= r.config.Reviewers; i++ {
 		go func(id int) {
+			// Acquire semaphore
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				resultCh <- domain.ReviewerResult{
+					ReviewerID: id,
+					ExitCode:   -1,
+				}
+				return
+			}
+
 			result := r.runReviewerWithRetry(ctx, id)
+
+			// Release semaphore
+			<-sem
+
 			r.completed.Add(1)
 			resultCh <- result
 		}(i)
