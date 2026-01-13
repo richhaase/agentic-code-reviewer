@@ -71,17 +71,19 @@ acr --verbose
 
 ### Options
 
-| Flag                | Short | Default | Description                        |
-| ------------------- | ----- | ------- | ---------------------------------- |
-| `--reviewers`       | `-r`  | 5       | Number of parallel reviewers       |
-| `--base`            | `-b`  | main    | Base ref for diff comparison       |
-| `--timeout`         | `-t`  | 5m      | Timeout per reviewer               |
-| `--retries`         | `-R`  | 1       | Retry failed reviewers N times     |
-| `--verbose`         | `-v`  | false   | Print agent messages in real-time  |
-| `--local`           | `-l`  | false   | Skip posting to GitHub PR          |
-| `--worktree-branch` | `-B`  |         | Review a branch in a temp worktree |
-| `--yes`             | `-y`  | false   | Auto-submit without prompting      |
-| `--no`              | `-n`  | false   | Skip submitting review             |
+| Flag                | Short | Default | Description                              |
+| ------------------- | ----- | ------- | ---------------------------------------- |
+| `--reviewers`       | `-r`  | 5       | Number of parallel reviewers             |
+| `--base`            | `-b`  | main    | Base ref for diff comparison             |
+| `--timeout`         | `-t`  | 5m      | Timeout per reviewer                     |
+| `--retries`         | `-R`  | 1       | Retry failed reviewers N times           |
+| `--verbose`         | `-v`  | false   | Print agent messages in real-time        |
+| `--local`           | `-l`  | false   | Skip posting to GitHub PR                |
+| `--worktree-branch` | `-B`  |         | Review a branch in a temp worktree       |
+| `--yes`             | `-y`  | false   | Auto-submit without prompting            |
+| `--no`              | `-n`  | false   | Skip submitting review                   |
+| `--exclude-pattern` |       |         | Exclude findings matching regex (repeat) |
+| `--no-config`       |       | false   | Skip loading .acr.yaml config file       |
 
 ### Environment Variables
 
@@ -89,6 +91,27 @@ acr --verbose
 - `REVIEW_BASE_REF` - Default base ref
 - `REVIEW_TIMEOUT` - Default timeout (e.g., "5m" or "300")
 - `REVIEW_RETRIES` - Default retry count
+- `REVIEW_EXCLUDE_PATTERNS` - Comma-separated list of exclude patterns
+
+## Configuration
+
+Create `.acr.yaml` in your repository root to configure persistent settings:
+
+```yaml
+filters:
+  exclude_patterns:
+    - "Next\\.js forbids"      # Regex patterns to exclude
+    - "deprecated API"
+    - "consider using"
+```
+
+### Behavior
+
+- Config file is loaded from the git repository root
+- Missing config file is not an error (empty defaults used)
+- Invalid YAML or regex patterns produce an error
+- CLI `--exclude-pattern` flags are merged with config patterns (union)
+- Use `--no-config` to skip loading the config file for a single run
 
 ## Exit Codes
 
