@@ -24,7 +24,9 @@ func (w *Worktree) Remove() error {
 	}
 	cmd := exec.Command("git", "worktree", "remove", "--force", w.Path) //nolint:gosec // w.Path is controlled internally
 	cmd.Dir = w.repoRoot
-	_ = cmd.Run() // Best effort cleanup
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to remove worktree %s: %w", w.Path, err)
+	}
 	return nil
 }
 
