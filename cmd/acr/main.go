@@ -527,6 +527,7 @@ func getEnvInt(key string, defaultVal int) int {
 		if _, err := fmt.Sscanf(v, "%d", &i); err == nil {
 			return i
 		}
+		terminal.Logf(terminal.StyleWarning, "invalid value for %s (%q), using default (%d)", key, v, defaultVal)
 	}
 	return defaultVal
 }
@@ -542,6 +543,7 @@ func getEnvDuration(key string, defaultVal time.Duration) time.Duration {
 		if _, err := fmt.Sscanf(v, "%d", &secs); err == nil {
 			return time.Duration(secs) * time.Second
 		}
+		terminal.Logf(terminal.StyleWarning, "invalid value for %s (%q), using default (%s)", key, v, defaultVal)
 	}
 	return defaultVal
 }
