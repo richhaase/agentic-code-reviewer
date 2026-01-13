@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"os/exec"
 	"sync/atomic"
 	"syscall"
@@ -231,7 +232,8 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	}
 
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			result.ExitCode = exitErr.ExitCode()
 		} else {
 			result.ExitCode = -1

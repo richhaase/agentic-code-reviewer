@@ -4,6 +4,7 @@ package github
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -76,7 +77,8 @@ func CheckCIStatus(prNumber string) CIStatus {
 	out, err := cmd.Output()
 	if err != nil {
 		var stderr bytes.Buffer
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			stderr.Write(exitErr.Stderr)
 		}
 		errMsg := strings.TrimSpace(stderr.String())
