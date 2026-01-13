@@ -44,6 +44,7 @@ var (
 	autoNo          bool
 	excludePatterns []string
 	noConfig        bool
+	interactive     bool
 )
 
 func main() {
@@ -98,6 +99,10 @@ Exit codes:
 		"Exclude findings matching regex pattern (repeatable)")
 	rootCmd.Flags().BoolVar(&noConfig, "no-config", false,
 		"Skip loading .acr.yaml config file")
+
+	// Interactive selection
+	rootCmd.Flags().BoolVarP(&interactive, "interactive", "i", false,
+		"Enable interactive finding selection (requires TTY)")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -343,7 +348,38 @@ func handleLGTM(ctx context.Context, allFindings []domain.Finding, stats domain.
 }
 
 func handleFindings(ctx context.Context, grouped domain.GroupedFindings, aggregated []domain.AggregatedFinding, stats domain.ReviewStats, logger *terminal.Logger) domain.ExitCode {
-	commentBody := runner.RenderCommentMarkdown(grouped, stats.TotalReviewers, aggregated)
+	selectedFindings := grouped.Findings
+
+	// Interactive selection if enabled
+	if interactive {
+		if !terminal.IsStdoutTTY() {
+			logger.Log("Interactive mode requires TTY, continuing without selection", terminal.StyleWarning)
+		} else {
+			indices, canceled, err := terminal.RunSelector(grouped.Findings)
+			if err != nil {
+				logger.Logf(terminal.StyleError, "Selector error: %v", err)
+				return domain.ExitError
+			}
+			if canceled {
+				logger.Log("Skipped posting findings.", terminal.StyleDim)
+				return domain.ExitFindings
+			}
+			selectedFindings = filterFindingsByIndices(grouped.Findings, indices)
+
+			if len(selectedFindings) == 0 {
+				logger.Log("No findings selected to post.", terminal.StyleDim)
+				return domain.ExitFindings
+			}
+		}
+	}
+
+	// Create filtered GroupedFindings for rendering
+	filteredGrouped := domain.GroupedFindings{
+		Findings: selectedFindings,
+		Info:     grouped.Info,
+	}
+
+	commentBody := runner.RenderCommentMarkdown(filteredGrouped, stats.TotalReviewers, aggregated)
 
 	if err := confirmAndExecutePRAction(ctx, prAction{
 		body:            commentBody,
@@ -435,6 +471,22 @@ func confirmAndExecutePRAction(ctx context.Context, action prAction, logger *ter
 
 	logger.Log(fmt.Sprintf(action.successTemplate, "#"+prNumber), terminal.StyleSuccess)
 	return nil
+}
+
+// filterFindingsByIndices returns findings at the specified indices.
+func filterFindingsByIndices(findings []domain.FindingGroup, indices []int) []domain.FindingGroup {
+	indexSet := make(map[int]bool, len(indices))
+	for _, i := range indices {
+		indexSet[i] = true
+	}
+
+	result := make([]domain.FindingGroup, 0, len(indices))
+	for i, f := range findings {
+		if indexSet[i] {
+			result = append(result, f)
+		}
+	}
+	return result
 }
 
 // exitCode is a wrapper type for returning exit codes via error interface.
