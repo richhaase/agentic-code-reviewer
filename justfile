@@ -76,4 +76,10 @@ clean:
     go clean -testcache
     @echo "Build artifacts and test cache cleaned"
 
-check: fmt lint vet test
+# Run dead code analysis
+find-deadcode:
+    @echo "Search for dead code..."
+    go run golang.org/x/tools/cmd/deadcode@latest ./...
+    @echo "Done"
+
+check: fmt lint vet test find-deadcode
