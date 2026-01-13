@@ -15,6 +15,11 @@ import (
 	"github.com/anthropics/agentic-code-reviewer/internal/terminal"
 )
 
+const (
+	scannerInitialBuffer = 64 * 1024         // 64KB
+	scannerMaxLineSize   = 100 * 1024 * 1024 // 100MB
+)
+
 // Config holds the runner configuration.
 type Config struct {
 	Reviewers   int
@@ -180,7 +185,7 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 
 	// Read output
 	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 0, 64*1024), 100*1024*1024) // 100MB max line
+	scanner.Buffer(make([]byte, 0, scannerInitialBuffer), scannerMaxLineSize)
 
 	for scanner.Scan() {
 		line := scanner.Text()

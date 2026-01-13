@@ -18,6 +18,8 @@ const (
 	StylePhase   Style = "phase"
 )
 
+const lineClearWidth = 100
+
 // Logger provides styled logging to stderr.
 type Logger struct {
 	isTTY bool
@@ -57,7 +59,7 @@ func (l *Logger) Log(msg string, style Style) {
 
 	// Clear line if TTY
 	if l.isTTY {
-		fmt.Fprint(os.Stderr, "\r"+strings.Repeat(" ", 100)+"\r")
+		fmt.Fprint(os.Stderr, "\r"+strings.Repeat(" ", lineClearWidth)+"\r")
 	}
 
 	tag := fmt.Sprintf("%s[%s%s%s%s%s]%s",

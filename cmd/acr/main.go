@@ -32,6 +32,8 @@ var (
 	date    = "unknown"
 )
 
+const maxDisplayedCIChecks = 5
+
 var (
 	reviewers       int
 	concurrency     int
@@ -358,8 +360,8 @@ func handleLGTM(ctx context.Context, allFindings []domain.Finding, stats domain.
 				if len(ciStatus.Failed) > 0 {
 					logger.Logf(terminal.StyleError, "Cannot approve PR: %d CI check(s) failed", len(ciStatus.Failed))
 					for i, check := range ciStatus.Failed {
-						if i >= 5 {
-							logger.Logf(terminal.StyleDim, "  ... and %d more", len(ciStatus.Failed)-5)
+						if i >= maxDisplayedCIChecks {
+							logger.Logf(terminal.StyleDim, "  ... and %d more", len(ciStatus.Failed)-maxDisplayedCIChecks)
 							break
 						}
 						logger.Logf(terminal.StyleDim, "  • %s", check)
@@ -368,8 +370,8 @@ func handleLGTM(ctx context.Context, allFindings []domain.Finding, stats domain.
 				if len(ciStatus.Pending) > 0 {
 					logger.Logf(terminal.StyleWarning, "Cannot approve PR: %d CI check(s) pending", len(ciStatus.Pending))
 					for i, check := range ciStatus.Pending {
-						if i >= 5 {
-							logger.Logf(terminal.StyleDim, "  ... and %d more", len(ciStatus.Pending)-5)
+						if i >= maxDisplayedCIChecks {
+							logger.Logf(terminal.StyleDim, "  ... and %d more", len(ciStatus.Pending)-maxDisplayedCIChecks)
 							break
 						}
 						logger.Logf(terminal.StyleDim, "  • %s", check)
