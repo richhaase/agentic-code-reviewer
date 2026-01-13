@@ -9,12 +9,14 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime/debug"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/anthropics/agentic-code-reviewer/internal/domain"
+	"github.com/anthropics/agentic-code-reviewer/internal/filter"
 	"github.com/anthropics/agentic-code-reviewer/internal/git"
 	"github.com/anthropics/agentic-code-reviewer/internal/github"
 	"github.com/anthropics/agentic-code-reviewer/internal/runner"
@@ -30,15 +32,16 @@ var (
 )
 
 var (
-	reviewers      int
-	baseRef        string
-	timeout        time.Duration
-	retries        int
-	verbose        bool
-	local          bool
-	worktreeBranch string
-	autoYes        bool
-	autoNo         bool
+	reviewers       int
+	baseRef         string
+	timeout         time.Duration
+	retries         int
+	verbose         bool
+	local           bool
+	worktreeBranch  string
+	autoYes         bool
+	autoNo          bool
+	excludePatterns []string
 )
 
 func main() {
@@ -86,6 +89,11 @@ Exit codes:
 	rootCmd.Flags().BoolVarP(&autoNo, "no", "n", false,
 		"Automatically skip submitting review")
 	rootCmd.MarkFlagsMutuallyExclusive("yes", "no")
+
+	// Filtering options
+	rootCmd.Flags().StringArrayVar(&excludePatterns, "exclude-pattern",
+		getEnvStringSlice("REVIEW_EXCLUDE_PATTERNS", nil),
+		"Exclude findings matching regex pattern (repeatable)")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -215,6 +223,16 @@ func executeReview(ctx context.Context, workDir string, logger *terminal.Logger)
 	}
 
 	stats.SummarizerDuration = summaryResult.Duration
+
+	// Apply exclude patterns if configured
+	if len(excludePatterns) > 0 {
+		f, err := filter.New(excludePatterns)
+		if err != nil {
+			logger.Logf(terminal.StyleError, "Invalid exclude pattern: %v", err)
+			return domain.ExitError
+		}
+		summaryResult.Grouped = f.Apply(summaryResult.Grouped)
+	}
 
 	// Render and print report
 	report := runner.RenderReport(summaryResult.Grouped, summaryResult, stats)
@@ -442,6 +460,22 @@ func getEnvDuration(key string, defaultVal time.Duration) time.Duration {
 		var secs int
 		if _, err := fmt.Sscanf(v, "%d", &secs); err == nil {
 			return time.Duration(secs) * time.Second
+		}
+	}
+	return defaultVal
+}
+
+func getEnvStringSlice(key string, defaultVal []string) []string {
+	if v := os.Getenv(key); v != "" {
+		parts := strings.Split(v, ",")
+		result := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				result = append(result, trimmed)
+			}
+		}
+		if len(result) > 0 {
+			return result
 		}
 	}
 	return defaultVal
