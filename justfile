@@ -75,3 +75,5 @@ clean:
     go clean
     go clean -testcache
     @echo "Build artifacts and test cache cleaned"
+
+check: fmt lint vet test
