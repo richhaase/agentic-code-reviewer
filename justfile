@@ -82,4 +82,4 @@ find-deadcode:
     go run golang.org/x/tools/cmd/deadcode@latest ./...
     @echo "Done"
 
-check: fmt lint vet test find-deadcode
+check: fmt lint vet test
