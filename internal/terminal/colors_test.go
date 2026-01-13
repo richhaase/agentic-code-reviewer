@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"sync"
 	"testing"
 )
 
@@ -180,4 +181,108 @@ func TestGetTerminalWidth(t *testing.T) {
 	if width < 10 || width > 10000 {
 		t.Errorf("GetTerminalWidth() = %d, seems unreasonable", width)
 	}
+}
+
+func TestColorsEnabled(t *testing.T) {
+	EnableColors()
+	if !ColorsEnabled() {
+		t.Error("ColorsEnabled() should return true after EnableColors()")
+	}
+
+	DisableColors()
+	if ColorsEnabled() {
+		t.Error("ColorsEnabled() should return false after DisableColors()")
+	}
+
+	EnableColors() // Restore for other tests
+}
+
+func TestSetColorsEnabled(t *testing.T) {
+	SetColorsEnabled(true)
+	if !ColorsEnabled() {
+		t.Error("ColorsEnabled() should return true after SetColorsEnabled(true)")
+	}
+
+	SetColorsEnabled(false)
+	if ColorsEnabled() {
+		t.Error("ColorsEnabled() should return false after SetColorsEnabled(false)")
+	}
+
+	SetColorsEnabled(true) // Restore for other tests
+}
+
+func TestWithColorsDisabled(t *testing.T) {
+	EnableColors()
+
+	// Verify colors are enabled before
+	if !ColorsEnabled() {
+		t.Fatal("colors should be enabled before WithColorsDisabled")
+	}
+
+	var insideState bool
+	WithColorsDisabled(func() {
+		insideState = ColorsEnabled()
+	})
+
+	// Verify colors were disabled inside the function
+	if insideState {
+		t.Error("colors should be disabled inside WithColorsDisabled")
+	}
+
+	// Verify colors are restored after
+	if !ColorsEnabled() {
+		t.Error("colors should be restored after WithColorsDisabled")
+	}
+}
+
+func TestWithColorsDisabled_RestoresPreviousState(t *testing.T) {
+	// Test that it restores the previous state, not just enables colors
+	DisableColors()
+	defer EnableColors()
+
+	WithColorsDisabled(func() {
+		// Colors should be disabled inside
+		if ColorsEnabled() {
+			t.Error("colors should be disabled inside WithColorsDisabled")
+		}
+	})
+
+	// Should restore to disabled (the previous state)
+	if ColorsEnabled() {
+		t.Error("WithColorsDisabled should restore previous disabled state")
+	}
+}
+
+func TestColorFunctions_ThreadSafe(t *testing.T) {
+	// Test that color functions can be called concurrently without race conditions
+	// Run with -race flag to verify
+	var wg sync.WaitGroup
+	iterations := 100
+
+	for range iterations {
+		wg.Add(4)
+
+		go func() {
+			defer wg.Done()
+			EnableColors()
+		}()
+
+		go func() {
+			defer wg.Done()
+			DisableColors()
+		}()
+
+		go func() {
+			defer wg.Done()
+			_ = ColorsEnabled()
+		}()
+
+		go func() {
+			defer wg.Done()
+			_ = Color(Cyan)
+		}()
+	}
+
+	wg.Wait()
+	EnableColors() // Restore for other tests
 }

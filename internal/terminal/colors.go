@@ -3,6 +3,7 @@ package terminal
 
 import (
 	"os"
+	"sync"
 
 	"golang.org/x/term"
 )
@@ -21,22 +22,69 @@ const (
 	Blue    = "\033[34m"
 )
 
+// colorMu protects access to colorsEnabled for thread safety.
+var colorMu sync.RWMutex
+
 // colorsEnabled tracks whether color output is enabled globally.
+// Access is protected by colorMu for thread safety.
 var colorsEnabled = true
 
 // DisableColors turns off color output globally.
+// This function is thread-safe.
 func DisableColors() {
+	colorMu.Lock()
+	defer colorMu.Unlock()
 	colorsEnabled = false
 }
 
 // EnableColors turns on color output globally.
+// This function is thread-safe.
 func EnableColors() {
+	colorMu.Lock()
+	defer colorMu.Unlock()
 	colorsEnabled = true
+}
+
+// ColorsEnabled returns whether colors are currently enabled.
+// This function is thread-safe.
+func ColorsEnabled() bool {
+	colorMu.RLock()
+	defer colorMu.RUnlock()
+	return colorsEnabled
+}
+
+// SetColorsEnabled sets the color output state.
+// This function is thread-safe.
+func SetColorsEnabled(enabled bool) {
+	colorMu.Lock()
+	defer colorMu.Unlock()
+	colorsEnabled = enabled
+}
+
+// WithColorsDisabled runs a function with colors disabled, then restores the previous state.
+// This is useful for tests that need to disable colors without affecting other tests.
+// This function is thread-safe.
+func WithColorsDisabled(fn func()) {
+	colorMu.Lock()
+	prev := colorsEnabled
+	colorsEnabled = false
+	colorMu.Unlock()
+
+	defer func() {
+		colorMu.Lock()
+		colorsEnabled = prev
+		colorMu.Unlock()
+	}()
+
+	fn()
 }
 
 // Color returns the color code if colors are enabled, otherwise empty string.
 // This provides a cleaner API: Color(Cyan) instead of colors.Cyan
+// This function is thread-safe.
 func Color(c string) string {
+	colorMu.RLock()
+	defer colorMu.RUnlock()
 	if colorsEnabled {
 		return c
 	}
