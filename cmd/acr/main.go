@@ -353,23 +353,23 @@ func handleFindings(ctx context.Context, grouped domain.GroupedFindings, aggrega
 	// Interactive selection if enabled
 	if interactive {
 		if !terminal.IsStdoutTTY() {
-			logger.Log("Interactive mode requires TTY, continuing without selection", terminal.StyleWarning)
-		} else {
-			indices, canceled, err := terminal.RunSelector(grouped.Findings)
-			if err != nil {
-				logger.Logf(terminal.StyleError, "Selector error: %v", err)
-				return domain.ExitError
-			}
-			if canceled {
-				logger.Log("Skipped posting findings.", terminal.StyleDim)
-				return domain.ExitFindings
-			}
-			selectedFindings = filterFindingsByIndices(grouped.Findings, indices)
+			logger.Log("--interactive requires a TTY", terminal.StyleError)
+			return domain.ExitError
+		}
+		indices, canceled, err := terminal.RunSelector(grouped.Findings)
+		if err != nil {
+			logger.Logf(terminal.StyleError, "Selector error: %v", err)
+			return domain.ExitError
+		}
+		if canceled {
+			logger.Log("Skipped posting findings.", terminal.StyleDim)
+			return domain.ExitFindings
+		}
+		selectedFindings = filterFindingsByIndices(grouped.Findings, indices)
 
-			if len(selectedFindings) == 0 {
-				logger.Log("No findings selected to post.", terminal.StyleDim)
-				return domain.ExitFindings
-			}
+		if len(selectedFindings) == 0 {
+			logger.Log("No findings selected to post.", terminal.StyleDim)
+			return domain.ExitFindings
 		}
 	}
 
