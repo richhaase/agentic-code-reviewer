@@ -162,15 +162,21 @@ func runReview(cmd *cobra.Command, args []string) error {
 	// When using a worktree, load config from the worktree (branch-specific settings)
 	var cfg *config.Config
 	if !noConfig {
+		var result *config.LoadResult
 		var err error
 		if workDir != "" {
-			cfg, err = config.LoadFromDir(workDir)
+			result, err = config.LoadFromDirWithWarnings(workDir)
 		} else {
-			cfg, err = config.Load()
+			result, err = config.LoadWithWarnings()
 		}
 		if err != nil {
 			logger.Logf(terminal.StyleError, "Config error: %v", err)
 			return exitCode(domain.ExitError)
+		}
+		cfg = result.Config
+		// Display warnings for unknown keys
+		for _, warning := range result.Warnings {
+			logger.Logf(terminal.StyleWarning, "Warning: %s", warning)
 		}
 	}
 

@@ -505,6 +505,219 @@ func TestLoadFromPath_InvalidTimeout(t *testing.T) {
 	}
 }
 
+// Tests for unknown key warnings
+
+func TestLoadFromPathWithWarnings_UnknownTopLevelKey(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	content := `reviewers: 5
+unknownkey: value
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := LoadFromPathWithWarnings(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d: %v", len(result.Warnings), result.Warnings)
+	}
+	if result.Warnings[0] != `unknown key "unknownkey" in .acr.yaml` {
+		t.Errorf("unexpected warning: %s", result.Warnings[0])
+	}
+	// Config should still be parsed
+	if result.Config.Reviewers == nil || *result.Config.Reviewers != 5 {
+		t.Errorf("expected reviewers=5, got %v", result.Config.Reviewers)
+	}
+}
+
+func TestLoadFromPathWithWarnings_UnknownKeyWithSuggestion(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	content := `filtrs:
+  exclude_patterns:
+    - "test"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := LoadFromPathWithWarnings(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d: %v", len(result.Warnings), result.Warnings)
+	}
+	expected := `unknown key "filtrs" in .acr.yaml (did you mean "filters"?)`
+	if result.Warnings[0] != expected {
+		t.Errorf("expected warning %q, got %q", expected, result.Warnings[0])
+	}
+}
+
+func TestLoadFromPathWithWarnings_UnknownFilterKey(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	content := `filters:
+  exclude_paterns:
+    - "test"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := LoadFromPathWithWarnings(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d: %v", len(result.Warnings), result.Warnings)
+	}
+	expected := `unknown key "exclude_paterns" in filters section of .acr.yaml (did you mean "exclude_patterns"?)`
+	if result.Warnings[0] != expected {
+		t.Errorf("expected warning %q, got %q", expected, result.Warnings[0])
+	}
+}
+
+func TestLoadFromPathWithWarnings_MultipleUnknownKeys(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	content := `reviewrs: 5
+tiemout: 10m
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := LoadFromPathWithWarnings(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Warnings) != 2 {
+		t.Fatalf("expected 2 warnings, got %d: %v", len(result.Warnings), result.Warnings)
+	}
+}
+
+func TestLoadFromPathWithWarnings_NoWarningsForValidConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	content := `reviewers: 5
+concurrency: 3
+base: main
+timeout: 5m
+retries: 2
+filters:
+  exclude_patterns:
+    - "test"
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := LoadFromPathWithWarnings(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Warnings) != 0 {
+		t.Errorf("expected no warnings, got %d: %v", len(result.Warnings), result.Warnings)
+	}
+}
+
+func TestLoadFromPathWithWarnings_NoWarningsForEmptyConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	if err := os.WriteFile(configPath, []byte(""), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := LoadFromPathWithWarnings(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Warnings) != 0 {
+		t.Errorf("expected no warnings, got %d: %v", len(result.Warnings), result.Warnings)
+	}
+}
+
+func TestLoadFromPathWithWarnings_FileNotFound(t *testing.T) {
+	result, err := LoadFromPathWithWarnings("/nonexistent/path/.acr.yaml")
+	if err != nil {
+		t.Fatalf("expected no error for missing file, got: %v", err)
+	}
+	if result.Config == nil {
+		t.Fatal("expected non-nil config")
+	}
+	if len(result.Warnings) != 0 {
+		t.Errorf("expected no warnings for missing file, got: %v", result.Warnings)
+	}
+}
+
+func TestLevenshtein(t *testing.T) {
+	tests := []struct {
+		a, b     string
+		expected int
+	}{
+		{"", "", 0},
+		{"abc", "", 3},
+		{"", "abc", 3},
+		{"abc", "abc", 0},
+		{"abc", "abd", 1},
+		{"abc", "abcd", 1},
+		{"filters", "filtrs", 1},
+		{"exclude_patterns", "exclude_paterns", 1},
+		{"reviewers", "reviewrs", 1},
+		{"timeout", "tiemout", 2},
+		{"totally_different", "abc", 16},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.a+"_"+tt.b, func(t *testing.T) {
+			got := levenshtein(tt.a, tt.b)
+			if got != tt.expected {
+				t.Errorf("levenshtein(%q, %q) = %d, expected %d", tt.a, tt.b, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFindSimilar(t *testing.T) {
+	candidates := []string{"reviewers", "concurrency", "base", "timeout", "retries", "filters"}
+
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"reviewrs", "reviewers"},
+		{"filtrs", "filters"},
+		{"tiemout", "timeout"},
+		{"totally_unrelated_name", ""},
+		{"reviewers", "reviewers"}, // exact match
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := findSimilar(tt.input, candidates)
+			if got != tt.expected {
+				t.Errorf("findSimilar(%q) = %q, expected %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
 // Helper functions
 func ptr(i int) *int { return &i }
 

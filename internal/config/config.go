@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"time"
 
@@ -69,35 +70,78 @@ type FilterConfig struct {
 // Returns an empty config (not error) if the file doesn't exist.
 // Returns an error if the file exists but is invalid YAML or contains invalid regex patterns.
 func Load() (*Config, error) {
+	result, err := LoadWithWarnings()
+	if err != nil {
+		return nil, err
+	}
+	return result.Config, nil
+}
+
+// LoadWithWarnings reads .acr.yaml from the git repository root and returns warnings.
+// Returns an empty config (not error) if the file doesn't exist.
+// Returns an error if the file exists but is invalid YAML or contains invalid regex patterns.
+func LoadWithWarnings() (*LoadResult, error) {
 	repoRoot, err := git.GetRoot()
 	if err != nil {
 		// Not in a git repo - return empty config
-		return &Config{}, nil
+		return &LoadResult{Config: &Config{}}, nil
 	}
 
 	configPath := filepath.Join(repoRoot, ConfigFileName)
-	return LoadFromPath(configPath)
+	return LoadFromPathWithWarnings(configPath)
 }
 
 // LoadFromDir reads .acr.yaml from the specified directory.
 // Returns an empty config (not error) if the file doesn't exist.
 // Returns an error if the file exists but is invalid YAML or contains invalid regex patterns.
 func LoadFromDir(dir string) (*Config, error) {
+	result, err := LoadFromDirWithWarnings(dir)
+	if err != nil {
+		return nil, err
+	}
+	return result.Config, nil
+}
+
+// LoadFromDirWithWarnings reads .acr.yaml from the specified directory and returns warnings.
+// Returns an empty config (not error) if the file doesn't exist.
+// Returns an error if the file exists but is invalid YAML or contains invalid regex patterns.
+func LoadFromDirWithWarnings(dir string) (*LoadResult, error) {
 	configPath := filepath.Join(dir, ConfigFileName)
-	return LoadFromPath(configPath)
+	return LoadFromPathWithWarnings(configPath)
+}
+
+// LoadResult contains the loaded config and any warnings encountered.
+type LoadResult struct {
+	Config   *Config
+	Warnings []string
 }
 
 // LoadFromPath reads a config file from the specified path.
 // Returns an empty config (not error) if the file doesn't exist.
 // Returns an error if the file exists but is invalid YAML or contains invalid regex patterns.
+// Warnings are returned for unknown keys in the config file.
 func LoadFromPath(path string) (*Config, error) {
+	result, err := LoadFromPathWithWarnings(path)
+	if err != nil {
+		return nil, err
+	}
+	return result.Config, nil
+}
+
+// LoadFromPathWithWarnings reads a config file and returns warnings for unknown keys.
+// Returns an empty config (not error) if the file doesn't exist.
+// Returns an error if the file exists but is invalid YAML or contains invalid regex patterns.
+func LoadFromPathWithWarnings(path string) (*LoadResult, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return &Config{}, nil
+		return &LoadResult{Config: &Config{}}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
+
+	// Check for unknown keys using strict mode
+	warnings := checkUnknownKeys(data)
 
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
@@ -114,7 +158,7 @@ func LoadFromPath(path string) (*Config, error) {
 		return nil, fmt.Errorf("%s: %w", ConfigFileName, err)
 	}
 
-	return &cfg, nil
+	return &LoadResult{Config: &cfg, Warnings: warnings}, nil
 }
 
 // validatePatterns checks that all exclude patterns are valid regex.
@@ -125,6 +169,108 @@ func (c *Config) validatePatterns() error {
 		}
 	}
 	return nil
+}
+
+// knownTopLevelKeys are the valid top-level keys in the config file.
+var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "filters"}
+
+// knownFilterKeys are the valid keys under the "filters" section.
+var knownFilterKeys = []string{"exclude_patterns"}
+
+// checkUnknownKeys checks for unknown keys in the YAML data and returns warnings.
+func checkUnknownKeys(data []byte) []string {
+	var warnings []string
+
+	// Parse into a generic map to inspect keys
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		// If we can't parse, let the main parser handle the error
+		return nil
+	}
+
+	// Check top-level keys
+	for key := range raw {
+		if !slices.Contains(knownTopLevelKeys, key) {
+			warning := fmt.Sprintf("unknown key %q in %s", key, ConfigFileName)
+			if suggestion := findSimilar(key, knownTopLevelKeys); suggestion != "" {
+				warning += fmt.Sprintf(" (did you mean %q?)", suggestion)
+			}
+			warnings = append(warnings, warning)
+		}
+	}
+
+	// Check keys under "filters" section
+	if filters, ok := raw["filters"].(map[string]any); ok {
+		for key := range filters {
+			if !slices.Contains(knownFilterKeys, key) {
+				warning := fmt.Sprintf("unknown key %q in filters section of %s", key, ConfigFileName)
+				if suggestion := findSimilar(key, knownFilterKeys); suggestion != "" {
+					warning += fmt.Sprintf(" (did you mean %q?)", suggestion)
+				}
+				warnings = append(warnings, warning)
+			}
+		}
+	}
+
+	return warnings
+}
+
+// findSimilar finds the most similar string from candidates using Levenshtein distance.
+// Returns empty string if no candidate is similar enough (threshold: 3 edits).
+func findSimilar(input string, candidates []string) string {
+	const maxDistance = 3
+	bestMatch := ""
+	bestDistance := maxDistance + 1
+
+	for _, candidate := range candidates {
+		dist := levenshtein(input, candidate)
+		if dist < bestDistance {
+			bestDistance = dist
+			bestMatch = candidate
+		}
+	}
+
+	if bestDistance <= maxDistance {
+		return bestMatch
+	}
+	return ""
+}
+
+// levenshtein calculates the Levenshtein distance between two strings.
+func levenshtein(a, b string) int {
+	if len(a) == 0 {
+		return len(b)
+	}
+	if len(b) == 0 {
+		return len(a)
+	}
+
+	// Create matrix
+	matrix := make([][]int, len(a)+1)
+	for i := range matrix {
+		matrix[i] = make([]int, len(b)+1)
+		matrix[i][0] = i
+	}
+	for j := range matrix[0] {
+		matrix[0][j] = j
+	}
+
+	// Fill matrix
+	for i := 1; i <= len(a); i++ {
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			matrix[i][j] = min(
+				matrix[i-1][j]+1,      // deletion
+				matrix[i][j-1]+1,      // insertion
+				matrix[i-1][j-1]+cost, // substitution
+			)
+		}
+	}
+
+	return matrix[len(a)][len(b)]
 }
 
 // Merge combines config file patterns with CLI patterns.
