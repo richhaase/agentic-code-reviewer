@@ -1,5 +1,7 @@
 package domain
 
+import "slices"
+
 // Finding represents a single review finding from a reviewer iteration.
 type Finding struct {
 	Text       string
@@ -74,14 +76,8 @@ func AggregateFindings(findings []Finding) []AggregatedFinding {
 	result := make([]AggregatedFinding, 0, len(order))
 	for _, text := range order {
 		reviewers := seen[text]
-		sortedReviewers := make([]int, len(reviewers))
-		copy(sortedReviewers, reviewers)
-		// Simple insertion sort for small slices
-		for i := 1; i < len(sortedReviewers); i++ {
-			for j := i; j > 0 && sortedReviewers[j-1] > sortedReviewers[j]; j-- {
-				sortedReviewers[j-1], sortedReviewers[j] = sortedReviewers[j], sortedReviewers[j-1]
-			}
-		}
+		sortedReviewers := slices.Clone(reviewers)
+		slices.Sort(sortedReviewers)
 		result = append(result, AggregatedFinding{
 			Text:      text,
 			Reviewers: sortedReviewers,
