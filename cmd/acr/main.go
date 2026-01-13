@@ -71,15 +71,15 @@ Exit codes:
 	rootCmd.SetVersionTemplate("{{.Version}}\n")
 
 	// Configuration flags
-	rootCmd.Flags().IntVarP(&reviewers, "reviewers", "r", getEnvInt("REVIEW_REVIEWERS", getEnvInt("REVIEW_WORKERS", 5)),
+	rootCmd.Flags().IntVarP(&reviewers, "reviewers", "r", getEnvInt("ACR_REVIEWERS", 5),
 		"Number of parallel reviewers to run")
-	rootCmd.Flags().IntVarP(&concurrency, "concurrency", "c", getEnvInt("REVIEW_CONCURRENCY", 0),
+	rootCmd.Flags().IntVarP(&concurrency, "concurrency", "c", getEnvInt("ACR_CONCURRENCY", 0),
 		"Max concurrent reviewers (default: same as --reviewers)")
-	rootCmd.Flags().StringVarP(&baseRef, "base", "b", getEnvStr("REVIEW_BASE_REF", "main"),
+	rootCmd.Flags().StringVarP(&baseRef, "base", "b", getEnvStr("ACR_BASE_REF", "main"),
 		"Base ref for review command")
-	rootCmd.Flags().DurationVarP(&timeout, "timeout", "t", getEnvDuration("REVIEW_TIMEOUT", 5*time.Minute),
+	rootCmd.Flags().DurationVarP(&timeout, "timeout", "t", getEnvDuration("ACR_TIMEOUT", 5*time.Minute),
 		"Timeout per reviewer (e.g., 5m, 300s)")
-	rootCmd.Flags().IntVarP(&retries, "retries", "R", getEnvInt("REVIEW_RETRIES", 1),
+	rootCmd.Flags().IntVarP(&retries, "retries", "R", getEnvInt("ACR_RETRIES", 1),
 		"Retry failed reviewers N times")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false,
 		"Print agent messages as they arrive")
@@ -97,7 +97,7 @@ Exit codes:
 
 	// Filtering options
 	rootCmd.Flags().StringArrayVar(&excludePatterns, "exclude-pattern",
-		getEnvStringSlice("REVIEW_EXCLUDE_PATTERNS", nil),
+		getEnvStringSlice("ACR_EXCLUDE_PATTERNS", nil),
 		"Exclude findings matching regex pattern (repeatable)")
 	rootCmd.Flags().BoolVar(&noConfig, "no-config", false,
 		"Skip loading .acr.yaml config file")

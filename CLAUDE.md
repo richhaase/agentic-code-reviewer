@@ -89,7 +89,7 @@ When adding features:
 var myFlag string
 
 // In run(), add flag definition:
-rootCmd.Flags().StringVarP(&myFlag, "my-flag", "m", getEnvStr("REVIEW_MY_FLAG", "default"), "Description")
+rootCmd.Flags().StringVarP(&myFlag, "my-flag", "m", getEnvStr("ACR_MY_FLAG", "default"), "Description")
 ```
 
 ### Adding a new finding field

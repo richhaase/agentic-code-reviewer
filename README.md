@@ -104,12 +104,12 @@ By default, concurrency equals the reviewer count (all run in parallel).
 
 | Variable                  | Description                              |
 | ------------------------- | ---------------------------------------- |
-| `REVIEW_REVIEWERS`        | Default number of reviewers              |
-| `REVIEW_CONCURRENCY`      | Default max concurrent reviewers         |
-| `REVIEW_BASE_REF`         | Default base ref                         |
-| `REVIEW_TIMEOUT`          | Default timeout (e.g., "5m" or "300")    |
-| `REVIEW_RETRIES`          | Default retry count                      |
-| `REVIEW_EXCLUDE_PATTERNS` | Comma-separated list of exclude patterns |
+| `ACR_REVIEWERS`        | Default number of reviewers              |
+| `ACR_CONCURRENCY`      | Default max concurrent reviewers         |
+| `ACR_BASE_REF`         | Default base ref                         |
+| `ACR_TIMEOUT`          | Default timeout (e.g., "5m" or "300")    |
+| `ACR_RETRIES`          | Default retry count                      |
+| `ACR_EXCLUDE_PATTERNS` | Comma-separated list of exclude patterns |
 
 ## Configuration
 
