@@ -44,3 +44,22 @@ jobs:
 
     - name: Run lint
       run: just lint
+
+  staticcheck:
+    name: Staticcheck
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+
+    - name: Install just
+      uses: extractions/setup-just@v2
+
+    - name: Run staticcheck
+      run: just staticcheck
