@@ -181,15 +181,15 @@ func confirmAndExecutePRAction(ctx context.Context, action prAction, logger *ter
 		fmt.Println()
 		prompt := fmt.Sprintf(action.promptTemplate,
 			fmt.Sprintf("%s#%s%s", terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset)))
-		fmt.Printf("%s?%s %s %s[y/N]:%s ",
+		fmt.Printf("%s?%s %s %s[Y/n]:%s ",
 			terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
 			prompt,
 			terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
 
 		reader := bufio.NewReader(os.Stdin)
 		response, _ := reader.ReadString('\n')
-		response = strings.TrimSuffix(response, "\n")
-		confirmed = response == "y" || response == "yes"
+		response = strings.ToLower(strings.TrimSpace(response))
+		confirmed = response == "" || response == "y" || response == "yes"
 	}
 
 	if !confirmed {
