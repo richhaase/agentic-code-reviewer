@@ -443,34 +443,6 @@ func TestView_ContainsHelpText(t *testing.T) {
 	}
 }
 
-func TestWordWrap_ShortText(t *testing.T) {
-	text := "short text"
-	wrapped := wordWrap(text, 80)
-
-	if wrapped != text {
-		t.Errorf("expected unchanged text, got: %s", wrapped)
-	}
-}
-
-func TestWordWrap_LongText(t *testing.T) {
-	text := "this is a longer piece of text that should be wrapped at the specified width"
-	wrapped := wordWrap(text, 20)
-
-	// Should contain newlines
-	if !containsString(wrapped, "\n") {
-		t.Error("expected wrapped text to contain newlines")
-	}
-}
-
-func TestWordWrap_ZeroWidth(t *testing.T) {
-	text := "some text"
-	wrapped := wordWrap(text, 0)
-
-	if wrapped != text {
-		t.Errorf("expected unchanged text for zero width, got: %s", wrapped)
-	}
-}
-
 // Helper function
 func containsString(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))

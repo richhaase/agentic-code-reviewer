@@ -179,7 +179,7 @@ func (m SelectorModel) View() string {
 
 		// Show summary if expanded
 		if m.expanded[i] && finding.Summary != "" {
-			summary := wordWrap(finding.Summary, 70)
+			summary := WrapText(finding.Summary, 70, "")
 			for _, line := range strings.Split(summary, "\n") {
 				b.WriteString(selectorSummaryStyle.Render(line))
 				b.WriteString("\n")
@@ -194,48 +194,6 @@ func (m SelectorModel) View() string {
 	b.WriteString("\n")
 
 	return b.String()
-}
-
-// wordWrap wraps text to the specified width.
-func wordWrap(text string, width int) string {
-	if width <= 0 {
-		return text
-	}
-
-	var result strings.Builder
-	var lineLen int
-
-	words := strings.Fields(text)
-	for i, word := range words {
-		wordLen := len(word)
-
-		if lineLen+wordLen+1 > width && lineLen > 0 {
-			result.WriteString("\n")
-			lineLen = 0
-		}
-
-		if lineLen > 0 {
-			result.WriteString(" ")
-			lineLen++
-		}
-
-		// Handle words longer than width
-		if wordLen > width {
-			if lineLen > 0 {
-				result.WriteString("\n")
-			}
-			result.WriteString(word)
-			if i < len(words)-1 {
-				result.WriteString("\n")
-			}
-			lineLen = 0
-		} else {
-			result.WriteString(word)
-			lineLen += wordLen
-		}
-	}
-
-	return result.String()
 }
 
 // SelectedIndices returns the indices of selected findings in sorted order.
