@@ -3,8 +3,11 @@ package runner
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropics/agentic-code-reviewer/internal/domain"
+	"github.com/anthropics/agentic-code-reviewer/internal/summarizer"
+	"github.com/anthropics/agentic-code-reviewer/internal/terminal"
 )
 
 func TestJoinInts(t *testing.T) {
@@ -302,4 +305,182 @@ func TestRenderCommentMarkdown_IncludesRawSection(t *testing.T) {
 	if !strings.Contains(result, "Raw finding text") {
 		t.Error("expected raw finding text")
 	}
+}
+
+func TestRenderReport_SummarizerError(t *testing.T) {
+	terminal.WithColorsDisabled(func() {
+		grouped := domain.GroupedFindings{}
+		summaryResult := &summarizer.Result{
+			ExitCode: 1,
+			Stderr:   "something went wrong",
+			RawOut:   "line1\nline2",
+		}
+		stats := domain.ReviewStats{}
+
+		result := RenderReport(grouped, summaryResult, stats)
+
+		if !strings.Contains(result, "Summarizer Error") {
+			t.Error("expected 'Summarizer Error' in output")
+		}
+		if !strings.Contains(result, "Exit code: 1") {
+			t.Error("expected exit code in output")
+		}
+		if !strings.Contains(result, "something went wrong") {
+			t.Error("expected stderr in output")
+		}
+		if !strings.Contains(result, "line1") {
+			t.Error("expected raw output in output")
+		}
+	})
+}
+
+func TestRenderReport_LGTM(t *testing.T) {
+	terminal.WithColorsDisabled(func() {
+		grouped := domain.GroupedFindings{} // no findings
+		summaryResult := &summarizer.Result{ExitCode: 0}
+		stats := domain.ReviewStats{}
+
+		result := RenderReport(grouped, summaryResult, stats)
+
+		if !strings.Contains(result, "LGTM") {
+			t.Error("expected 'LGTM' in output")
+		}
+	})
+}
+
+func TestRenderReport_WithWarnings(t *testing.T) {
+	terminal.WithColorsDisabled(func() {
+		grouped := domain.GroupedFindings{}
+		summaryResult := &summarizer.Result{ExitCode: 0}
+		stats := domain.ReviewStats{
+			ParseErrors:      3,
+			FailedReviewers:  []int{2, 4},
+			TimedOutReviewers: []int{5},
+		}
+
+		result := RenderReport(grouped, summaryResult, stats)
+
+		if !strings.Contains(result, "Warnings") {
+			t.Error("expected 'Warnings' section")
+		}
+		if !strings.Contains(result, "JSONL parse errors: 3") {
+			t.Error("expected parse error count")
+		}
+		if !strings.Contains(result, "Failed reviewers: 2, 4") {
+			t.Error("expected failed reviewers")
+		}
+		if !strings.Contains(result, "Timed out reviewers: 5") {
+			t.Error("expected timed out reviewers")
+		}
+	})
+}
+
+func TestRenderReport_WithFindings(t *testing.T) {
+	terminal.WithColorsDisabled(func() {
+		grouped := domain.GroupedFindings{
+			Findings: []domain.FindingGroup{
+				{
+					Title:         "Security Issue",
+					Summary:       "Found a vulnerability",
+					Messages:      []string{"Details here"},
+					ReviewerCount: 3,
+				},
+			},
+		}
+		summaryResult := &summarizer.Result{ExitCode: 0}
+		stats := domain.ReviewStats{TotalReviewers: 5}
+
+		result := RenderReport(grouped, summaryResult, stats)
+
+		if !strings.Contains(result, "1 finding") {
+			t.Error("expected '1 finding' header")
+		}
+		if !strings.Contains(result, "Security Issue") {
+			t.Error("expected finding title")
+		}
+		if !strings.Contains(result, "Found a vulnerability") {
+			t.Error("expected finding summary")
+		}
+		if !strings.Contains(result, "Evidence") {
+			t.Error("expected evidence section")
+		}
+		if !strings.Contains(result, "(3/5 reviewers)") {
+			t.Error("expected reviewer count")
+		}
+	})
+}
+
+func TestRenderReport_MultipleFindings(t *testing.T) {
+	terminal.WithColorsDisabled(func() {
+		grouped := domain.GroupedFindings{
+			Findings: []domain.FindingGroup{
+				{Title: "Issue 1"},
+				{Title: "Issue 2"},
+				{Title: "Issue 3"},
+			},
+		}
+		summaryResult := &summarizer.Result{ExitCode: 0}
+		stats := domain.ReviewStats{}
+
+		result := RenderReport(grouped, summaryResult, stats)
+
+		if !strings.Contains(result, "3 findings") {
+			t.Error("expected '3 findings' header (plural)")
+		}
+		if !strings.Contains(result, "1.") || !strings.Contains(result, "2.") || !strings.Contains(result, "3.") {
+			t.Error("expected numbered findings")
+		}
+	})
+}
+
+func TestRenderReport_UntitledFinding(t *testing.T) {
+	terminal.WithColorsDisabled(func() {
+		grouped := domain.GroupedFindings{
+			Findings: []domain.FindingGroup{
+				{Title: ""}, // empty title
+			},
+		}
+		summaryResult := &summarizer.Result{ExitCode: 0}
+		stats := domain.ReviewStats{}
+
+		result := RenderReport(grouped, summaryResult, stats)
+
+		if !strings.Contains(result, "Untitled") {
+			t.Error("expected 'Untitled' fallback")
+		}
+	})
+}
+
+func TestRenderReport_WithTimingStats(t *testing.T) {
+	terminal.WithColorsDisabled(func() {
+		grouped := domain.GroupedFindings{
+			Findings: []domain.FindingGroup{{Title: "Issue"}},
+		}
+		summaryResult := &summarizer.Result{
+			ExitCode: 0,
+			Duration: 5 * time.Second,
+		}
+		stats := domain.ReviewStats{
+			WallClockDuration: 30 * time.Second,
+			ReviewerDurations: map[int]time.Duration{
+				1: 10 * time.Second,
+				2: 20 * time.Second,
+			},
+		}
+
+		result := RenderReport(grouped, summaryResult, stats)
+
+		if !strings.Contains(result, "Timing") {
+			t.Error("expected 'Timing' section")
+		}
+		if !strings.Contains(result, "reviewers:") {
+			t.Error("expected reviewers duration")
+		}
+		if !strings.Contains(result, "summarizer:") {
+			t.Error("expected summarizer duration")
+		}
+		if !strings.Contains(result, "min") && !strings.Contains(result, "avg") && !strings.Contains(result, "max") {
+			t.Error("expected min/avg/max stats")
+		}
+	})
 }
