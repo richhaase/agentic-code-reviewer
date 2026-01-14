@@ -2,6 +2,7 @@ package runner
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -138,7 +139,7 @@ func RenderReport(
 			for _, d := range stats.ReviewerDurations {
 				durations = append(durations, d.Seconds())
 			}
-			sort.Float64s(durations)
+			slices.Sort(durations)
 
 			var sum float64
 			for _, d := range durations {
