@@ -1,6 +1,6 @@
 module github.com/anthropics/agentic-code-reviewer
 
-go 1.24.0
+go 1.24.6
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
