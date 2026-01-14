@@ -2,7 +2,7 @@ package terminal
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -204,7 +204,7 @@ func (m SelectorModel) SelectedIndices() []int {
 			indices = append(indices, i)
 		}
 	}
-	sort.Ints(indices)
+	slices.Sort(indices)
 	return indices
 }
 

@@ -3,7 +3,6 @@ package runner
 import (
 	"fmt"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -240,7 +239,7 @@ func RenderLGTMMarkdown(totalReviewers, successfulReviewers int, reviewerComment
 		for k := range reviewerComments {
 			keys = append(keys, k)
 		}
-		sort.Ints(keys)
+		slices.Sort(keys)
 
 		for _, id := range keys {
 			lines = append(lines, fmt.Sprintf("- **Reviewer %d:** %s", id, reviewerComments[id]))
