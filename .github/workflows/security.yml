@@ -34,7 +34,7 @@ jobs:
     - name: Run gosec
       run: |
         echo "Running security analysis..."
-        go run github.com/securego/gosec/v2/cmd/gosec@latest ./...
+        go run github.com/securego/gosec/v2/cmd/gosec@latest -conf .gosec.yaml ./...
       continue-on-error: true
 
     - name: Summary
