@@ -175,11 +175,17 @@ just
 # Build with version info (outputs to bin/)
 just build
 
+# Run all quality checks (format, lint, vet, staticcheck, tests)
+just check
+
 # Run tests
 just test
 
 # Run linter
 just lint
+
+# Run staticcheck
+just staticcheck
 
 # Format code
 just fmt

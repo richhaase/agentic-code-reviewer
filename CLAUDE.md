@@ -11,11 +11,13 @@ ACR (Agentic Code Reviewer) is a Go CLI that runs parallel code reviews using Co
 Use `just` recipes for all build/test/lint operations. Run `just` to see available recipes.
 
 ```bash
-just build    # Build with version info (outputs to bin/)
-just test     # Run all tests
-just lint     # Run golangci-lint v2
-just fmt      # Format code
-just clean    # Clean build artifacts
+just build       # Build with version info (outputs to bin/)
+just check       # Run all quality checks (fmt, lint, vet, staticcheck, tests)
+just test        # Run all tests
+just lint        # Run golangci-lint v2
+just staticcheck # Run staticcheck
+just fmt         # Format code
+just clean       # Clean build artifacts
 ```
 
 Direct go commands (if needed):

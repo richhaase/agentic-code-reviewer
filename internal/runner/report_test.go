@@ -353,8 +353,8 @@ func TestRenderReport_WithWarnings(t *testing.T) {
 		grouped := domain.GroupedFindings{}
 		summaryResult := &summarizer.Result{ExitCode: 0}
 		stats := domain.ReviewStats{
-			ParseErrors:      3,
-			FailedReviewers:  []int{2, 4},
+			ParseErrors:       3,
+			FailedReviewers:   []int{2, 4},
 			TimedOutReviewers: []int{5},
 		}
 

@@ -82,4 +82,11 @@ find-deadcode:
     go run golang.org/x/tools/cmd/deadcode@latest ./...
     @echo "Done"
 
-check: fmt lint vet test
+# Run staticcheck
+staticcheck:
+    @echo "Running staticcheck..."
+    go run honnef.co/go/tools/cmd/staticcheck@latest ./...
+    @echo "Staticcheck passed!"
+
+# Run all quality checks (format, lint, vet, staticcheck, tests)
+check: fmt lint vet staticcheck test
