@@ -84,38 +84,6 @@ func TestLogger_Logf(t *testing.T) {
 	}
 }
 
-func TestLog_PackageLevel(t *testing.T) {
-	DisableColors()
-	defer EnableColors()
-
-	output := captureStderr(func() {
-		Log("package level message", StyleWarning)
-	})
-
-	if !strings.Contains(output, "package level message") {
-		t.Errorf("expected message in output, got %q", output)
-	}
-	if !strings.Contains(output, "W") {
-		t.Errorf("expected warning symbol in output, got %q", output)
-	}
-}
-
-func TestLogf_PackageLevel(t *testing.T) {
-	DisableColors()
-	defer EnableColors()
-
-	output := captureStderr(func() {
-		Logf(StyleError, "error: %v", "something went wrong")
-	})
-
-	if !strings.Contains(output, "error: something went wrong") {
-		t.Errorf("expected formatted message, got %q", output)
-	}
-	if !strings.Contains(output, "!") {
-		t.Errorf("expected error symbol in output, got %q", output)
-	}
-}
-
 func TestLogger_Log_WithColors(t *testing.T) {
 	EnableColors()
 

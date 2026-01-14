@@ -71,14 +71,3 @@ func (l *Logger) Log(msg string, style Style) {
 func (l *Logger) Logf(style Style, format string, args ...any) {
 	l.Log(fmt.Sprintf(format, args...), style)
 }
-
-// Log prints a styled log message to stderr (package-level function).
-func Log(msg string, style Style) {
-	logger := NewLogger()
-	logger.Log(msg, style)
-}
-
-// Logf prints a formatted styled log message to stderr (package-level function).
-func Logf(style Style, format string, args ...any) {
-	Log(fmt.Sprintf(format, args...), style)
-}

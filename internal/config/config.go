@@ -66,17 +66,6 @@ type FilterConfig struct {
 	ExcludePatterns []string `yaml:"exclude_patterns"`
 }
 
-// Load reads .acr.yaml from the git repository root.
-// Returns an empty config (not error) if the file doesn't exist.
-// Returns an error if the file exists but is invalid YAML or contains invalid regex patterns.
-func Load() (*Config, error) {
-	result, err := LoadWithWarnings()
-	if err != nil {
-		return nil, err
-	}
-	return result.Config, nil
-}
-
 // LoadWithWarnings reads .acr.yaml from the git repository root and returns warnings.
 // Returns an empty config (not error) if the file doesn't exist.
 // Returns an error if the file exists but is invalid YAML or contains invalid regex patterns.
@@ -91,17 +80,6 @@ func LoadWithWarnings() (*LoadResult, error) {
 	return LoadFromPathWithWarnings(configPath)
 }
 
-// LoadFromDir reads .acr.yaml from the specified directory.
-// Returns an empty config (not error) if the file doesn't exist.
-// Returns an error if the file exists but is invalid YAML or contains invalid regex patterns.
-func LoadFromDir(dir string) (*Config, error) {
-	result, err := LoadFromDirWithWarnings(dir)
-	if err != nil {
-		return nil, err
-	}
-	return result.Config, nil
-}
-
 // LoadFromDirWithWarnings reads .acr.yaml from the specified directory and returns warnings.
 // Returns an empty config (not error) if the file doesn't exist.
 // Returns an error if the file exists but is invalid YAML or contains invalid regex patterns.
@@ -114,18 +92,6 @@ func LoadFromDirWithWarnings(dir string) (*LoadResult, error) {
 type LoadResult struct {
 	Config   *Config
 	Warnings []string
-}
-
-// LoadFromPath reads a config file from the specified path.
-// Returns an empty config (not error) if the file doesn't exist.
-// Returns an error if the file exists but is invalid YAML or contains invalid regex patterns.
-// Warnings are returned for unknown keys in the config file.
-func LoadFromPath(path string) (*Config, error) {
-	result, err := LoadFromPathWithWarnings(path)
-	if err != nil {
-		return nil, err
-	}
-	return result.Config, nil
 }
 
 // LoadFromPathWithWarnings reads a config file and returns warnings for unknown keys.

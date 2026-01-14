@@ -91,42 +91,6 @@ func Color(c string) string {
 	return ""
 }
 
-// Colors holds color codes that can be disabled for non-TTY output.
-// Use this struct when you need to pass colors to functions or for testing.
-type Colors struct {
-	Reset   string
-	Bold    string
-	Dim     string
-	Cyan    string
-	Green   string
-	Yellow  string
-	Red     string
-	Magenta string
-	White   string
-	Blue    string
-}
-
-// NewColors creates a Colors instance with colors enabled.
-func NewColors() *Colors {
-	return &Colors{
-		Reset:   Reset,
-		Bold:    Bold,
-		Dim:     Dim,
-		Cyan:    Cyan,
-		Green:   Green,
-		Yellow:  Yellow,
-		Red:     Red,
-		Magenta: Magenta,
-		White:   White,
-		Blue:    Blue,
-	}
-}
-
-// NewColorsDisabled creates a Colors instance with colors disabled.
-func NewColorsDisabled() *Colors {
-	return &Colors{}
-}
-
 // IsTTY returns true if the given file descriptor is a TTY.
 func IsTTY(fd int) bool {
 	return term.IsTerminal(fd)

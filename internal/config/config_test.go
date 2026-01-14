@@ -9,7 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestLoadFromDir_ValidConfig(t *testing.T) {
+func TestLoadFromDirWithWarnings_ValidConfig(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".acr.yaml")
 
@@ -21,45 +21,48 @@ func TestLoadFromDir_ValidConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg, err := LoadFromDir(dir)
+	result, err := LoadFromDirWithWarnings(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if len(cfg.Filters.ExcludePatterns) != 1 {
-		t.Fatalf("expected 1 pattern, got %d", len(cfg.Filters.ExcludePatterns))
+	if len(result.Config.Filters.ExcludePatterns) != 1 {
+		t.Fatalf("expected 1 pattern, got %d", len(result.Config.Filters.ExcludePatterns))
 	}
-	if cfg.Filters.ExcludePatterns[0] != "test pattern" {
-		t.Errorf("expected 'test pattern', got %q", cfg.Filters.ExcludePatterns[0])
+	if result.Config.Filters.ExcludePatterns[0] != "test pattern" {
+		t.Errorf("expected 'test pattern', got %q", result.Config.Filters.ExcludePatterns[0])
 	}
 }
 
-func TestLoadFromDir_NoConfig(t *testing.T) {
+func TestLoadFromDirWithWarnings_NoConfig(t *testing.T) {
 	dir := t.TempDir()
 
-	cfg, err := LoadFromDir(dir)
+	result, err := LoadFromDirWithWarnings(dir)
 	if err != nil {
 		t.Fatalf("expected no error for missing file, got: %v", err)
 	}
-	if len(cfg.Filters.ExcludePatterns) != 0 {
-		t.Errorf("expected empty patterns, got: %v", cfg.Filters.ExcludePatterns)
+	if len(result.Config.Filters.ExcludePatterns) != 0 {
+		t.Errorf("expected empty patterns, got: %v", result.Config.Filters.ExcludePatterns)
 	}
 }
 
-func TestLoadFromPath_FileNotFound(t *testing.T) {
-	cfg, err := LoadFromPath("/nonexistent/path/.acr.yaml")
+func TestLoadFromPathWithWarnings_FileNotFound(t *testing.T) {
+	result, err := LoadFromPathWithWarnings("/nonexistent/path/.acr.yaml")
 	if err != nil {
 		t.Fatalf("expected no error for missing file, got: %v", err)
 	}
-	if cfg == nil {
+	if result.Config == nil {
 		t.Fatal("expected non-nil config")
 	}
-	if len(cfg.Filters.ExcludePatterns) != 0 {
-		t.Errorf("expected empty patterns, got: %v", cfg.Filters.ExcludePatterns)
+	if len(result.Config.Filters.ExcludePatterns) != 0 {
+		t.Errorf("expected empty patterns, got: %v", result.Config.Filters.ExcludePatterns)
+	}
+	if len(result.Warnings) != 0 {
+		t.Errorf("expected no warnings for missing file, got: %v", result.Warnings)
 	}
 }
 
-func TestLoadFromPath_ValidYAML(t *testing.T) {
+func TestLoadFromPathWithWarnings_ValidYAML(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".acr.yaml")
 
@@ -73,23 +76,23 @@ func TestLoadFromPath_ValidYAML(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg, err := LoadFromPath(configPath)
+	result, err := LoadFromPathWithWarnings(configPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	expected := []string{"Next\\.js forbids", "deprecated API", "consider using"}
-	if len(cfg.Filters.ExcludePatterns) != len(expected) {
-		t.Fatalf("expected %d patterns, got %d", len(expected), len(cfg.Filters.ExcludePatterns))
+	if len(result.Config.Filters.ExcludePatterns) != len(expected) {
+		t.Fatalf("expected %d patterns, got %d", len(expected), len(result.Config.Filters.ExcludePatterns))
 	}
 	for i, pattern := range expected {
-		if cfg.Filters.ExcludePatterns[i] != pattern {
-			t.Errorf("pattern %d: expected %q, got %q", i, pattern, cfg.Filters.ExcludePatterns[i])
+		if result.Config.Filters.ExcludePatterns[i] != pattern {
+			t.Errorf("pattern %d: expected %q, got %q", i, pattern, result.Config.Filters.ExcludePatterns[i])
 		}
 	}
 }
 
-func TestLoadFromPath_EmptyFile(t *testing.T) {
+func TestLoadFromPathWithWarnings_EmptyFile(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".acr.yaml")
 
@@ -97,16 +100,16 @@ func TestLoadFromPath_EmptyFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg, err := LoadFromPath(configPath)
+	result, err := LoadFromPathWithWarnings(configPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(cfg.Filters.ExcludePatterns) != 0 {
-		t.Errorf("expected empty patterns, got: %v", cfg.Filters.ExcludePatterns)
+	if len(result.Config.Filters.ExcludePatterns) != 0 {
+		t.Errorf("expected empty patterns, got: %v", result.Config.Filters.ExcludePatterns)
 	}
 }
 
-func TestLoadFromPath_InvalidYAML(t *testing.T) {
+func TestLoadFromPathWithWarnings_InvalidYAML(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".acr.yaml")
 
@@ -119,13 +122,13 @@ func TestLoadFromPath_InvalidYAML(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := LoadFromPath(configPath)
+	_, err := LoadFromPathWithWarnings(configPath)
 	if err == nil {
 		t.Fatal("expected error for invalid YAML")
 	}
 }
 
-func TestLoadFromPath_InvalidRegex(t *testing.T) {
+func TestLoadFromPathWithWarnings_InvalidRegex(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".acr.yaml")
 
@@ -138,13 +141,13 @@ func TestLoadFromPath_InvalidRegex(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := LoadFromPath(configPath)
+	_, err := LoadFromPathWithWarnings(configPath)
 	if err == nil {
 		t.Fatal("expected error for invalid regex pattern")
 	}
 }
 
-func TestLoadFromPath_EmptyPatterns(t *testing.T) {
+func TestLoadFromPathWithWarnings_EmptyPatterns(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".acr.yaml")
 
@@ -155,12 +158,12 @@ func TestLoadFromPath_EmptyPatterns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg, err := LoadFromPath(configPath)
+	result, err := LoadFromPathWithWarnings(configPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(cfg.Filters.ExcludePatterns) != 0 {
-		t.Errorf("expected empty patterns, got: %v", cfg.Filters.ExcludePatterns)
+	if len(result.Config.Filters.ExcludePatterns) != 0 {
+		t.Errorf("expected empty patterns, got: %v", result.Config.Filters.ExcludePatterns)
 	}
 }
 
@@ -231,7 +234,7 @@ func TestMerge_BothEmpty(t *testing.T) {
 
 // Tests for expanded config schema
 
-func TestLoadFromPath_FullConfig(t *testing.T) {
+func TestLoadFromPathWithWarnings_FullConfig(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".acr.yaml")
 
@@ -248,10 +251,11 @@ filters:
 		t.Fatal(err)
 	}
 
-	cfg, err := LoadFromPath(configPath)
+	result, err := LoadFromPathWithWarnings(configPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	cfg := result.Config
 
 	if cfg.Reviewers == nil || *cfg.Reviewers != 10 {
 		t.Errorf("expected reviewers=10, got %v", cfg.Reviewers)
@@ -273,7 +277,7 @@ filters:
 	}
 }
 
-func TestLoadFromPath_PartialConfig(t *testing.T) {
+func TestLoadFromPathWithWarnings_PartialConfig(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".acr.yaml")
 
@@ -284,10 +288,11 @@ base: feature-branch
 		t.Fatal(err)
 	}
 
-	cfg, err := LoadFromPath(configPath)
+	result, err := LoadFromPathWithWarnings(configPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	cfg := result.Config
 
 	if cfg.Reviewers == nil || *cfg.Reviewers != 3 {
 		t.Errorf("expected reviewers=3, got %v", cfg.Reviewers)
@@ -473,7 +478,7 @@ func TestResolve_MixedSources(t *testing.T) {
 	}
 }
 
-func TestLoadFromPath_InvalidReviewers(t *testing.T) {
+func TestLoadFromPathWithWarnings_InvalidReviewers(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".acr.yaml")
 
@@ -483,13 +488,13 @@ func TestLoadFromPath_InvalidReviewers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := LoadFromPath(configPath)
+	_, err := LoadFromPathWithWarnings(configPath)
 	if err == nil {
 		t.Fatal("expected error for reviewers=0")
 	}
 }
 
-func TestLoadFromPath_InvalidTimeout(t *testing.T) {
+func TestLoadFromPathWithWarnings_InvalidTimeout(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".acr.yaml")
 
@@ -499,7 +504,7 @@ func TestLoadFromPath_InvalidTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := LoadFromPath(configPath)
+	_, err := LoadFromPathWithWarnings(configPath)
 	if err == nil {
 		t.Fatal("expected error for negative timeout")
 	}
@@ -650,19 +655,6 @@ func TestLoadFromPathWithWarnings_NoWarningsForEmptyConfig(t *testing.T) {
 
 	if len(result.Warnings) != 0 {
 		t.Errorf("expected no warnings, got %d: %v", len(result.Warnings), result.Warnings)
-	}
-}
-
-func TestLoadFromPathWithWarnings_FileNotFound(t *testing.T) {
-	result, err := LoadFromPathWithWarnings("/nonexistent/path/.acr.yaml")
-	if err != nil {
-		t.Fatalf("expected no error for missing file, got: %v", err)
-	}
-	if result.Config == nil {
-		t.Fatal("expected non-nil config")
-	}
-	if len(result.Warnings) != 0 {
-		t.Errorf("expected no warnings for missing file, got: %v", result.Warnings)
 	}
 }
 
