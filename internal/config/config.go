@@ -56,6 +56,7 @@ type Config struct {
 	Reviewers   *int         `yaml:"reviewers"`
 	Concurrency *int         `yaml:"concurrency"`
 	Base        *string      `yaml:"base"`
+	Backend     *string      `yaml:"backend"`
 	Timeout     *Duration    `yaml:"timeout"`
 	Retries     *int         `yaml:"retries"`
 	Filters     FilterConfig `yaml:"filters"`
@@ -138,7 +139,7 @@ func (c *Config) validatePatterns() error {
 }
 
 // knownTopLevelKeys are the valid top-level keys in the config file.
-var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "filters"}
+var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "backend", "timeout", "retries", "filters"}
 
 // knownFilterKeys are the valid keys under the "filters" section.
 var knownFilterKeys = []string{"exclude_patterns"}
@@ -258,6 +259,12 @@ func (c *Config) Validate() error {
 	if c.Concurrency != nil && *c.Concurrency < 0 {
 		return fmt.Errorf("concurrency must be >= 0, got %d", *c.Concurrency)
 	}
+	if c.Backend != nil {
+		validBackends := []string{"codex", "gemini", "claude", "cursor"}
+		if !slices.Contains(validBackends, *c.Backend) {
+			return fmt.Errorf("backend must be one of [codex, gemini, claude, cursor], got %q", *c.Backend)
+		}
+	}
 	if c.Retries != nil && *c.Retries < 0 {
 		return fmt.Errorf("retries must be >= 0, got %d", *c.Retries)
 	}
@@ -272,6 +279,7 @@ var Defaults = ResolvedConfig{
 	Reviewers:   5,
 	Concurrency: 0, // means "same as reviewers"
 	Base:        "main",
+	Backend:     "codex",
 	Timeout:     5 * time.Minute,
 	Retries:     1,
 }
@@ -281,6 +289,7 @@ type ResolvedConfig struct {
 	Reviewers   int
 	Concurrency int
 	Base        string
+	Backend     string
 	Timeout     time.Duration
 	Retries     int
 }
@@ -290,6 +299,7 @@ type FlagState struct {
 	ReviewersSet   bool
 	ConcurrencySet bool
 	BaseSet        bool
+	BackendSet     bool
 	TimeoutSet     bool
 	RetriesSet     bool
 }
@@ -302,6 +312,8 @@ type EnvState struct {
 	ConcurrencySet bool
 	Base           string
 	BaseSet        bool
+	Backend        string
+	BackendSet     bool
 	Timeout        time.Duration
 	TimeoutSet     bool
 	Retries        int
@@ -327,6 +339,10 @@ func LoadEnvState() EnvState {
 	if v := os.Getenv("ACR_BASE_REF"); v != "" {
 		state.Base = v
 		state.BaseSet = true
+	}
+	if v := os.Getenv("ACR_BACKEND"); v != "" {
+		state.Backend = v
+		state.BackendSet = true
 	}
 	if v := os.Getenv("ACR_TIMEOUT"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
@@ -363,6 +379,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 		if cfg.Base != nil {
 			result.Base = *cfg.Base
 		}
+		if cfg.Backend != nil {
+			result.Backend = *cfg.Backend
+		}
 		if cfg.Timeout != nil {
 			result.Timeout = cfg.Timeout.AsDuration()
 		}
@@ -381,6 +400,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	if envState.BaseSet {
 		result.Base = envState.Base
 	}
+	if envState.BackendSet {
+		result.Backend = envState.Backend
+	}
 	if envState.TimeoutSet {
 		result.Timeout = envState.Timeout
 	}
@@ -397,6 +419,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	}
 	if flagState.BaseSet {
 		result.Base = flagValues.Base
+	}
+	if flagState.BackendSet {
+		result.Backend = flagValues.Backend
 	}
 	if flagState.TimeoutSet {
 		result.Timeout = flagValues.Timeout
