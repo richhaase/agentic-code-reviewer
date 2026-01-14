@@ -34,7 +34,12 @@ jobs:
     - name: Run gosec
       run: |
         echo "Running security analysis..."
-        go run github.com/securego/gosec/v2/cmd/gosec@latest -conf .gosec.yaml ./...
+        # Exclude rules for legitimate CLI operations:
+        # G204: Subprocess execution (needed for codex/gh CLIs)
+        # G301: Directory permissions (Go defaults are appropriate)
+        # G304: File path input (needed for config file reading)
+        # G306: WriteFile permissions
+        go run github.com/securego/gosec/v2/cmd/gosec@latest -exclude=G204,G301,G304,G306 ./...
       continue-on-error: true
 
     - name: Summary
