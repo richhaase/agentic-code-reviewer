@@ -33,7 +33,8 @@ func handleLGTM(ctx context.Context, allFindings []domain.Finding, stats domain.
 
 	lgtmBody := runner.RenderLGTMMarkdown(stats.TotalReviewers, stats.SuccessfulReviewers, reviewerComments)
 
-	// Check CI status before approving
+	// Check CI status and self-review before approving
+	isSelfReview := false
 	if !local && !autoNo {
 		if !github.IsGHAvailable() {
 			return domain.ExitError
@@ -41,6 +42,9 @@ func handleLGTM(ctx context.Context, allFindings []domain.Finding, stats domain.
 
 		prNumber := github.GetCurrentPRNumber(ctx, worktreeBranch)
 		if prNumber != "" {
+			// Check if this is a self-review
+			isSelfReview = github.IsSelfReview(ctx, prNumber)
+
 			ciStatus := github.CheckCIStatus(ctx, prNumber)
 
 			if ciStatus.Error != "" {
@@ -79,7 +83,22 @@ func handleLGTM(ctx context.Context, allFindings []domain.Finding, stats domain.
 		}
 	}
 
-	// Preview and confirm
+	// Handle self-review: offer to post as comment instead of approving
+	if isSelfReview {
+		if err := confirmAndExecutePRAction(ctx, prAction{
+			body:            lgtmBody,
+			previewLabel:    "LGTM comment preview (self-review)",
+			promptTemplate:  "You cannot approve your own PR. Post LGTM as a comment to PR #%s?",
+			successTemplate: "Posted LGTM comment to PR #%s.",
+			skipMessage:     "Skipped posting LGTM comment.",
+			execute:         github.PostPRComment,
+		}, logger); err != nil {
+			return domain.ExitError
+		}
+		return domain.ExitNoFindings
+	}
+
+	// Preview and confirm approval (non-self-review)
 	if err := confirmAndExecutePRAction(ctx, prAction{
 		body:            lgtmBody,
 		previewLabel:    "Approval comment preview",

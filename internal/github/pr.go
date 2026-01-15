@@ -136,3 +136,35 @@ func IsGHAvailable() bool {
 	_, err := exec.LookPath("gh")
 	return err == nil
 }
+
+// GetCurrentUser returns the username of the authenticated gh user.
+// Returns empty string on error.
+func GetCurrentUser(ctx context.Context) string {
+	cmd := exec.CommandContext(ctx, "gh", "api", "user", "--jq", ".login")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// GetPRAuthor returns the username of the PR author.
+// Returns empty string on error.
+func GetPRAuthor(ctx context.Context, prNumber string) string {
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "author", "--jq", ".author.login")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// IsSelfReview checks if the current user is the author of the PR.
+func IsSelfReview(ctx context.Context, prNumber string) bool {
+	currentUser := GetCurrentUser(ctx)
+	prAuthor := GetPRAuthor(ctx, prNumber)
+	if currentUser == "" || prAuthor == "" {
+		return false
+	}
+	return strings.EqualFold(currentUser, prAuthor)
+}
