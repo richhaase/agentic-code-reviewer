@@ -182,3 +182,88 @@ func TestParseCIChecks_UnknownBucketTreatedAsFailure(t *testing.T) {
 		t.Errorf("unknown bucket should be treated as failure, got %v failed", status.Failed)
 	}
 }
+
+// Tests for self-review functions
+
+func TestCheckSelfReview_MatchingSameCase(t *testing.T) {
+	result := checkSelfReview("octocat", "octocat")
+	if !result {
+		t.Error("expected true for matching usernames with same case")
+	}
+}
+
+func TestCheckSelfReview_MatchingDifferentCase(t *testing.T) {
+	result := checkSelfReview("OctoCat", "octocat")
+	if !result {
+		t.Error("expected true for matching usernames with different case")
+	}
+}
+
+func TestCheckSelfReview_MatchingAllCaps(t *testing.T) {
+	result := checkSelfReview("OCTOCAT", "octocat")
+	if !result {
+		t.Error("expected true for all caps vs lowercase")
+	}
+}
+
+func TestCheckSelfReview_DifferentUsers(t *testing.T) {
+	result := checkSelfReview("octocat", "hubot")
+	if result {
+		t.Error("expected false for different usernames")
+	}
+}
+
+func TestCheckSelfReview_EmptyCurrentUser(t *testing.T) {
+	result := checkSelfReview("", "octocat")
+	if result {
+		t.Error("expected false when current user is empty")
+	}
+}
+
+func TestCheckSelfReview_EmptyPRAuthor(t *testing.T) {
+	result := checkSelfReview("octocat", "")
+	if result {
+		t.Error("expected false when PR author is empty")
+	}
+}
+
+func TestCheckSelfReview_BothEmpty(t *testing.T) {
+	result := checkSelfReview("", "")
+	if result {
+		t.Error("expected false when both are empty")
+	}
+}
+
+func TestCheckSelfReview_WhitespaceOnly(t *testing.T) {
+	// Whitespace-only strings are not empty but should not match valid usernames
+	result := checkSelfReview("  ", "octocat")
+	if result {
+		t.Error("expected false when current user is whitespace")
+	}
+
+	result = checkSelfReview("octocat", "  ")
+	if result {
+		t.Error("expected false when PR author is whitespace")
+	}
+}
+
+func TestCheckSelfReview_PartialMatch(t *testing.T) {
+	result := checkSelfReview("octo", "octocat")
+	if result {
+		t.Error("expected false for partial username match")
+	}
+}
+
+func TestCheckSelfReview_UsernameWithNumbers(t *testing.T) {
+	result := checkSelfReview("user123", "USER123")
+	if !result {
+		t.Error("expected true for matching usernames with numbers (case insensitive)")
+	}
+}
+
+func TestCheckSelfReview_UsernameWithHyphens(t *testing.T) {
+	result := checkSelfReview("octo-cat", "OCTO-CAT")
+	if !result {
+		t.Error("expected true for matching usernames with hyphens (case insensitive)")
+	}
+}

@@ -163,6 +163,12 @@ func GetPRAuthor(ctx context.Context, prNumber string) string {
 func IsSelfReview(ctx context.Context, prNumber string) bool {
 	currentUser := GetCurrentUser(ctx)
 	prAuthor := GetPRAuthor(ctx, prNumber)
+	return checkSelfReview(currentUser, prAuthor)
+}
+
+// checkSelfReview compares usernames to determine if this is a self-review.
+// Returns true if both usernames are non-empty and match (case-insensitive).
+func checkSelfReview(currentUser, prAuthor string) bool {
 	if currentUser == "" || prAuthor == "" {
 		return false
 	}
