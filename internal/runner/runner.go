@@ -4,20 +4,13 @@ package runner
 import (
 	"bufio"
 	"context"
-	"encoding/json"
-	"errors"
-	"os/exec"
+	"io"
 	"sync/atomic"
-	"syscall"
 	"time"
 
+	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
-)
-
-const (
-	scannerInitialBuffer = 64 * 1024         // 64KB
-	scannerMaxLineSize   = 100 * 1024 * 1024 // 100MB
 )
 
 // Config holds the runner configuration.
@@ -34,14 +27,16 @@ type Config struct {
 // Runner executes parallel code reviews.
 type Runner struct {
 	config    Config
+	agent     agent.Agent
 	logger    *terminal.Logger
 	completed *atomic.Int32
 }
 
 // New creates a new runner.
-func New(config Config, logger *terminal.Logger) *Runner {
+func New(config Config, agent agent.Agent, logger *terminal.Logger) *Runner {
 	return &Runner{
 		config:    config,
+		agent:     agent,
 		logger:    logger,
 		completed: &atomic.Int32{},
 	}
@@ -164,86 +159,81 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	timeoutCtx, cancel := context.WithTimeout(ctx, r.config.Timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(timeoutCtx, "codex", "exec", "--json", "--color", "never", "review", "--base", r.config.BaseRef) //nolint:gosec // BaseRef is validated CLI input
-	if r.config.WorkDir != "" {
-		cmd.Dir = r.config.WorkDir
+	// Create agent configuration
+	agentConfig := &agent.AgentConfig{
+		BaseRef:    r.config.BaseRef,
+		Timeout:    r.config.Timeout,
+		WorkDir:    r.config.WorkDir,
+		Verbose:    r.config.Verbose,
+		ReviewerID: string(rune(reviewerID)),
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	stdout, err := cmd.StdoutPipe()
+	// Execute the agent
+	reader, err := r.agent.Execute(timeoutCtx, agentConfig)
 	if err != nil {
 		result.ExitCode = -1
 		result.Duration = time.Since(start)
 		return result
 	}
+	defer func() {
+		if closer, ok := reader.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
-	if err := cmd.Start(); err != nil {
-		result.ExitCode = -1
-		result.Duration = time.Since(start)
-		return result
-	}
+	// Create parser for this agent's output
+	parser := agent.NewCodexOutputParser(reviewerID)
+	defer parser.Close()
 
-	// Read output
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 0, scannerInitialBuffer), scannerMaxLineSize)
+	// Configure scanner
+	scanner := bufio.NewScanner(reader)
+	agent.ConfigureScanner(scanner)
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
+	// Parse output
+	for {
+		// Check for timeout
+		if timeoutCtx.Err() == context.DeadlineExceeded {
+			result.TimedOut = true
+			result.ExitCode = -1
+			result.Duration = time.Since(start)
+			return result
 		}
 
-		var event struct {
-			Item struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"item"`
-		}
-
-		if err := json.Unmarshal([]byte(line), &event); err != nil {
+		finding, err := parser.ReadFinding(scanner)
+		if err != nil {
 			result.ParseErrors++
 			continue
 		}
 
-		if event.Item.Type == "agent_message" && event.Item.Text != "" {
-			result.Findings = append(result.Findings, domain.Finding{
-				Text:       event.Item.Text,
-				ReviewerID: reviewerID,
-			})
+		if finding == nil {
+			// End of stream
+			break
+		}
 
-			if r.verbose() {
-				text := event.Item.Text
-				if len(text) > 120 {
-					text = text[:120] + "..."
-				}
-				r.logger.Logf(terminal.StyleDim, "%s#%d:%s %s%s%s",
-					terminal.Color(terminal.Dim), reviewerID, terminal.Color(terminal.Reset),
-					terminal.Color(terminal.Dim), text, terminal.Color(terminal.Reset))
+		result.Findings = append(result.Findings, *finding)
+
+		if r.verbose() {
+			text := finding.Text
+			if len(text) > 120 {
+				text = text[:120] + "..."
 			}
+			r.logger.Logf(terminal.StyleDim, "%s#%d:%s %s%s%s",
+				terminal.Color(terminal.Dim), reviewerID, terminal.Color(terminal.Reset),
+				terminal.Color(terminal.Dim), text, terminal.Color(terminal.Reset))
 		}
 	}
 
-	err = cmd.Wait()
 	result.Duration = time.Since(start)
 
+	// Check for timeout after parsing
 	if timeoutCtx.Err() == context.DeadlineExceeded {
 		result.TimedOut = true
 		result.ExitCode = -1
-		// Kill process group
-		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
 		return result
 	}
 
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			result.ExitCode = exitErr.ExitCode()
-		} else {
-			result.ExitCode = -1
-		}
-	}
+	// If we got here without timeout, consider it successful
+	result.ExitCode = 0
 
 	return result
 }

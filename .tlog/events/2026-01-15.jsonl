@@ -30,3 +30,9 @@
 {"id":"tl-8bc4ea6c","ts":"2026-01-15T19:39:50.347843Z","type":"create","title":"Update documentation for multi-agent","status":"open","deps":["tl-fe06615e"],"blocks":["tl-ddf507bc"],"labels":["phase3","docs"],"description":"Update README.md, CLAUDE.md with agent selection guide and examples"}
 {"id":"tl-53e93e58","ts":"2026-01-15T20:12:46.569518Z","type":"status","status":"in_progress"}
 {"id":"tl-53e93e58","ts":"2026-01-15T20:33:51.235803Z","type":"status","status":"done","resolution":"completed"}
+{"id":"tl-65ac9632","ts":"2026-01-15T20:52:11.359093Z","type":"status","status":"done","resolution":"completed"}
+{"id":"tl-5159f423","ts":"2026-01-15T21:04:20.736815Z","type":"status","status":"done","resolution":"completed"}
+{"id":"tl-1b78f175","ts":"2026-01-15T21:06:09.465396Z","type":"status","status":"done","resolution":"completed"}
+{"id":"tl-b9a5b822","ts":"2026-01-15T21:06:17.082592Z","type":"status","status":"done","resolution":"completed"}
+{"id":"tl-b3b67a74","ts":"2026-01-15T21:21:47.98446Z","type":"status","status":"in_progress"}
+{"id":"tl-b3b67a74","ts":"2026-01-15T21:26:08.402566Z","type":"status","status":"done","resolution":"completed"}

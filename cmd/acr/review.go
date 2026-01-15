@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/filter"
 	"github.com/richhaase/agentic-code-reviewer/internal/runner"
@@ -25,6 +26,15 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 			terminal.Color(terminal.Dim), baseRef, terminal.Color(terminal.Reset))
 	}
 
+	// Create codex agent
+	codexAgent := agent.NewCodexAgent()
+
+	// Check if codex is available
+	if err := codexAgent.IsAvailable(); err != nil {
+		logger.Logf(terminal.StyleError, "Codex CLI not found: %v", err)
+		return domain.ExitError
+	}
+
 	// Run reviewers
 	r := runner.New(runner.Config{
 		Reviewers:   reviewers,
@@ -34,7 +44,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		Retries:     retries,
 		Verbose:     verbose,
 		WorkDir:     workDir,
-	}, logger)
+	}, codexAgent, logger)
 
 	results, wallClock, err := r.Run(ctx)
 	if err != nil {
