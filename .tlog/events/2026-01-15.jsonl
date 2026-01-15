@@ -28,3 +28,5 @@
 {"id":"tl-5fd66814","ts":"2026-01-15T19:39:50.341596Z","type":"create","title":"Wire agent selection in main.go","status":"open","deps":["tl-c1b149b9"],"blocks":["tl-ddf507bc"],"labels":["phase3"],"description":"Update cmd/acr/main.go to use agent factory based on config/flag"}
 {"id":"tl-fe06615e","ts":"2026-01-15T19:39:50.344814Z","type":"create","title":"Add multi-agent tests","status":"open","deps":["tl-5fd66814"],"blocks":["tl-ddf507bc"],"labels":["phase3","testing"],"description":"Test ClaudeAgent, GeminiAgent, agent factory, config resolution"}
 {"id":"tl-8bc4ea6c","ts":"2026-01-15T19:39:50.347843Z","type":"create","title":"Update documentation for multi-agent","status":"open","deps":["tl-fe06615e"],"blocks":["tl-ddf507bc"],"labels":["phase3","docs"],"description":"Update README.md, CLAUDE.md with agent selection guide and examples"}
+{"id":"tl-53e93e58","ts":"2026-01-15T20:12:46.569518Z","type":"status","status":"in_progress"}
+{"id":"tl-53e93e58","ts":"2026-01-15T20:33:51.235803Z","type":"status","status":"done","resolution":"completed"}

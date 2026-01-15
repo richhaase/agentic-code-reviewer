@@ -7,7 +7,8 @@
       "Bash(make fmt:*)",
       "Bash(make lint:*)",
       "Bash(make vet:*)",
-      "Bash(make test:*)"
+      "Bash(make test:*)",
+      "Bash(bd create:*)"
     ]
   }
 }
