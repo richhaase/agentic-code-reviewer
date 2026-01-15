@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/anthropics/agentic-code-reviewer/internal/domain"
-	"github.com/anthropics/agentic-code-reviewer/internal/filter"
-	"github.com/anthropics/agentic-code-reviewer/internal/runner"
-	"github.com/anthropics/agentic-code-reviewer/internal/summarizer"
-	"github.com/anthropics/agentic-code-reviewer/internal/terminal"
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
+	"github.com/richhaase/agentic-code-reviewer/internal/filter"
+	"github.com/richhaase/agentic-code-reviewer/internal/runner"
+	"github.com/richhaase/agentic-code-reviewer/internal/summarizer"
+	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
 func executeReview(ctx context.Context, workDir string, excludePatterns []string, logger *terminal.Logger) domain.ExitCode {

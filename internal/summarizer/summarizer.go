@@ -10,7 +10,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/anthropics/agentic-code-reviewer/internal/domain"
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
 const groupPrompt = `# Codex Review Summarizer

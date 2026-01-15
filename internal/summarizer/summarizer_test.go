@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anthropics/agentic-code-reviewer/internal/domain"
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
 func TestSummarize_EmptyInput(t *testing.T) {

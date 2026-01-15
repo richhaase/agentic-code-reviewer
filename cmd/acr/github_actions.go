@@ -7,10 +7,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/anthropics/agentic-code-reviewer/internal/domain"
-	"github.com/anthropics/agentic-code-reviewer/internal/github"
-	"github.com/anthropics/agentic-code-reviewer/internal/runner"
-	"github.com/anthropics/agentic-code-reviewer/internal/terminal"
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
+	"github.com/richhaase/agentic-code-reviewer/internal/github"
+	"github.com/richhaase/agentic-code-reviewer/internal/runner"
+	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
 const maxDisplayedCIChecks = 5
