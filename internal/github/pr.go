@@ -167,10 +167,14 @@ func IsSelfReview(ctx context.Context, prNumber string) bool {
 }
 
 // checkSelfReview compares usernames to determine if this is a self-review.
-// Returns true if both usernames are non-empty and match (case-insensitive).
+// Returns true if:
+// - Both usernames are non-empty and match (case-insensitive), OR
+// - Either username is empty (fail closed: assume self-review when uncertain)
 func checkSelfReview(currentUser, prAuthor string) bool {
 	if currentUser == "" || prAuthor == "" {
-		return false
+		// Fail closed: if we can't determine users, assume self-review
+		// to prevent accidental self-approvals
+		return true
 	}
 	return strings.EqualFold(currentUser, prAuthor)
 }

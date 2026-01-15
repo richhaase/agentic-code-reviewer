@@ -214,23 +214,26 @@ func TestCheckSelfReview_DifferentUsers(t *testing.T) {
 }
 
 func TestCheckSelfReview_EmptyCurrentUser(t *testing.T) {
+	// Fail closed: assume self-review when current user lookup fails
 	result := checkSelfReview("", "octocat")
-	if result {
-		t.Error("expected false when current user is empty")
+	if !result {
+		t.Error("expected true when current user is empty (fail closed)")
 	}
 }
 
 func TestCheckSelfReview_EmptyPRAuthor(t *testing.T) {
+	// Fail closed: assume self-review when PR author lookup fails
 	result := checkSelfReview("octocat", "")
-	if result {
-		t.Error("expected false when PR author is empty")
+	if !result {
+		t.Error("expected true when PR author is empty (fail closed)")
 	}
 }
 
 func TestCheckSelfReview_BothEmpty(t *testing.T) {
+	// Fail closed: assume self-review when both lookups fail
 	result := checkSelfReview("", "")
-	if result {
-		t.Error("expected false when both are empty")
+	if !result {
+		t.Error("expected true when both are empty (fail closed)")
 	}
 }
 
@@ -238,12 +241,12 @@ func TestCheckSelfReview_WhitespaceOnly(t *testing.T) {
 	// Whitespace-only strings are not empty but should not match valid usernames
 	result := checkSelfReview("  ", "octocat")
 	if result {
-		t.Error("expected false when current user is whitespace")
+		t.Error("expected false when current user is whitespace (not a match)")
 	}
 
 	result = checkSelfReview("octocat", "  ")
 	if result {
-		t.Error("expected false when PR author is whitespace")
+		t.Error("expected false when PR author is whitespace (not a match)")
 	}
 }
 
