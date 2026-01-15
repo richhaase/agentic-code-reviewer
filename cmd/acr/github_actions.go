@@ -33,53 +33,71 @@ func handleLGTM(ctx context.Context, allFindings []domain.Finding, stats domain.
 
 	lgtmBody := runner.RenderLGTMMarkdown(stats.TotalReviewers, stats.SuccessfulReviewers, reviewerComments)
 
-	// Check CI status before approving
-	if !local && !autoNo {
-		if !github.IsGHAvailable() {
-			return domain.ExitError
-		}
-
-		prNumber := github.GetCurrentPRNumber(ctx, worktreeBranch)
+	// Check for self-review (always when not local - needed for correct path even in autoNo mode)
+	isSelfReview := false
+	var prNumber string
+	if !local && github.IsGHAvailable() {
+		prNumber = github.GetCurrentPRNumber(ctx, worktreeBranch)
 		if prNumber != "" {
-			ciStatus := github.CheckCIStatus(ctx, prNumber)
-
-			if ciStatus.Error != "" {
-				logger.Logf(terminal.StyleError, "Failed to check CI status: %s", ciStatus.Error)
-				return domain.ExitError
-			}
-
-			if !ciStatus.AllPassed {
-				logger.Logf(terminal.StyleSuccess, "%s%sLGTM%s - No issues found by reviewers.",
-					terminal.Color(terminal.Green), terminal.Color(terminal.Bold), terminal.Color(terminal.Reset))
-				fmt.Println()
-
-				if len(ciStatus.Failed) > 0 {
-					logger.Logf(terminal.StyleError, "Cannot approve PR: %d CI check(s) failed", len(ciStatus.Failed))
-					for i, check := range ciStatus.Failed {
-						if i >= maxDisplayedCIChecks {
-							logger.Logf(terminal.StyleDim, "  ... and %d more", len(ciStatus.Failed)-maxDisplayedCIChecks)
-							break
-						}
-						logger.Logf(terminal.StyleDim, "  • %s", check)
-					}
-				}
-				if len(ciStatus.Pending) > 0 {
-					logger.Logf(terminal.StyleWarning, "Cannot approve PR: %d CI check(s) pending", len(ciStatus.Pending))
-					for i, check := range ciStatus.Pending {
-						if i >= maxDisplayedCIChecks {
-							logger.Logf(terminal.StyleDim, "  ... and %d more", len(ciStatus.Pending)-maxDisplayedCIChecks)
-							break
-						}
-						logger.Logf(terminal.StyleDim, "  • %s", check)
-					}
-				}
-
-				return domain.ExitNoFindings
-			}
+			isSelfReview = github.IsSelfReview(ctx, prNumber)
 		}
 	}
 
-	// Preview and confirm
+	// Check CI status before approving (skip in autoNo mode since we won't approve anyway)
+	if !local && !autoNo && prNumber != "" {
+		ciStatus := github.CheckCIStatus(ctx, prNumber)
+
+		if ciStatus.Error != "" {
+			logger.Logf(terminal.StyleError, "Failed to check CI status: %s", ciStatus.Error)
+			return domain.ExitError
+		}
+
+		if !ciStatus.AllPassed {
+			logger.Logf(terminal.StyleSuccess, "%s%sLGTM%s - No issues found by reviewers.",
+				terminal.Color(terminal.Green), terminal.Color(terminal.Bold), terminal.Color(terminal.Reset))
+			fmt.Println()
+
+			if len(ciStatus.Failed) > 0 {
+				logger.Logf(terminal.StyleError, "Cannot approve PR: %d CI check(s) failed", len(ciStatus.Failed))
+				for i, check := range ciStatus.Failed {
+					if i >= maxDisplayedCIChecks {
+						logger.Logf(terminal.StyleDim, "  ... and %d more", len(ciStatus.Failed)-maxDisplayedCIChecks)
+						break
+					}
+					logger.Logf(terminal.StyleDim, "  • %s", check)
+				}
+			}
+			if len(ciStatus.Pending) > 0 {
+				logger.Logf(terminal.StyleWarning, "Cannot approve PR: %d CI check(s) pending", len(ciStatus.Pending))
+				for i, check := range ciStatus.Pending {
+					if i >= maxDisplayedCIChecks {
+						logger.Logf(terminal.StyleDim, "  ... and %d more", len(ciStatus.Pending)-maxDisplayedCIChecks)
+						break
+					}
+					logger.Logf(terminal.StyleDim, "  • %s", check)
+				}
+			}
+
+			return domain.ExitNoFindings
+		}
+	}
+
+	// Handle self-review: offer to post as comment instead of approving
+	if isSelfReview {
+		if err := confirmAndExecutePRAction(ctx, prAction{
+			body:            lgtmBody,
+			previewLabel:    "LGTM comment preview (self-review)",
+			promptTemplate:  "You cannot approve your own PR. Post LGTM as a comment to PR #%s?",
+			successTemplate: "Posted LGTM comment to PR #%s.",
+			skipMessage:     "Skipped posting LGTM comment.",
+			execute:         github.PostPRComment,
+		}, logger); err != nil {
+			return domain.ExitError
+		}
+		return domain.ExitNoFindings
+	}
+
+	// Preview and confirm approval (non-self-review)
 	if err := confirmAndExecutePRAction(ctx, prAction{
 		body:            lgtmBody,
 		previewLabel:    "Approval comment preview",
@@ -180,7 +198,7 @@ func confirmAndExecutePRAction(ctx context.Context, action prAction, logger *ter
 	if !autoYes {
 		fmt.Println()
 		prompt := fmt.Sprintf(action.promptTemplate,
-			fmt.Sprintf("%s#%s%s", terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset)))
+			fmt.Sprintf("%s%s%s", terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset)))
 		fmt.Printf("%s?%s %s %s[Y/n]:%s ",
 			terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
 			prompt,
@@ -203,6 +221,6 @@ func confirmAndExecutePRAction(ctx context.Context, action prAction, logger *ter
 		return err
 	}
 
-	logger.Log(fmt.Sprintf(action.successTemplate, "#"+prNumber), terminal.StyleSuccess)
+	logger.Log(fmt.Sprintf(action.successTemplate, prNumber), terminal.StyleSuccess)
 	return nil
 }
