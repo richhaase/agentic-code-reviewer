@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/anthropics/agentic-code-reviewer/internal/domain"
-	"github.com/anthropics/agentic-code-reviewer/internal/summarizer"
-	"github.com/anthropics/agentic-code-reviewer/internal/terminal"
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
+	"github.com/richhaase/agentic-code-reviewer/internal/summarizer"
+	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
 const maxRawOutputLines = 10

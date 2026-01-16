@@ -12,7 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/anthropics/agentic-code-reviewer/internal/git"
+	"github.com/richhaase/agentic-code-reviewer/internal/git"
 )
 
 // ConfigFileName is the name of the config file.

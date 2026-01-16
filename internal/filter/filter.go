@@ -4,7 +4,7 @@ package filter
 import (
 	"regexp"
 
-	"github.com/anthropics/agentic-code-reviewer/internal/domain"
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
 // Filter holds compiled regex patterns for excluding findings.

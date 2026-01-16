@@ -12,10 +12,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/anthropics/agentic-code-reviewer/internal/config"
-	"github.com/anthropics/agentic-code-reviewer/internal/domain"
-	"github.com/anthropics/agentic-code-reviewer/internal/git"
-	"github.com/anthropics/agentic-code-reviewer/internal/terminal"
+	"github.com/richhaase/agentic-code-reviewer/internal/config"
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
+	"github.com/richhaase/agentic-code-reviewer/internal/git"
+	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
 var (

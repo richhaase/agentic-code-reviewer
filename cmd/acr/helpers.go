@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/anthropics/agentic-code-reviewer/internal/domain"
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
 // filterFindingsByIndices returns findings at the specified indices.

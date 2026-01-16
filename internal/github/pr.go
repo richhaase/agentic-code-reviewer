@@ -136,3 +136,45 @@ func IsGHAvailable() bool {
 	_, err := exec.LookPath("gh")
 	return err == nil
 }
+
+// GetCurrentUser returns the username of the authenticated gh user.
+// Returns empty string on error.
+func GetCurrentUser(ctx context.Context) string {
+	cmd := exec.CommandContext(ctx, "gh", "api", "user", "--jq", ".login")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// GetPRAuthor returns the username of the PR author.
+// Returns empty string on error.
+func GetPRAuthor(ctx context.Context, prNumber string) string {
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "author", "--jq", ".author.login")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// IsSelfReview checks if the current user is the author of the PR.
+func IsSelfReview(ctx context.Context, prNumber string) bool {
+	currentUser := GetCurrentUser(ctx)
+	prAuthor := GetPRAuthor(ctx, prNumber)
+	return checkSelfReview(currentUser, prAuthor)
+}
+
+// checkSelfReview compares usernames to determine if this is a self-review.
+// Returns true if:
+// - Both usernames are non-empty and match (case-insensitive), OR
+// - Either username is empty (fail closed: assume self-review when uncertain)
+func checkSelfReview(currentUser, prAuthor string) bool {
+	if currentUser == "" || prAuthor == "" {
+		// Fail closed: if we can't determine users, assume self-review
+		// to prevent accidental self-approvals
+		return true
+	}
+	return strings.EqualFold(currentUser, prAuthor)
+}

@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/anthropics/agentic-code-reviewer/internal/domain"
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
 func TestFilterFindingsByIndices_SelectsCorrectFindings(t *testing.T) {

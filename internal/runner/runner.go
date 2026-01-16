@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/anthropics/agentic-code-reviewer/internal/domain"
-	"github.com/anthropics/agentic-code-reviewer/internal/terminal"
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
+	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
 const (

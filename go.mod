@@ -1,4 +1,4 @@
-module github.com/anthropics/agentic-code-reviewer
+module github.com/richhaase/agentic-code-reviewer
 
 go 1.24.6
 
