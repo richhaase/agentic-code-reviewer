@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -32,15 +33,28 @@ func (c *CodexAgent) IsAvailable() error {
 
 // Execute runs a code review using the codex CLI.
 // Returns an io.Reader for streaming the JSONL output.
+//
+// If config.CustomPrompt is provided, uses 'codex exec -' with the prompt on stdin.
+// Otherwise, uses 'codex exec review --base X' for the built-in review behavior.
 func (c *CodexAgent) Execute(ctx context.Context, config *AgentConfig) (io.Reader, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
 	}
 
-	// Build command arguments
-	args := []string{"exec", "--json", "--color", "never", "review", "--base", config.BaseRef}
+	var cmd *exec.Cmd
+	var args []string
 
-	cmd := exec.CommandContext(ctx, "codex", args...)
+	if config.CustomPrompt != "" {
+		// Custom prompt mode: pipe prompt to 'codex exec -'
+		args = []string{"exec", "--json", "--color", "never", "-"}
+		cmd = exec.CommandContext(ctx, "codex", args...)
+		cmd.Stdin = bytes.NewReader([]byte(config.CustomPrompt))
+	} else {
+		// Default mode: use built-in 'codex exec review'
+		args = []string{"exec", "--json", "--color", "never", "review", "--base", config.BaseRef}
+		cmd = exec.CommandContext(ctx, "codex", args...)
+	}
+
 	if config.WorkDir != "" {
 		cmd.Dir = config.WorkDir
 	}

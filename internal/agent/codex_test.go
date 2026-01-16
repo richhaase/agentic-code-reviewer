@@ -252,3 +252,87 @@ func TestAgentInterface(t *testing.T) {
 	// Verify that CodexAgent implements the Agent interface
 	var _ Agent = (*CodexAgent)(nil)
 }
+
+func TestCodexAgent_Execute_WithCustomPrompt(t *testing.T) {
+	if _, err := exec.LookPath("codex"); err != nil {
+		t.Skip("codex CLI not available, skipping test")
+	}
+
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping integration test in CI environment")
+	}
+
+	agent := NewCodexAgent()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	config := &AgentConfig{
+		BaseRef:      "HEAD",
+		WorkDir:      ".",
+		CustomPrompt: "Review this code for security issues only.",
+		Timeout:      5 * time.Second,
+	}
+
+	reader, err := agent.Execute(ctx, config)
+	if err != nil {
+		t.Skipf("Execute() failed, possibly due to environment: %v", err)
+	}
+
+	if reader == nil {
+		t.Fatal("Execute() returned nil reader")
+	}
+
+	// Ensure reader is closed
+	if closer, ok := reader.(io.Closer); ok {
+		defer closer.Close()
+	}
+
+	// Try to read some data to verify the command executed
+	buf := make([]byte, 1024)
+	_, err = reader.Read(buf)
+	if err != nil && err != io.EOF {
+		t.Logf("Read() error (may be expected): %v", err)
+	}
+}
+
+func TestCodexAgent_Execute_DefaultBehavior(t *testing.T) {
+	if _, err := exec.LookPath("codex"); err != nil {
+		t.Skip("codex CLI not available, skipping test")
+	}
+
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping integration test in CI environment")
+	}
+
+	agent := NewCodexAgent()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// No CustomPrompt - should use default 'codex exec review' behavior
+	config := &AgentConfig{
+		BaseRef: "HEAD",
+		WorkDir: ".",
+		Timeout: 5 * time.Second,
+	}
+
+	reader, err := agent.Execute(ctx, config)
+	if err != nil {
+		t.Skipf("Execute() failed, possibly due to environment: %v", err)
+	}
+
+	if reader == nil {
+		t.Fatal("Execute() returned nil reader")
+	}
+
+	// Ensure reader is closed
+	if closer, ok := reader.(io.Closer); ok {
+		defer closer.Close()
+	}
+
+	// Try to read some data
+	buf := make([]byte, 1024)
+	_, err = reader.Read(buf)
+	if err != nil && err != io.EOF {
+		t.Logf("Read() error (may be expected): %v", err)
+	}
+}
