@@ -40,7 +40,7 @@ func (c *CodexAgent) Execute(ctx context.Context, config *AgentConfig) (io.Reade
 	// Build command arguments
 	args := []string{"exec", "--json", "--color", "never", "review", "--base", config.BaseRef}
 
-	cmd := exec.CommandContext(ctx, "codex", args...) //nolint:gosec // BaseRef is validated CLI input
+	cmd := exec.CommandContext(ctx, "codex", args...)
 	if config.WorkDir != "" {
 		cmd.Dir = config.WorkDir
 	}
