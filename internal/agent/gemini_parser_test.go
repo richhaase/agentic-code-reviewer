@@ -194,6 +194,11 @@ func TestNewGeminiOutputParser(t *testing.T) {
 	}
 }
 
+func TestGeminiOutputParserInterface(t *testing.T) {
+	// Verify that GeminiOutputParser implements the OutputParser interface
+	var _ OutputParser = (*GeminiOutputParser)(nil)
+}
+
 func BenchmarkGeminiOutputParser_ReadFinding(b *testing.B) {
 	input := `{"text": "Performance issue detected"}
 {"message": "Memory leak found"}
