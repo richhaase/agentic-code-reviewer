@@ -24,6 +24,8 @@ var (
 	baseRef         string
 	timeout         time.Duration
 	retries         int
+	prompt          string
+	promptFile      string
 	verbose         bool
 	local           bool
 	worktreeBranch  string
@@ -67,6 +69,10 @@ Exit codes:
 		"Timeout per reviewer (default: 5m, env: ACR_TIMEOUT)")
 	rootCmd.Flags().IntVarP(&retries, "retries", "R", 0,
 		"Retry failed reviewers N times (default: 1, env: ACR_RETRIES)")
+	rootCmd.Flags().StringVar(&prompt, "prompt", "",
+		"Custom review prompt (env: ACR_REVIEW_PROMPT)")
+	rootCmd.Flags().StringVar(&promptFile, "prompt-file", "",
+		"Path to file containing review prompt (env: ACR_REVIEW_PROMPT_FILE)")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false,
 		"Print agent messages as they arrive")
 	rootCmd.Flags().BoolVarP(&local, "local", "l", false,
@@ -168,11 +174,13 @@ func runReview(cmd *cobra.Command, _ []string) error {
 
 	// Build flag state from cobra's Changed() method
 	flagState := config.FlagState{
-		ReviewersSet:   cmd.Flags().Changed("reviewers"),
-		ConcurrencySet: cmd.Flags().Changed("concurrency"),
-		BaseSet:        cmd.Flags().Changed("base"),
-		TimeoutSet:     cmd.Flags().Changed("timeout"),
-		RetriesSet:     cmd.Flags().Changed("retries"),
+		ReviewersSet:        cmd.Flags().Changed("reviewers"),
+		ConcurrencySet:      cmd.Flags().Changed("concurrency"),
+		BaseSet:             cmd.Flags().Changed("base"),
+		TimeoutSet:          cmd.Flags().Changed("timeout"),
+		RetriesSet:          cmd.Flags().Changed("retries"),
+		ReviewPromptSet:     cmd.Flags().Changed("prompt"),
+		ReviewPromptFileSet: cmd.Flags().Changed("prompt-file"),
 	}
 
 	// Load env var state
@@ -180,11 +188,13 @@ func runReview(cmd *cobra.Command, _ []string) error {
 
 	// Build flag values struct
 	flagValues := config.ResolvedConfig{
-		Reviewers:   reviewers,
-		Concurrency: concurrency,
-		Base:        baseRef,
-		Timeout:     timeout,
-		Retries:     retries,
+		Reviewers:        reviewers,
+		Concurrency:      concurrency,
+		Base:             baseRef,
+		Timeout:          timeout,
+		Retries:          retries,
+		ReviewPrompt:     prompt,
+		ReviewPromptFile: promptFile,
 	}
 
 	// Resolve final configuration (precedence: flags > env vars > config file > defaults)
