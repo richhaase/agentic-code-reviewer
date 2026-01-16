@@ -3,11 +3,11 @@
     "allow": [
       "Bash(gh issue list:*)",
       "Bash(gh issue create:*)",
-      "Bash(just check:*)",
-      "Bash(just fmt:*)",
-      "Bash(just lint:*)",
-      "Bash(just vet:*)",
-      "Bash(just test:*)"
+      "Bash(make check:*)",
+      "Bash(make fmt:*)",
+      "Bash(make lint:*)",
+      "Bash(make vet:*)",
+      "Bash(make test:*)"
     ]
   }
 }

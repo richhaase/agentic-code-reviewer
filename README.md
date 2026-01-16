@@ -166,32 +166,30 @@ Requires the `gh` CLI to be authenticated.
 
 ## Development
 
-Requires [just](https://github.com/casey/just) command runner.
-
 ```bash
-# List available tasks
-just
+# List available targets
+make help
 
 # Build with version info (outputs to bin/)
-just build
+make build
 
 # Run all quality checks (format, lint, vet, staticcheck, tests)
-just check
+make check
 
 # Run tests
-just test
+make test
 
 # Run linter
-just lint
+make lint
 
 # Run staticcheck
-just staticcheck
+make staticcheck
 
 # Format code
-just fmt
+make fmt
 
 # Clean build artifacts
-just clean
+make clean
 ```
 
 ## License

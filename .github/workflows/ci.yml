@@ -20,11 +20,8 @@ jobs:
       with:
         go-version-file: 'go.mod'
 
-    - name: Install just
-      uses: extractions/setup-just@v2
-
     - name: Run tests
-      run: just test
+      run: make test
 
   lint:
     name: Lint
@@ -39,11 +36,8 @@ jobs:
       with:
         go-version-file: 'go.mod'
 
-    - name: Install just
-      uses: extractions/setup-just@v2
-
     - name: Run lint
-      run: just lint
+      run: make lint
 
   staticcheck:
     name: Staticcheck
@@ -58,11 +52,8 @@ jobs:
       with:
         go-version-file: 'go.mod'
 
-    - name: Install just
-      uses: extractions/setup-just@v2
-
     - name: Run staticcheck
-      run: just staticcheck
+      run: make staticcheck
 
   vet:
     name: Vet
@@ -77,8 +68,5 @@ jobs:
       with:
         go-version-file: 'go.mod'
 
-    - name: Install just
-      uses: extractions/setup-just@v2
-
     - name: Run vet
-      run: just vet
+      run: make vet
