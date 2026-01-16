@@ -12,6 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/git"
 )
 
@@ -53,12 +54,14 @@ func (d Duration) AsDuration() time.Duration {
 
 // Config represents the acr configuration file.
 type Config struct {
-	Reviewers   *int         `yaml:"reviewers"`
-	Concurrency *int         `yaml:"concurrency"`
-	Base        *string      `yaml:"base"`
-	Timeout     *Duration    `yaml:"timeout"`
-	Retries     *int         `yaml:"retries"`
-	Filters     FilterConfig `yaml:"filters"`
+	Reviewers        *int         `yaml:"reviewers"`
+	Concurrency      *int         `yaml:"concurrency"`
+	Base             *string      `yaml:"base"`
+	Timeout          *Duration    `yaml:"timeout"`
+	Retries          *int         `yaml:"retries"`
+	ReviewPrompt     *string      `yaml:"review_prompt"`
+	ReviewPromptFile *string      `yaml:"review_prompt_file"`
+	Filters          FilterConfig `yaml:"filters"`
 }
 
 // FilterConfig holds filter-related configuration.
@@ -138,7 +141,7 @@ func (c *Config) validatePatterns() error {
 }
 
 // knownTopLevelKeys are the valid top-level keys in the config file.
-var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "filters"}
+var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "review_prompt", "review_prompt_file", "filters"}
 
 // knownFilterKeys are the valid keys under the "filters" section.
 var knownFilterKeys = []string{"exclude_patterns"}
@@ -278,34 +281,42 @@ var Defaults = ResolvedConfig{
 
 // ResolvedConfig holds the final resolved configuration values.
 type ResolvedConfig struct {
-	Reviewers   int
-	Concurrency int
-	Base        string
-	Timeout     time.Duration
-	Retries     int
+	Reviewers        int
+	Concurrency      int
+	Base             string
+	Timeout          time.Duration
+	Retries          int
+	ReviewPrompt     string
+	ReviewPromptFile string
 }
 
 // FlagState tracks whether a flag was explicitly set.
 type FlagState struct {
-	ReviewersSet   bool
-	ConcurrencySet bool
-	BaseSet        bool
-	TimeoutSet     bool
-	RetriesSet     bool
+	ReviewersSet        bool
+	ConcurrencySet      bool
+	BaseSet             bool
+	TimeoutSet          bool
+	RetriesSet          bool
+	ReviewPromptSet     bool
+	ReviewPromptFileSet bool
 }
 
 // EnvState captures env var values and whether they were set.
 type EnvState struct {
-	Reviewers      int
-	ReviewersSet   bool
-	Concurrency    int
-	ConcurrencySet bool
-	Base           string
-	BaseSet        bool
-	Timeout        time.Duration
-	TimeoutSet     bool
-	Retries        int
-	RetriesSet     bool
+	Reviewers           int
+	ReviewersSet        bool
+	Concurrency         int
+	ConcurrencySet      bool
+	Base                string
+	BaseSet             bool
+	Timeout             time.Duration
+	TimeoutSet          bool
+	Retries             int
+	RetriesSet          bool
+	ReviewPrompt        string
+	ReviewPromptSet     bool
+	ReviewPromptFile    string
+	ReviewPromptFileSet bool
 }
 
 // LoadEnvState reads environment variables and returns their state.
@@ -343,6 +354,14 @@ func LoadEnvState() EnvState {
 			state.RetriesSet = true
 		}
 	}
+	if v := os.Getenv("ACR_REVIEW_PROMPT"); v != "" {
+		state.ReviewPrompt = v
+		state.ReviewPromptSet = true
+	}
+	if v := os.Getenv("ACR_REVIEW_PROMPT_FILE"); v != "" {
+		state.ReviewPromptFile = v
+		state.ReviewPromptFileSet = true
+	}
 
 	return state
 }
@@ -369,6 +388,12 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 		if cfg.Retries != nil {
 			result.Retries = *cfg.Retries
 		}
+		if cfg.ReviewPrompt != nil {
+			result.ReviewPrompt = *cfg.ReviewPrompt
+		}
+		if cfg.ReviewPromptFile != nil {
+			result.ReviewPromptFile = *cfg.ReviewPromptFile
+		}
 	}
 
 	// Apply env var values (if set)
@@ -387,6 +412,12 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	if envState.RetriesSet {
 		result.Retries = envState.Retries
 	}
+	if envState.ReviewPromptSet {
+		result.ReviewPrompt = envState.ReviewPrompt
+	}
+	if envState.ReviewPromptFileSet {
+		result.ReviewPromptFile = envState.ReviewPromptFile
+	}
 
 	// Apply flag values (if explicitly set)
 	if flagState.ReviewersSet {
@@ -404,6 +435,73 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	if flagState.RetriesSet {
 		result.Retries = flagValues.Retries
 	}
+	if flagState.ReviewPromptSet {
+		result.ReviewPrompt = flagValues.ReviewPrompt
+	}
+	if flagState.ReviewPromptFileSet {
+		result.ReviewPromptFile = flagValues.ReviewPromptFile
+	}
 
 	return result
+}
+
+// ResolvePrompt resolves the final review prompt with custom precedence logic.
+// Unlike other config fields, prompts have a special precedence where prompt-file
+// sources are checked separately from prompt string sources.
+//
+// Precedence (highest to lowest):
+// 1. --prompt flag
+// 2. --prompt-file flag
+// 3. ACR_REVIEW_PROMPT env var
+// 4. ACR_REVIEW_PROMPT_FILE env var
+// 5. review_prompt config field
+// 6. review_prompt_file config field
+// 7. DefaultClaudePrompt constant
+//
+// Returns the resolved prompt and an error if a prompt file cannot be read.
+func ResolvePrompt(cfg *Config, envState EnvState, flagState FlagState, flagValues ResolvedConfig) (string, error) {
+	// 1. Check --prompt flag (highest priority)
+	if flagState.ReviewPromptSet && flagValues.ReviewPrompt != "" {
+		return flagValues.ReviewPrompt, nil
+	}
+
+	// 2. Check --prompt-file flag
+	if flagState.ReviewPromptFileSet && flagValues.ReviewPromptFile != "" {
+		content, err := os.ReadFile(flagValues.ReviewPromptFile)
+		if err != nil {
+			return "", fmt.Errorf("failed to read prompt file %q: %w", flagValues.ReviewPromptFile, err)
+		}
+		return string(content), nil
+	}
+
+	// 3. Check ACR_REVIEW_PROMPT env var
+	if envState.ReviewPromptSet && envState.ReviewPrompt != "" {
+		return envState.ReviewPrompt, nil
+	}
+
+	// 4. Check ACR_REVIEW_PROMPT_FILE env var
+	if envState.ReviewPromptFileSet && envState.ReviewPromptFile != "" {
+		content, err := os.ReadFile(envState.ReviewPromptFile)
+		if err != nil {
+			return "", fmt.Errorf("failed to read prompt file %q: %w", envState.ReviewPromptFile, err)
+		}
+		return string(content), nil
+	}
+
+	// 5. Check review_prompt config field
+	if cfg != nil && cfg.ReviewPrompt != nil && *cfg.ReviewPrompt != "" {
+		return *cfg.ReviewPrompt, nil
+	}
+
+	// 6. Check review_prompt_file config field
+	if cfg != nil && cfg.ReviewPromptFile != nil && *cfg.ReviewPromptFile != "" {
+		content, err := os.ReadFile(*cfg.ReviewPromptFile)
+		if err != nil {
+			return "", fmt.Errorf("failed to read prompt file %q: %w", *cfg.ReviewPromptFile, err)
+		}
+		return string(content), nil
+	}
+
+	// 7. Fall back to default
+	return agent.DefaultClaudePrompt, nil
 }

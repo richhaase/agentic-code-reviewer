@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -718,4 +719,224 @@ func strPtr(s string) *string { return &s }
 func durationPtr(d time.Duration) *Duration {
 	dur := Duration(d)
 	return &dur
+}
+
+func TestResolvePrompt(t *testing.T) {
+	// Create temp files for prompt file tests
+	dir := t.TempDir()
+	flagPromptFile := filepath.Join(dir, "flag_prompt.txt")
+	envPromptFile := filepath.Join(dir, "env_prompt.txt")
+	configPromptFile := filepath.Join(dir, "config_prompt.txt")
+
+	if err := os.WriteFile(flagPromptFile, []byte("prompt from flag file"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(envPromptFile, []byte("prompt from env file"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPromptFile, []byte("prompt from config file"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name       string
+		cfg        *Config
+		envState   EnvState
+		flagState  FlagState
+		flagValues ResolvedConfig
+		want       string
+		wantErr    bool
+	}{
+		{
+			name: "flag prompt has highest priority",
+			cfg: &Config{
+				ReviewPrompt:     strPtr("config prompt"),
+				ReviewPromptFile: strPtr(configPromptFile),
+			},
+			envState: EnvState{
+				ReviewPromptSet:     true,
+				ReviewPrompt:        "env prompt",
+				ReviewPromptFileSet: true,
+				ReviewPromptFile:    envPromptFile,
+			},
+			flagState: FlagState{
+				ReviewPromptSet:     true,
+				ReviewPromptFileSet: true,
+			},
+			flagValues: ResolvedConfig{
+				ReviewPrompt:     "flag prompt",
+				ReviewPromptFile: flagPromptFile,
+			},
+			want: "flag prompt",
+		},
+		{
+			name: "flag file has second priority",
+			cfg: &Config{
+				ReviewPrompt:     strPtr("config prompt"),
+				ReviewPromptFile: strPtr(configPromptFile),
+			},
+			envState: EnvState{
+				ReviewPromptSet:     true,
+				ReviewPrompt:        "env prompt",
+				ReviewPromptFileSet: true,
+				ReviewPromptFile:    envPromptFile,
+			},
+			flagState: FlagState{
+				ReviewPromptFileSet: true,
+			},
+			flagValues: ResolvedConfig{
+				ReviewPromptFile: flagPromptFile,
+			},
+			want: "prompt from flag file",
+		},
+		{
+			name: "env prompt has third priority",
+			cfg: &Config{
+				ReviewPrompt:     strPtr("config prompt"),
+				ReviewPromptFile: strPtr(configPromptFile),
+			},
+			envState: EnvState{
+				ReviewPromptSet:     true,
+				ReviewPrompt:        "env prompt",
+				ReviewPromptFileSet: true,
+				ReviewPromptFile:    envPromptFile,
+			},
+			want: "env prompt",
+		},
+		{
+			name: "env file has fourth priority",
+			cfg: &Config{
+				ReviewPrompt:     strPtr("config prompt"),
+				ReviewPromptFile: strPtr(configPromptFile),
+			},
+			envState: EnvState{
+				ReviewPromptFileSet: true,
+				ReviewPromptFile:    envPromptFile,
+			},
+			want: "prompt from env file",
+		},
+		{
+			name: "config prompt has fifth priority",
+			cfg: &Config{
+				ReviewPrompt:     strPtr("config prompt"),
+				ReviewPromptFile: strPtr(configPromptFile),
+			},
+			want: "config prompt",
+		},
+		{
+			name: "config file has sixth priority",
+			cfg: &Config{
+				ReviewPromptFile: strPtr(configPromptFile),
+			},
+			want: "prompt from config file",
+		},
+		{
+			name: "default prompt when nothing is set",
+			want: "You are a code reviewer",
+		},
+		{
+			name: "empty strings are ignored",
+			cfg: &Config{
+				ReviewPrompt:     strPtr(""),
+				ReviewPromptFile: strPtr(""),
+			},
+			envState: EnvState{
+				ReviewPromptSet:     true,
+				ReviewPrompt:        "",
+				ReviewPromptFileSet: true,
+				ReviewPromptFile:    "",
+			},
+			flagState: FlagState{
+				ReviewPromptSet:     true,
+				ReviewPromptFileSet: true,
+			},
+			flagValues: ResolvedConfig{
+				ReviewPrompt:     "",
+				ReviewPromptFile: "",
+			},
+			want: "You are a code reviewer",
+		},
+		{
+			name: "error reading flag prompt file",
+			flagState: FlagState{
+				ReviewPromptFileSet: true,
+			},
+			flagValues: ResolvedConfig{
+				ReviewPromptFile: "/nonexistent/prompt.txt",
+			},
+			wantErr: true,
+		},
+		{
+			name: "error reading env prompt file",
+			envState: EnvState{
+				ReviewPromptFileSet: true,
+				ReviewPromptFile:    "/nonexistent/prompt.txt",
+			},
+			wantErr: true,
+		},
+		{
+			name: "error reading config prompt file",
+			cfg: &Config{
+				ReviewPromptFile: strPtr("/nonexistent/prompt.txt"),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ResolvePrompt(tt.cfg, tt.envState, tt.flagState, tt.flagValues)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ResolvePrompt() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr {
+				// For default prompt, just check it starts with expected text
+				if tt.want == "You are a code reviewer" {
+					if !strings.HasPrefix(got, tt.want) {
+						t.Errorf("ResolvePrompt() = %q, want prompt starting with %q", got, tt.want)
+					}
+				} else if got != tt.want {
+					t.Errorf("ResolvePrompt() = %q, want %q", got, tt.want)
+				}
+			}
+		})
+	}
+}
+
+func TestResolvePrompt_Precedence(t *testing.T) {
+	// Test that verifies the exact precedence order
+	dir := t.TempDir()
+	promptFile := filepath.Join(dir, "prompt.txt")
+	if err := os.WriteFile(promptFile, []byte("file content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// All sources set, flag prompt should win
+	cfg := &Config{
+		ReviewPrompt:     strPtr("config prompt"),
+		ReviewPromptFile: strPtr(promptFile),
+	}
+	envState := EnvState{
+		ReviewPromptSet:     true,
+		ReviewPrompt:        "env prompt",
+		ReviewPromptFileSet: true,
+		ReviewPromptFile:    promptFile,
+	}
+	flagState := FlagState{
+		ReviewPromptSet:     true,
+		ReviewPromptFileSet: false,
+	}
+	flagValues := ResolvedConfig{
+		ReviewPrompt:     "flag prompt",
+		ReviewPromptFile: "",
+	}
+
+	got, err := ResolvePrompt(cfg, envState, flagState, flagValues)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "flag prompt" {
+		t.Errorf("expected 'flag prompt', got %q", got)
+	}
 }
