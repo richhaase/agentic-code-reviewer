@@ -10,13 +10,10 @@ func TestDefaultClaudePrompt(t *testing.T) {
 		t.Error("DefaultClaudePrompt should not be empty")
 	}
 
-	// Check for key elements that should be in a code review prompt
+	// Check for key elements in the tuned Claude prompt
 	requiredElements := []string{
-		"code review",
 		"bugs",
 		"security",
-		"performance",
-		"finding",
 		"file",
 		"line",
 	}
@@ -60,21 +57,23 @@ func TestDefaultPromptsAreDecoupled(t *testing.T) {
 }
 
 func TestPromptInstructionsIncludeExamples(t *testing.T) {
-	// Verify that the prompt includes examples to guide the agent
-	if !strings.Contains(DefaultClaudePrompt, "Example") {
-		t.Error("DefaultClaudePrompt should include examples")
+	// Verify that the Gemini prompt includes examples to guide the agent
+	// (Claude prompt is tuned for brevity and omits examples)
+	if !strings.Contains(DefaultGeminiPrompt, "Example") {
+		t.Error("DefaultGeminiPrompt should include examples")
 	}
 
 	// Check for example patterns like file paths with line numbers
-	if !strings.Contains(DefaultClaudePrompt, ".go:") {
-		t.Error("DefaultClaudePrompt should include Go file examples with line numbers")
+	if !strings.Contains(DefaultGeminiPrompt, ".go:") {
+		t.Error("DefaultGeminiPrompt should include Go file examples with line numbers")
 	}
 }
 
 func TestPromptInstructsNoFalsePositives(t *testing.T) {
-	// Verify that the prompt instructs agents not to output "looks good" messages
-	lowerPrompt := strings.ToLower(DefaultClaudePrompt)
+	// Verify that the Gemini prompt instructs agents not to output "looks good" messages
+	// (Claude prompt achieves this via "Skip: Suggestions" instead)
+	lowerPrompt := strings.ToLower(DefaultGeminiPrompt)
 	if !strings.Contains(lowerPrompt, "do not output") || !strings.Contains(lowerPrompt, "looks good") {
-		t.Error("DefaultClaudePrompt should instruct agents not to output 'looks good' messages")
+		t.Error("DefaultGeminiPrompt should instruct agents not to output 'looks good' messages")
 	}
 }
