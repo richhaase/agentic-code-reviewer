@@ -104,3 +104,6 @@
 {"id":"tl-8bc4ea6c","ts":"2026-01-17T16:41:48.576713Z","type":"status","status":"in_progress"}
 {"id":"tl-ba6c625b","ts":"2026-01-17T16:44:01.236912Z","type":"status","status":"done","resolution":"completed","notes":"Added Custom Prompts section to README with usage examples and guidance"}
 {"id":"tl-8bc4ea6c","ts":"2026-01-17T16:44:01.242001Z","type":"status","status":"done","resolution":"completed","notes":"Added Agent Selection section to README with agent table and examples"}
+{"id":"tl-f3fe961f","ts":"2026-01-17T16:45:40.433809Z","type":"status","status":"in_progress"}
+{"id":"tl-f3fe961f","ts":"2026-01-17T16:52:27.355707Z","type":"status","status":"done","resolution":"completed","notes":"No work needed. Tests use t.TempDir() for isolation, only call safe utilities (echo/true/false/git in temp repos). No real CLI calls or system modifications."}
+{"id":"tl-ddf507bc","ts":"2026-01-17T17:03:46.757694Z","type":"status","status":"done","resolution":"completed","notes":"Multi-agent (codex/claude/gemini) and custom prompts (--prompt/--prompt-file) fully implemented, tested, and documented."}
