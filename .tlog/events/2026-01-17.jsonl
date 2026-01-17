@@ -91,3 +91,5 @@
 {"id":"fb3ab77f","ts":"2026-01-17T14:05:48.658242Z","type":"status","status":"done","resolution":"completed","notes":"Prompts decoupled - DefaultGeminiPrompt is now independent constant. Updated test to reflect decoupling."}
 {"id":"c789a356","ts":"2026-01-17T15:16:41.785717Z","type":"status","status":"in_progress"}
 {"id":"c789a356","ts":"2026-01-17T15:48:33.938241Z","type":"update","notes":"Baseline complete: Codex 4/1FP (25%), Gemini 6/3FP (50%), Claude 20/16FP (80%). Claude needs tuning to reduce noise."}
+{"id":"c789a356","ts":"2026-01-17T16:06:43.685335Z","type":"status","status":"done","resolution":"completed","notes":"Tuned Claude v3 prompt: 11 findings, 73% FP. All agents finding real bugs ~75% of time. Baselines documented in docs/prompt-tuning-log.md. Knowledge applies to eval framework design."}
+{"id":"6c2b2ee0","ts":"2026-01-17T16:06:45.43517Z","type":"update","notes":"Insights from c789a356 tuning: need FP tracking, cross-agent comparison, baseline logging. See docs/TUNING.md and docs/prompt-tuning-log.md for methodology."}
