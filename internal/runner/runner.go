@@ -214,8 +214,9 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 
 		finding, err := parser.ReadFinding(scanner)
 		if err != nil {
+			// Scanner error is permanent - break to avoid infinite loop
 			result.ParseErrors++
-			continue
+			break
 		}
 
 		if finding == nil {
