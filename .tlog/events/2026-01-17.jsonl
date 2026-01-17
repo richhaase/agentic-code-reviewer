@@ -132,3 +132,5 @@
 {"id":"8296b1ff","ts":"2026-01-17T18:43:30.417974Z","type":"dep","dep":"24bd6062","action":"add"}
 {"id":"24bd6062","ts":"2026-01-17T18:44:35.690552Z","type":"status","status":"in_progress","notes":"Implementing BATS eval harness"}
 {"id":"24bd6062","ts":"2026-01-17T18:54:41.228999Z","type":"status","status":"done","resolution":"completed","notes":"Created evals/lib/test_helper.bash with workspace setup/teardown and repo clone helpers. Added 'make eval' to root Makefile. No stubs or unnecessary docs."}
+{"id":"4f98cd90","ts":"2026-01-17T19:02:36.007156Z","type":"status","status":"in_progress","notes":"Implementing basic smoke tests for ACR with different agents and prompts"}
+{"id":"4f98cd90","ts":"2026-01-17T19:14:23.253952Z","type":"status","status":"done","resolution":"completed","notes":"Created evals/tests/smoke.bats with 6 tests (3 agents x default/custom prompt). Verified first test passes."}
