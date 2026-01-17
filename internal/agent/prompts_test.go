@@ -51,11 +51,11 @@ func TestDefaultGeminiPrompt(t *testing.T) {
 	}
 }
 
-func TestDefaultPromptsAreIdentical(t *testing.T) {
-	// Currently both prompts should be identical
-	// This test can be removed or modified if prompts diverge in the future
-	if DefaultClaudePrompt != DefaultGeminiPrompt {
-		t.Error("DefaultClaudePrompt and DefaultGeminiPrompt should be identical (for now)")
+func TestDefaultPromptsAreDecoupled(t *testing.T) {
+	// Prompts are decoupled to allow independent tuning per agent
+	// Both should be valid prompts but don't need to be identical
+	if DefaultClaudePrompt == "" || DefaultGeminiPrompt == "" {
+		t.Error("Both prompts should be non-empty")
 	}
 }
 
