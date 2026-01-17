@@ -21,18 +21,22 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 			terminal.Color(terminal.Dim), reviewers, baseRef, terminal.Color(terminal.Reset))
 	}
 
-	if verbose {
-		logger.Logf(terminal.StyleDim, "%sCommand: codex exec --json --color never review --base %s%s",
-			terminal.Color(terminal.Dim), baseRef, terminal.Color(terminal.Reset))
+	// Create agent based on --agent flag
+	reviewAgent, err := agent.NewAgent(agentName)
+	if err != nil {
+		logger.Logf(terminal.StyleError, "Invalid agent: %v", err)
+		return domain.ExitError
 	}
 
-	// Create codex agent
-	codexAgent := agent.NewCodexAgent()
-
-	// Check if codex is available
-	if err := codexAgent.IsAvailable(); err != nil {
-		logger.Logf(terminal.StyleError, "Codex CLI not found: %v", err)
+	// Check if agent CLI is available
+	if err := reviewAgent.IsAvailable(); err != nil {
+		logger.Logf(terminal.StyleError, "%s CLI not found: %v", agentName, err)
 		return domain.ExitError
+	}
+
+	if verbose {
+		logger.Logf(terminal.StyleDim, "%sUsing agent: %s%s",
+			terminal.Color(terminal.Dim), agentName, terminal.Color(terminal.Reset))
 	}
 
 	// Run reviewers
@@ -44,7 +48,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		Retries:     retries,
 		Verbose:     verbose,
 		WorkDir:     workDir,
-	}, codexAgent, logger)
+	}, reviewAgent, logger)
 
 	results, wallClock, err := r.Run(ctx)
 	if err != nil {

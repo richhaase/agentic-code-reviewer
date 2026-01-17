@@ -182,7 +182,12 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	}()
 
 	// Create parser for this agent's output
-	parser := agent.NewCodexOutputParser(reviewerID)
+	parser, err := agent.NewOutputParser(r.agent.Name(), reviewerID)
+	if err != nil {
+		result.ExitCode = -1
+		result.Duration = time.Since(start)
+		return result
+	}
 	defer parser.Close()
 
 	// Configure scanner

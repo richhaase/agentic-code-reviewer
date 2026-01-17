@@ -33,6 +33,7 @@ var (
 	autoNo          bool
 	excludePatterns []string
 	noConfig        bool
+	agentName       string
 )
 
 func main() {
@@ -92,6 +93,8 @@ Exit codes:
 		"Exclude findings matching regex pattern (repeatable)")
 	rootCmd.Flags().BoolVar(&noConfig, "no-config", false,
 		"Skip loading .acr.yaml config file")
+	rootCmd.Flags().StringVarP(&agentName, "agent", "a", "codex",
+		"Agent to use for reviews: codex, claude, gemini (env: ACR_AGENT)")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
