@@ -12,3 +12,4 @@
 
 | Run | Agent | Commit | Findings | False Positives | Notes |
 |-----|-------|--------|----------|-----------------|-------|
+| 4 | claude | c9fc2a8+ | 1 | 0 | v1 tuned prompt; 0% FP but missed 3 TPs |
