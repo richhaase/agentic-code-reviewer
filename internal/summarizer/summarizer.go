@@ -83,7 +83,7 @@ func buildCommand(ctx context.Context, agentName, prompt string) (*exec.Cmd, err
 		cmd.Stdin = bytes.NewReader([]byte(prompt))
 		return cmd, nil
 	case "claude":
-		cmd := exec.CommandContext(ctx, "claude", "--print", prompt)
+		cmd := exec.CommandContext(ctx, "claude", "--print", "--output-format", "json", prompt)
 		cmd.Stdin = bytes.NewReader([]byte{}) // Empty stdin for non-interactive
 		return cmd, nil
 	case "gemini":
