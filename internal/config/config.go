@@ -59,7 +59,7 @@ type Config struct {
 	Base             *string      `yaml:"base"`
 	Timeout          *Duration    `yaml:"timeout"`
 	Retries          *int         `yaml:"retries"`
-	Agent            *string      `yaml:"agent"`
+	ReviewerAgent    *string      `yaml:"reviewer_agent"`
 	SummarizerAgent  *string      `yaml:"summarizer_agent"`
 	ReviewPrompt     *string      `yaml:"review_prompt"`
 	ReviewPromptFile *string      `yaml:"review_prompt_file"`
@@ -143,7 +143,7 @@ func (c *Config) validatePatterns() error {
 }
 
 // knownTopLevelKeys are the valid top-level keys in the config file.
-var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "agent", "summarizer_agent", "review_prompt", "review_prompt_file", "filters"}
+var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "reviewer_agent", "summarizer_agent", "review_prompt", "review_prompt_file", "filters"}
 
 // knownFilterKeys are the valid keys under the "filters" section.
 var knownFilterKeys = []string{"exclude_patterns"}
@@ -269,8 +269,8 @@ func (c *Config) Validate() error {
 	if c.Timeout != nil && *c.Timeout <= 0 {
 		return fmt.Errorf("timeout must be > 0, got %s", time.Duration(*c.Timeout))
 	}
-	if c.Agent != nil && !slices.Contains(agent.SupportedAgents, *c.Agent) {
-		return fmt.Errorf("agent must be one of %v, got %q", agent.SupportedAgents, *c.Agent)
+	if c.ReviewerAgent != nil && !slices.Contains(agent.SupportedAgents, *c.ReviewerAgent) {
+		return fmt.Errorf("reviewer_agent must be one of %v, got %q", agent.SupportedAgents, *c.ReviewerAgent)
 	}
 	if c.SummarizerAgent != nil && !slices.Contains(agent.SupportedAgents, *c.SummarizerAgent) {
 		return fmt.Errorf("summarizer_agent must be one of %v, got %q", agent.SupportedAgents, *c.SummarizerAgent)
@@ -285,7 +285,7 @@ var Defaults = ResolvedConfig{
 	Base:            "main",
 	Timeout:         10 * time.Minute,
 	Retries:         1,
-	Agent:           agent.DefaultAgent,
+	ReviewerAgent:   agent.DefaultAgent,
 	SummarizerAgent: agent.DefaultSummarizerAgent,
 }
 
@@ -296,7 +296,7 @@ type ResolvedConfig struct {
 	Base             string
 	Timeout          time.Duration
 	Retries          int
-	Agent            string
+	ReviewerAgent    string
 	SummarizerAgent  string
 	ReviewPrompt     string
 	ReviewPromptFile string
@@ -309,7 +309,7 @@ type FlagState struct {
 	BaseSet             bool
 	TimeoutSet          bool
 	RetriesSet          bool
-	AgentSet            bool
+	ReviewerAgentSet    bool
 	SummarizerAgentSet  bool
 	ReviewPromptSet     bool
 	ReviewPromptFileSet bool
@@ -327,8 +327,8 @@ type EnvState struct {
 	TimeoutSet          bool
 	Retries             int
 	RetriesSet          bool
-	Agent               string
-	AgentSet            bool
+	ReviewerAgent       string
+	ReviewerAgentSet    bool
 	SummarizerAgent     string
 	SummarizerAgentSet  bool
 	ReviewPrompt        string
@@ -372,9 +372,9 @@ func LoadEnvState() EnvState {
 			state.RetriesSet = true
 		}
 	}
-	if v := os.Getenv("ACR_AGENT"); v != "" {
-		state.Agent = v
-		state.AgentSet = true
+	if v := os.Getenv("ACR_REVIEWER_AGENT"); v != "" {
+		state.ReviewerAgent = v
+		state.ReviewerAgentSet = true
 	}
 	if v := os.Getenv("ACR_SUMMARIZER_AGENT"); v != "" {
 		state.SummarizerAgent = v
@@ -414,8 +414,8 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 		if cfg.Retries != nil {
 			result.Retries = *cfg.Retries
 		}
-		if cfg.Agent != nil {
-			result.Agent = *cfg.Agent
+		if cfg.ReviewerAgent != nil {
+			result.ReviewerAgent = *cfg.ReviewerAgent
 		}
 		if cfg.SummarizerAgent != nil {
 			result.SummarizerAgent = *cfg.SummarizerAgent
@@ -444,8 +444,8 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	if envState.RetriesSet {
 		result.Retries = envState.Retries
 	}
-	if envState.AgentSet {
-		result.Agent = envState.Agent
+	if envState.ReviewerAgentSet {
+		result.ReviewerAgent = envState.ReviewerAgent
 	}
 	if envState.SummarizerAgentSet {
 		result.SummarizerAgent = envState.SummarizerAgent
@@ -473,8 +473,8 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	if flagState.RetriesSet {
 		result.Retries = flagValues.Retries
 	}
-	if flagState.AgentSet {
-		result.Agent = flagValues.Agent
+	if flagState.ReviewerAgentSet {
+		result.ReviewerAgent = flagValues.ReviewerAgent
 	}
 	if flagState.SummarizerAgentSet {
 		result.SummarizerAgent = flagValues.SummarizerAgent

@@ -93,8 +93,8 @@ Exit codes:
 		"Exclude findings matching regex pattern (repeatable)")
 	rootCmd.Flags().BoolVar(&noConfig, "no-config", false,
 		"Skip loading .acr.yaml config file")
-	rootCmd.Flags().StringVarP(&agentName, "agent", "a", "codex",
-		"Agent to use for reviews: codex, claude, gemini (env: ACR_AGENT)")
+	rootCmd.Flags().StringVarP(&agentName, "reviewer-agent", "a", "codex",
+		"Agent to use for reviews: codex, claude, gemini (env: ACR_REVIEWER_AGENT)")
 	rootCmd.Flags().StringVarP(&summarizerAgentName, "summarizer-agent", "s", "codex",
 		"Agent to use for summarization: codex, claude, gemini (env: ACR_SUMMARIZER_AGENT)")
 
@@ -182,7 +182,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		BaseSet:             cmd.Flags().Changed("base"),
 		TimeoutSet:          cmd.Flags().Changed("timeout"),
 		RetriesSet:          cmd.Flags().Changed("retries"),
-		AgentSet:            cmd.Flags().Changed("agent"),
+		ReviewerAgentSet:    cmd.Flags().Changed("reviewer-agent"),
 		SummarizerAgentSet:  cmd.Flags().Changed("summarizer-agent"),
 		ReviewPromptSet:     cmd.Flags().Changed("prompt"),
 		ReviewPromptFileSet: cmd.Flags().Changed("prompt-file"),
@@ -198,7 +198,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		Base:             baseRef,
 		Timeout:          timeout,
 		Retries:          retries,
-		Agent:            agentName,
+		ReviewerAgent:    agentName,
 		SummarizerAgent:  summarizerAgentName,
 		ReviewPrompt:     prompt,
 		ReviewPromptFile: promptFile,
@@ -213,7 +213,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	baseRef = resolved.Base
 	timeout = resolved.Timeout
 	retries = resolved.Retries
-	agentName = resolved.Agent
+	agentName = resolved.ReviewerAgent
 	summarizerAgentName = resolved.SummarizerAgent
 
 	// Validate resolved config
