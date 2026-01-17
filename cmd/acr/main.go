@@ -96,6 +96,10 @@ Exit codes:
 		"Agent to use for reviews: codex, claude, gemini (env: ACR_AGENT)")
 
 	if err := rootCmd.Execute(); err != nil {
+		// Check if this is an exit code wrapper (not a real error)
+		if exitErr, ok := err.(exitCodeError); ok {
+			return exitErr.code.Int()
+		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return domain.ExitError.Int()
 	}
