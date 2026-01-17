@@ -109,3 +109,7 @@
 {"id":"tl-ddf507bc","ts":"2026-01-17T17:03:46.757694Z","type":"status","status":"done","resolution":"completed","notes":"Multi-agent (codex/claude/gemini) and custom prompts (--prompt/--prompt-file) fully implemented, tested, and documented."}
 {"id":"0133eedd","ts":"2026-01-17T17:10:56.500504Z","type":"status","status":"in_progress"}
 {"id":"0133eedd","ts":"2026-01-17T17:15:39.517005Z","type":"status","status":"done","resolution":"completed","notes":"Fixed process group termination: cmdReader now kills process group on context cancellation, summarizer uses Setpgid and kills group on cancel"}
+{"id":"eae177a1","ts":"2026-01-17T17:18:34.455001Z","type":"status","status":"in_progress"}
+{"id":"6c2b2ee0","ts":"2026-01-17T17:19:33.207415Z","type":"dep","dep":"5882e60e","action":"add"}
+{"id":"8296b1ff","ts":"2026-01-17T17:20:21.089994Z","type":"dep","dep":"4524a7c3","action":"add"}
+{"id":"eae177a1","ts":"2026-01-17T17:22:10.960324Z","type":"status","status":"done","resolution":"completed","notes":"Already fixed by previous commit (c1019e7). The cmdReader.Close() checks ctx.Err() != nil which covers both context.Canceled and context.DeadlineExceeded. Updated comments to clarify timeout handling."}
