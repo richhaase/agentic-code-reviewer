@@ -68,3 +68,6 @@
 {"id":"42f475fa","ts":"2026-01-17T02:50:17.950808Z","type":"dep","dep":"e753f7f5","action":"add"}
 {"id":"49d1a0f5","ts":"2026-01-17T02:50:25.872982Z","type":"dep","dep":"42f475fa","action":"add"}
 {"id":"f94952f8","ts":"2026-01-17T02:51:39.115076Z","type":"status","status":"in_progress","notes":"Retrying now that Codex rate limit resolved"}
+{"id":"34701bb9","ts":"2026-01-17T03:34:41.917622Z","type":"create","title":"Fix: Local mode (-l) still prompts for finding selection","status":"open","priority":2,"labels":["bug","critical"],"description":"When running with -l/--local flag, acr still shows 'Select findings to post' prompt. Local mode should display findings and exit without any interactive prompts or posting attempts."}
+{"id":"34701bb9","ts":"2026-01-17T03:35:09.365168Z","type":"status","status":"in_progress","notes":"Investigating local mode prompt behavior"}
+{"id":"34701bb9","ts":"2026-01-17T03:35:59.183366Z","type":"status","status":"done","resolution":"completed","notes":"Added !local check to skip interactive selector in local mode (github_actions.go:119)"}
