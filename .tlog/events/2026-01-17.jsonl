@@ -89,3 +89,5 @@
 {"id":"e9e04fdf","ts":"2026-01-17T04:15:59.667515Z","type":"status","status":"done","resolution":"completed","notes":"Verified end-to-end: 8 findings in 1m45s. Good signal-to-noise after parser fix for response field."}
 {"id":"fb3ab77f","ts":"2026-01-17T13:58:08.995071Z","type":"status","status":"in_progress","notes":"Decoupling prompts for independent tuning"}
 {"id":"fb3ab77f","ts":"2026-01-17T14:05:48.658242Z","type":"status","status":"done","resolution":"completed","notes":"Prompts decoupled - DefaultGeminiPrompt is now independent constant. Updated test to reflect decoupling."}
+{"id":"c789a356","ts":"2026-01-17T15:16:41.785717Z","type":"status","status":"in_progress"}
+{"id":"c789a356","ts":"2026-01-17T15:48:33.938241Z","type":"update","notes":"Baseline complete: Codex 4/1FP (25%), Gemini 6/3FP (50%), Claude 20/16FP (80%). Claude needs tuning to reduce noise."}
