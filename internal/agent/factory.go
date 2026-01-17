@@ -5,8 +5,11 @@ import "fmt"
 // SupportedAgents lists all valid agent names.
 var SupportedAgents = []string{"codex", "claude", "gemini"}
 
-// DefaultAgent is the default agent used when none is specified.
+// DefaultAgent is the default agent used for reviews when none is specified.
 const DefaultAgent = "codex"
+
+// DefaultSummarizerAgent is the default agent used for summarization when none is specified.
+const DefaultSummarizerAgent = "codex"
 
 // NewAgent creates an Agent by name.
 // Supported agents: codex, claude, gemini

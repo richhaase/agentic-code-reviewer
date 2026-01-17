@@ -18,21 +18,22 @@ import (
 )
 
 var (
-	reviewers       int
-	concurrency     int
-	baseRef         string
-	timeout         time.Duration
-	retries         int
-	prompt          string
-	promptFile      string
-	verbose         bool
-	local           bool
-	worktreeBranch  string
-	autoYes         bool
-	autoNo          bool
-	excludePatterns []string
-	noConfig        bool
-	agentName       string
+	reviewers           int
+	concurrency         int
+	baseRef             string
+	timeout             time.Duration
+	retries             int
+	prompt              string
+	promptFile          string
+	verbose             bool
+	local               bool
+	worktreeBranch      string
+	autoYes             bool
+	autoNo              bool
+	excludePatterns     []string
+	noConfig            bool
+	agentName           string
+	summarizerAgentName string
 )
 
 func main() {
@@ -94,6 +95,8 @@ Exit codes:
 		"Skip loading .acr.yaml config file")
 	rootCmd.Flags().StringVarP(&agentName, "agent", "a", "codex",
 		"Agent to use for reviews: codex, claude, gemini (env: ACR_AGENT)")
+	rootCmd.Flags().StringVarP(&summarizerAgentName, "summarizer-agent", "s", "codex",
+		"Agent to use for summarization: codex, claude, gemini (env: ACR_SUMMARIZER_AGENT)")
 
 	if err := rootCmd.Execute(); err != nil {
 		// Check if this is an exit code wrapper (not a real error)
@@ -180,6 +183,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		TimeoutSet:          cmd.Flags().Changed("timeout"),
 		RetriesSet:          cmd.Flags().Changed("retries"),
 		AgentSet:            cmd.Flags().Changed("agent"),
+		SummarizerAgentSet:  cmd.Flags().Changed("summarizer-agent"),
 		ReviewPromptSet:     cmd.Flags().Changed("prompt"),
 		ReviewPromptFileSet: cmd.Flags().Changed("prompt-file"),
 	}
@@ -195,6 +199,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		Timeout:          timeout,
 		Retries:          retries,
 		Agent:            agentName,
+		SummarizerAgent:  summarizerAgentName,
 		ReviewPrompt:     prompt,
 		ReviewPromptFile: promptFile,
 	}
@@ -209,6 +214,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	timeout = resolved.Timeout
 	retries = resolved.Retries
 	agentName = resolved.Agent
+	summarizerAgentName = resolved.SummarizerAgent
 
 	// Validate resolved config
 	if reviewers < 1 {
