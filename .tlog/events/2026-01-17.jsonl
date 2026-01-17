@@ -121,3 +121,5 @@
 {"id":"42f475fa","ts":"2026-01-17T17:39:52.06088Z","type":"status","status":"in_progress"}
 {"id":"42f475fa","ts":"2026-01-17T17:43:19.981219Z","type":"status","status":"done","resolution":"completed","notes":"Updated Summarize() to accept agentName, added buildCommand helper for codex/claude/gemini, updated all callers"}
 {"id":"49d1a0f5","ts":"2026-01-17T17:43:34.822914Z","type":"status","status":"done","resolution":"completed","notes":"Already wired as part of 42f475fa - review.go now passes summarizerAgentName to summarizer.Summarize()"}
+{"id":"6c083573","ts":"2026-01-17T17:48:28.602396Z","type":"status","status":"in_progress"}
+{"id":"6c083573","ts":"2026-01-17T17:55:26.536883Z","type":"status","status":"done","resolution":"completed","notes":"Completed rename: Agent-\u003eReviewerAgent in struct, agent-\u003ereviewer_agent in YAML, ACR_AGENT-\u003eACR_REVIEWER_AGENT env var, --agent-\u003e--reviewer-agent CLI flag"}
