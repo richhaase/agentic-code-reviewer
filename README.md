@@ -85,9 +85,10 @@ acr --verbose
 | `--no`              | `-n`  | false   | Skip submitting review                   |
 | `--exclude-pattern` |       |         | Exclude findings matching regex (repeat) |
 | `--no-config`       |       | false   | Skip loading .acr.yaml config file       |
-| `--agent`           | `-a`  | codex   | Agent backend (codex, claude, gemini)    |
-| `--prompt`          |       |         | Custom review prompt (inline)            |
-| `--prompt-file`     |       |         | Path to file containing review prompt    |
+| `--reviewer-agent`  | `-a`  | codex   | [experimental] Agent for reviews (codex, claude, gemini) |
+| `--summarizer-agent`| `-s`  | codex   | [experimental] Agent for summarization (codex, claude, gemini) |
+| `--prompt`          |       |         | [experimental] Custom review prompt (inline) |
+| `--prompt-file`     |       |         | [experimental] Path to file containing review prompt |
 
 ### Concurrency Control
 
@@ -103,7 +104,7 @@ acr -r 10 -R 3 -c 3
 
 By default, concurrency equals the reviewer count (all run in parallel).
 
-### Agent Selection
+### Agent Selection (Experimental)
 
 ACR supports multiple AI backends for code review:
 
@@ -114,16 +115,19 @@ ACR supports multiple AI backends for code review:
 | `gemini` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google's Gemini via CLI |
 
 ```bash
-# Use Claude instead of Codex
-acr --agent claude
+# Use Claude instead of Codex for reviews
+acr --reviewer-agent claude
 
-# Use Gemini
+# Use Gemini for reviews
 acr -a gemini
+
+# Use different agents for review and summarization
+acr --reviewer-agent gemini --summarizer-agent claude
 ```
 
 Different agents may find different issues. The appropriate CLI must be installed and authenticated for the selected agent.
 
-### Custom Prompts
+### Custom Prompts (Experimental)
 
 Override the default review prompt to focus on specific concerns:
 
@@ -151,9 +155,10 @@ The git diff is automatically appended to your prompt.
 | `ACR_BASE_REF`            | Default base ref                         |
 | `ACR_TIMEOUT`             | Default timeout (e.g., "5m" or "300")    |
 | `ACR_RETRIES`             | Default retry count                      |
-| `ACR_AGENT`               | Default agent backend                    |
-| `ACR_REVIEW_PROMPT`       | Default review prompt                    |
-| `ACR_REVIEW_PROMPT_FILE`  | Path to default review prompt file       |
+| `ACR_REVIEWER_AGENT`      | [experimental] Default reviewer agent    |
+| `ACR_SUMMARIZER_AGENT`    | [experimental] Default summarizer agent  |
+| `ACR_REVIEW_PROMPT`       | [experimental] Default review prompt     |
+| `ACR_REVIEW_PROMPT_FILE`  | [experimental] Path to default review prompt file |
 
 ## Configuration
 
@@ -166,9 +171,12 @@ concurrency: 5            # Max concurrent reviewers (defaults to reviewers)
 base: main                # Base ref for diff comparison
 timeout: 5m               # Timeout per reviewer (supports "5m", "300s", or 300)
 retries: 1                # Retry failed reviewers N times
-agent: codex              # Agent backend (codex, claude, gemini)
 
-# Custom review prompt (inline or file)
+# Experimental: Agent selection
+# reviewer_agent: codex   # Agent for reviews (codex, claude, gemini)
+# summarizer_agent: codex # Agent for summarization (codex, claude, gemini)
+
+# Experimental: Custom review prompt (inline or file)
 # review_prompt: |
 #   Review for bugs only. Skip style issues.
 #   Output: file:line: description

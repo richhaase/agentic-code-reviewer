@@ -71,9 +71,9 @@ Exit codes:
 	rootCmd.Flags().IntVarP(&retries, "retries", "R", 0,
 		"Retry failed reviewers N times (default: 1, env: ACR_RETRIES)")
 	rootCmd.Flags().StringVar(&prompt, "prompt", "",
-		"Custom review prompt (env: ACR_REVIEW_PROMPT)")
+		"[experimental] Custom review prompt (env: ACR_REVIEW_PROMPT)")
 	rootCmd.Flags().StringVar(&promptFile, "prompt-file", "",
-		"Path to file containing review prompt (env: ACR_REVIEW_PROMPT_FILE)")
+		"[experimental] Path to file containing review prompt (env: ACR_REVIEW_PROMPT_FILE)")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false,
 		"Print agent messages as they arrive")
 	rootCmd.Flags().BoolVarP(&local, "local", "l", false,
@@ -94,9 +94,9 @@ Exit codes:
 	rootCmd.Flags().BoolVar(&noConfig, "no-config", false,
 		"Skip loading .acr.yaml config file")
 	rootCmd.Flags().StringVarP(&agentName, "reviewer-agent", "a", "codex",
-		"Agent to use for reviews: codex, claude, gemini (env: ACR_REVIEWER_AGENT)")
+		"[experimental] Agent to use for reviews: codex, claude, gemini (env: ACR_REVIEWER_AGENT)")
 	rootCmd.Flags().StringVarP(&summarizerAgentName, "summarizer-agent", "s", "codex",
-		"Agent to use for summarization: codex, claude, gemini (env: ACR_SUMMARIZER_AGENT)")
+		"[experimental] Agent to use for summarization: codex, claude, gemini (env: ACR_SUMMARIZER_AGENT)")
 
 	if err := rootCmd.Execute(); err != nil {
 		// Check if this is an exit code wrapper (not a real error)

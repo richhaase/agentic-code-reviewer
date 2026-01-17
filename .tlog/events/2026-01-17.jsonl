@@ -139,3 +139,5 @@
 {"id":"cc84c234","ts":"2026-01-17T19:22:08.157314Z","type":"create","title":"Update CLI help messages and docs to mark multi-agent and custom prompts as experimental features","status":"open","priority":1}
 {"id":"be709232","ts":"2026-01-17T19:24:26.204779Z","type":"create","title":"Update smoke.bats to run only the default codex behavior, move remaining tests into a) multi-agent.bats and b) custom-prompt.bats","status":"open"}
 {"id":"5b8ee663","ts":"2026-01-17T19:25:53.582178Z","type":"create","title":"Add new bats test custom-summarizer.bats that tests running using gemini and claude as summarizer with 3 codex reviewers","status":"open"}
+{"id":"cc84c234","ts":"2026-01-17T19:27:14.020372Z","type":"status","status":"in_progress"}
+{"id":"cc84c234","ts":"2026-01-17T19:30:28.155363Z","type":"status","status":"done","resolution":"completed","notes":"Added [experimental] markers to CLI help messages and README documentation for multi-agent (--reviewer-agent, --summarizer-agent) and custom prompt (--prompt, --prompt-file) features"}
