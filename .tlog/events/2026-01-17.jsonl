@@ -100,3 +100,7 @@
 {"id":"caaf71b4","ts":"2026-01-17T16:16:44.301311Z","type":"status","status":"in_progress"}
 {"id":"caaf71b4","ts":"2026-01-17T16:18:54.714762Z","type":"status","status":"done","resolution":"completed","notes":"Fixed in 1fc1fb6. Codex custom prompt now calls GetGitDiff() and BuildPromptWithDiff() like Claude/Gemini. Verified: codex --prompt-file now finds security issues."}
 {"id":"tl-1fe744b6","ts":"2026-01-17T16:40:02.125761Z","type":"status","status":"done","resolution":"wontfix","notes":"Premature and probably not necessary. Users can write their own prompts; example templates add maintenance burden without clear value."}
+{"id":"tl-ba6c625b","ts":"2026-01-17T16:41:48.57155Z","type":"status","status":"in_progress"}
+{"id":"tl-8bc4ea6c","ts":"2026-01-17T16:41:48.576713Z","type":"status","status":"in_progress"}
+{"id":"tl-ba6c625b","ts":"2026-01-17T16:44:01.236912Z","type":"status","status":"done","resolution":"completed","notes":"Added Custom Prompts section to README with usage examples and guidance"}
+{"id":"tl-8bc4ea6c","ts":"2026-01-17T16:44:01.242001Z","type":"status","status":"done","resolution":"completed","notes":"Added Agent Selection section to README with agent table and examples"}
