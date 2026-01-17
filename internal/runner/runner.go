@@ -175,15 +175,22 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		result.Duration = time.Since(start)
 		return result
 	}
-	defer func() {
+
+	// closeReader closes the reader and returns the process exit code if available
+	closeReader := func() int {
 		if closer, ok := reader.(io.Closer); ok {
 			_ = closer.Close()
 		}
-	}()
+		if exitCoder, ok := reader.(agent.ExitCoder); ok {
+			return exitCoder.ExitCode()
+		}
+		return 0
+	}
 
 	// Create parser for this agent's output
 	parser, err := agent.NewOutputParser(r.agent.Name(), reviewerID)
 	if err != nil {
+		closeReader()
 		result.ExitCode = -1
 		result.Duration = time.Since(start)
 		return result
@@ -198,6 +205,7 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	for {
 		// Check for timeout
 		if timeoutCtx.Err() == context.DeadlineExceeded {
+			closeReader()
 			result.TimedOut = true
 			result.ExitCode = -1
 			result.Duration = time.Since(start)
@@ -230,6 +238,9 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 
 	result.Duration = time.Since(start)
 
+	// Close reader and capture exit code
+	exitCode := closeReader()
+
 	// Check for timeout after parsing
 	if timeoutCtx.Err() == context.DeadlineExceeded {
 		result.TimedOut = true
@@ -237,8 +248,8 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		return result
 	}
 
-	// If we got here without timeout, consider it successful
-	result.ExitCode = 0
+	// Use the actual agent exit code
+	result.ExitCode = exitCode
 
 	return result
 }

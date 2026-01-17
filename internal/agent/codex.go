@@ -79,22 +79,45 @@ func (c *CodexAgent) Execute(ctx context.Context, config *AgentConfig) (io.Reade
 }
 
 // cmdReader wraps an io.Reader and ensures the command is waited on when closed.
+// It implements io.Closer and ExitCoder to provide process exit code after Close().
 type cmdReader struct {
 	io.Reader
-	cmd *exec.Cmd
+	cmd      *exec.Cmd
+	exitCode int
+	closed   bool
 }
 
 // Close implements io.Closer and waits for the command to complete.
+// After Close returns, ExitCode() will return the process exit code.
 func (r *cmdReader) Close() error {
+	if r.closed {
+		return nil
+	}
+	r.closed = true
+
 	// Close the reader if it implements io.Closer
 	if closer, ok := r.Reader.(io.Closer); ok {
 		_ = closer.Close()
 	}
 
-	// Wait for command to complete
+	// Wait for command to complete and capture exit code
 	if r.cmd != nil && r.cmd.Process != nil {
-		_ = r.cmd.Wait()
+		err := r.cmd.Wait()
+		if err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				r.exitCode = exitErr.ExitCode()
+			} else {
+				r.exitCode = -1
+			}
+		}
 	}
 
 	return nil
+}
+
+// ExitCode implements ExitCoder and returns the process exit code.
+// Only valid after Close() has been called. Returns 0 if process succeeded,
+// -1 if process could not be waited on, or the actual exit code otherwise.
+func (r *cmdReader) ExitCode() int {
+	return r.exitCode
 }
