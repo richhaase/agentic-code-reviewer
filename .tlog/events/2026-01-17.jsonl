@@ -113,3 +113,8 @@
 {"id":"6c2b2ee0","ts":"2026-01-17T17:19:33.207415Z","type":"dep","dep":"5882e60e","action":"add"}
 {"id":"8296b1ff","ts":"2026-01-17T17:20:21.089994Z","type":"dep","dep":"4524a7c3","action":"add"}
 {"id":"eae177a1","ts":"2026-01-17T17:22:10.960324Z","type":"status","status":"done","resolution":"completed","notes":"Already fixed by previous commit (c1019e7). The cmdReader.Close() checks ctx.Err() != nil which covers both context.Canceled and context.DeadlineExceeded. Updated comments to clarify timeout handling."}
+{"id":"5b3bb939","ts":"2026-01-17T17:27:46.79154Z","type":"status","status":"in_progress"}
+{"id":"5b3bb939","ts":"2026-01-17T17:33:05.23565Z","type":"status","status":"done","resolution":"completed","notes":"Added --summarizer-agent/-s flag with independent DefaultSummarizerAgent constant"}
+{"id":"e753f7f5","ts":"2026-01-17T17:33:51.526505Z","type":"status","status":"in_progress"}
+{"id":"6c083573","ts":"2026-01-17T17:37:33.744782Z","type":"create","title":"Rename Agent to ReviewerAgent throughout codebase","status":"open","description":"Comprehensive rename: internal fields (Agent -\u003e ReviewerAgent), YAML (agent -\u003e reviewer_agent), env var (ACR_AGENT -\u003e ACR_REVIEWER_AGENT), CLI flag (--agent -\u003e --reviewer-agent). All generic 'agent' references should be specific to either reviewer_agent or summarizer_agent."}
+{"id":"e753f7f5","ts":"2026-01-17T17:37:54.889761Z","type":"status","status":"done","resolution":"completed","notes":"Added full config resolution: Config struct field, knownTopLevelKeys, EnvState, LoadEnvState, Resolve, and Validate"}
