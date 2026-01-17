@@ -106,4 +106,4 @@ eval-check-deps:
 # Run eval tests
 eval: eval-check-deps build
 	@echo "Running eval tests..."
-	@bats evals/tests/
+	@bats bats/tests/
