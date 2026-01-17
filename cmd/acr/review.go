@@ -82,7 +82,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		close(spinnerDone)
 	}()
 
-	summaryResult, err := summarizer.Summarize(ctx, aggregated)
+	summaryResult, err := summarizer.Summarize(ctx, summarizerAgentName, aggregated)
 	spinnerCancel()
 	<-spinnerDone
 

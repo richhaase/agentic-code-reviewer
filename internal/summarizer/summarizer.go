@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
@@ -70,8 +71,33 @@ type Result struct {
 	Duration time.Duration
 }
 
+// buildCommand creates the appropriate exec.Cmd for the given agent.
+// Each agent has different CLI conventions:
+//   - codex: codex exec --color never - (prompt via stdin)
+//   - claude: claude --print "prompt" (prompt as argument)
+//   - gemini: gemini -o json - (prompt via stdin)
+func buildCommand(ctx context.Context, agentName, prompt string) (*exec.Cmd, error) {
+	switch agentName {
+	case "codex":
+		cmd := exec.CommandContext(ctx, "codex", "exec", "--color", "never", "-")
+		cmd.Stdin = bytes.NewReader([]byte(prompt))
+		return cmd, nil
+	case "claude":
+		cmd := exec.CommandContext(ctx, "claude", "--print", prompt)
+		cmd.Stdin = bytes.NewReader([]byte{}) // Empty stdin for non-interactive
+		return cmd, nil
+	case "gemini":
+		cmd := exec.CommandContext(ctx, "gemini", "-o", "json", "-")
+		cmd.Stdin = bytes.NewReader([]byte(prompt))
+		return cmd, nil
+	default:
+		return nil, fmt.Errorf("unsupported summarizer agent %q, supported: %v", agentName, agent.SupportedAgents)
+	}
+}
+
 // Summarize summarizes the aggregated findings using an LLM.
-func Summarize(ctx context.Context, aggregated []domain.AggregatedFinding) (*Result, error) {
+// The agentName parameter specifies which agent to use for summarization.
+func Summarize(ctx context.Context, agentName string, aggregated []domain.AggregatedFinding) (*Result, error) {
 	start := time.Now()
 
 	if len(aggregated) == 0 {
@@ -113,8 +139,10 @@ func Summarize(ctx context.Context, aggregated []domain.AggregatedFinding) (*Res
 		}, nil
 	}
 
-	cmd := exec.CommandContext(ctx, "codex", "exec", "--color", "never", "-")
-	cmd.Stdin = bytes.NewReader([]byte(fullPrompt))
+	cmd, err := buildCommand(ctx, agentName, fullPrompt)
+	if err != nil {
+		return nil, err
+	}
 
 	// Set process group for proper signal handling
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
