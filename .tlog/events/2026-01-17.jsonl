@@ -97,3 +97,5 @@
 {"id":"f98d8feb","ts":"2026-01-17T16:14:58.511476Z","type":"status","status":"done","resolution":"completed","notes":"Custom prompts work for Claude and Gemini. Codex bug confirmed: custom prompt drops diff context (see caaf71b4). --prompt and --prompt-file flags both functional."}
 {"id":"caaf71b4","ts":"2026-01-17T16:15:05.540073Z","type":"update","notes":"Confirmed via f98d8feb testing: Codex custom prompt sends only prompt text without git diff. Claude/Gemini work correctly."}
 {"id":"caaf71b4","ts":"2026-01-17T16:15:26.941522Z","type":"update","notes":"Evidence: internal/agent/codex.go:47-51 - when CustomPrompt is set, cmd.Stdin = bytes.NewReader(config.CustomPrompt) without calling GetGitDiff() or BuildPromptWithDiff(). Compare to claude.go:56 and gemini.go:52 which both append diff."}
+{"id":"caaf71b4","ts":"2026-01-17T16:16:44.301311Z","type":"status","status":"in_progress"}
+{"id":"caaf71b4","ts":"2026-01-17T16:18:54.714762Z","type":"status","status":"done","resolution":"completed","notes":"Fixed in 1fc1fb6. Codex custom prompt now calls GetGitDiff() and BuildPromptWithDiff() like Claude/Gemini. Verified: codex --prompt-file now finds security issues."}
