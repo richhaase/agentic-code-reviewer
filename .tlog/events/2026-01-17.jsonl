@@ -107,3 +107,5 @@
 {"id":"tl-f3fe961f","ts":"2026-01-17T16:45:40.433809Z","type":"status","status":"in_progress"}
 {"id":"tl-f3fe961f","ts":"2026-01-17T16:52:27.355707Z","type":"status","status":"done","resolution":"completed","notes":"No work needed. Tests use t.TempDir() for isolation, only call safe utilities (echo/true/false/git in temp repos). No real CLI calls or system modifications."}
 {"id":"tl-ddf507bc","ts":"2026-01-17T17:03:46.757694Z","type":"status","status":"done","resolution":"completed","notes":"Multi-agent (codex/claude/gemini) and custom prompts (--prompt/--prompt-file) fully implemented, tested, and documented."}
+{"id":"0133eedd","ts":"2026-01-17T17:10:56.500504Z","type":"status","status":"in_progress"}
+{"id":"0133eedd","ts":"2026-01-17T17:15:39.517005Z","type":"status","status":"done","resolution":"completed","notes":"Fixed process group termination: cmdReader now kills process group on context cancellation, summarizer uses Setpgid and kills group on cancel"}
