@@ -13,3 +13,5 @@
 | Run | Agent | Commit | Findings | False Positives | Notes |
 |-----|-------|--------|----------|-----------------|-------|
 | 4 | claude | c9fc2a8+ | 1 | 0 | v1 tuned prompt; 0% FP but missed 3 TPs |
+| 5 | claude | 90d0776+ | 0 | 0 | v2 prompt; LGTM - too restrictive |
+| 6 | claude | 90d0776+ | 11 | 8 | v3 prompt; 73% FP; found ReviewerID bug + 2 test failures from our changes |

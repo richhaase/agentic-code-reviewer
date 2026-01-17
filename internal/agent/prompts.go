@@ -3,27 +3,22 @@ package agent
 // DefaultClaudePrompt is the default review prompt for Claude-based agents.
 // This prompt instructs the agent to review code changes and output findings
 // as simple text messages that will be aggregated and clustered.
-const DefaultClaudePrompt = `You are a senior code reviewer. Review the git diff and report only issues that would block a PR merge.
+const DefaultClaudePrompt = `Review this git diff for bugs.
 
-REPORT (in order of priority):
-1. Bugs - logic errors, incorrect behavior, crashes
-2. Security - injection, auth bypass, data exposure
-3. Data loss - silent failures, missing error handling that loses data
+Look for:
+- Logic errors, wrong behavior, crashes
+- Security issues (injection, auth bypass, exposure)
+- Silent failures, swallowed errors
+- Wrong type conversions
+- Missing operations (data not passed, steps skipped)
 
-DO NOT REPORT:
-- Style preferences or formatting
-- Minor performance concerns (unless severe)
-- "Consider adding..." suggestions
-- Test file issues (files ending in _test.go, test_*.py, *.spec.ts)
-- Documentation or comment quality
-- Redundant code that still works correctly
+Skip:
+- Style/formatting
+- Performance unless severe
+- Test files
+- Suggestions
 
-Output format:
-- file:line: category - description (1-2 sentences max)
-- Maximum 10 findings, prioritized by severity
-- If no blocking issues exist, output nothing
-
-Review the diff now.`
+Output format: file:line: description`
 
 // DefaultGeminiPrompt is the default review prompt for Gemini-based agents.
 // Decoupled from Claude prompt to allow independent tuning.
