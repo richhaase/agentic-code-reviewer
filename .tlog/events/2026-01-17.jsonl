@@ -85,3 +85,5 @@
 {"id":"c789a356","ts":"2026-01-17T04:09:54.889004Z","type":"dep","dep":"fb3ab77f","action":"add"}
 {"id":"7fae3aa2","ts":"2026-01-17T04:11:08.856715Z","type":"status","status":"in_progress","notes":"Investigating gemini parser JSON handling"}
 {"id":"7fae3aa2","ts":"2026-01-17T04:12:16.420184Z","type":"status","status":"done","resolution":"completed","notes":"Added 'response' to gemini parser field list. Added test case for gemini CLI JSON format."}
+{"id":"f94952f8","ts":"2026-01-17T04:15:57.148798Z","type":"status","status":"done","resolution":"completed","notes":"Verified end-to-end: 25 findings in 1m33s. Works but noisy - needs prompt tuning."}
+{"id":"e9e04fdf","ts":"2026-01-17T04:15:59.667515Z","type":"status","status":"done","resolution":"completed","notes":"Verified end-to-end: 8 findings in 1m45s. Good signal-to-noise after parser fix for response field."}
