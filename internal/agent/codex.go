@@ -97,8 +97,8 @@ type cmdReader struct {
 
 // Close implements io.Closer and waits for the command to complete.
 // After Close returns, ExitCode() will return the process exit code.
-// If the context was canceled, it kills the entire process group to ensure
-// no orphaned processes are left behind.
+// If the context was canceled or timed out, it kills the entire process group
+// to ensure no orphaned processes are left behind.
 func (r *cmdReader) Close() error {
 	if r.closed {
 		return nil
@@ -110,7 +110,7 @@ func (r *cmdReader) Close() error {
 		_ = closer.Close()
 	}
 
-	// Kill the process group if context was canceled
+	// Kill the process group if context was canceled or timed out
 	if r.cmd != nil && r.cmd.Process != nil {
 		if r.ctx != nil && r.ctx.Err() != nil {
 			// Kill the entire process group (negative PID)
