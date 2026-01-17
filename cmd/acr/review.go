@@ -12,7 +12,7 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
-func executeReview(ctx context.Context, workDir string, excludePatterns []string, logger *terminal.Logger) domain.ExitCode {
+func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, logger *terminal.Logger) domain.ExitCode {
 	if concurrency < reviewers {
 		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, %d concurrent, base=%s)%s",
 			terminal.Color(terminal.Dim), reviewers, concurrency, baseRef, terminal.Color(terminal.Reset))
@@ -41,13 +41,14 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 
 	// Run reviewers
 	r := runner.New(runner.Config{
-		Reviewers:   reviewers,
-		Concurrency: concurrency,
-		BaseRef:     baseRef,
-		Timeout:     timeout,
-		Retries:     retries,
-		Verbose:     verbose,
-		WorkDir:     workDir,
+		Reviewers:    reviewers,
+		Concurrency:  concurrency,
+		BaseRef:      baseRef,
+		Timeout:      timeout,
+		Retries:      retries,
+		Verbose:      verbose,
+		WorkDir:      workDir,
+		CustomPrompt: customPrompt,
 	}, reviewAgent, logger)
 
 	results, wallClock, err := r.Run(ctx)

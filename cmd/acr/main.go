@@ -230,7 +230,14 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	// Merge exclude patterns (config patterns + CLI patterns)
 	allExcludePatterns := config.Merge(cfg, excludePatterns)
 
+	// Resolve custom prompt (precedence: flags > env vars > config file)
+	customPrompt, err := config.ResolvePrompt(cfg, envState, flagState, flagValues)
+	if err != nil {
+		logger.Logf(terminal.StyleError, "Failed to resolve prompt: %v", err)
+		return exitCode(domain.ExitError)
+	}
+
 	// Run the review
-	code := executeReview(ctx, workDir, allExcludePatterns, logger)
+	code := executeReview(ctx, workDir, allExcludePatterns, customPrompt, logger)
 	return exitCode(code)
 }
