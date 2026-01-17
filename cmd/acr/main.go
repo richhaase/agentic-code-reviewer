@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
@@ -111,12 +110,6 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	}
 
 	logger := terminal.NewLogger()
-
-	// Check dependencies
-	if _, err := exec.LookPath("codex"); err != nil {
-		logger.Log("'codex' not found in PATH", terminal.StyleError)
-		return exitCode(domain.ExitError)
-	}
 
 	// Set up context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
