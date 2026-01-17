@@ -904,6 +904,150 @@ func TestResolvePrompt(t *testing.T) {
 	}
 }
 
+// Tests for agent config
+
+func TestLoadFromPathWithWarnings_AgentConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	content := `agent: claude
+reviewers: 5
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := LoadFromPathWithWarnings(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	cfg := result.Config
+
+	if cfg.Agent == nil || *cfg.Agent != "claude" {
+		t.Errorf("expected agent=claude, got %v", cfg.Agent)
+	}
+}
+
+func TestValidate_Agent(t *testing.T) {
+	tests := []struct {
+		name    string
+		agent   string
+		wantErr bool
+	}{
+		{"valid codex", "codex", false},
+		{"valid claude", "claude", false},
+		{"valid gemini", "gemini", false},
+		{"invalid agent", "invalid", true},
+		{"empty agent", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Config{Agent: strPtr(tt.agent)}
+			err := cfg.Validate()
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestResolve_Agent_FlagOverridesAll(t *testing.T) {
+	cfg := &Config{Agent: strPtr("gemini")}
+	envState := EnvState{Agent: "claude", AgentSet: true}
+	flagState := FlagState{AgentSet: true}
+	flagValues := ResolvedConfig{Agent: "codex"}
+
+	result := Resolve(cfg, envState, flagState, flagValues)
+
+	if result.Agent != "codex" {
+		t.Errorf("expected flag value 'codex', got %q", result.Agent)
+	}
+}
+
+func TestResolve_Agent_EnvOverridesConfig(t *testing.T) {
+	cfg := &Config{Agent: strPtr("gemini")}
+	envState := EnvState{Agent: "claude", AgentSet: true}
+	flagState := FlagState{} // no flags set
+	flagValues := ResolvedConfig{}
+
+	result := Resolve(cfg, envState, flagState, flagValues)
+
+	if result.Agent != "claude" {
+		t.Errorf("expected env value 'claude', got %q", result.Agent)
+	}
+}
+
+func TestResolve_Agent_ConfigOverridesDefault(t *testing.T) {
+	cfg := &Config{Agent: strPtr("gemini")}
+	envState := EnvState{}   // no env vars set
+	flagState := FlagState{} // no flags set
+	flagValues := ResolvedConfig{}
+
+	result := Resolve(cfg, envState, flagState, flagValues)
+
+	if result.Agent != "gemini" {
+		t.Errorf("expected config value 'gemini', got %q", result.Agent)
+	}
+}
+
+func TestResolve_Agent_DefaultsToCodex(t *testing.T) {
+	cfg := &Config{} // empty config
+	envState := EnvState{}
+	flagState := FlagState{}
+	flagValues := ResolvedConfig{}
+
+	result := Resolve(cfg, envState, flagState, flagValues)
+
+	if result.Agent != "codex" {
+		t.Errorf("expected default agent 'codex', got %q", result.Agent)
+	}
+}
+
+func TestLoadEnvState_Agent(t *testing.T) {
+	// Save and restore original env
+	original := os.Getenv("ACR_AGENT")
+	defer func() {
+		if original != "" {
+			os.Setenv("ACR_AGENT", original)
+		} else {
+			os.Unsetenv("ACR_AGENT")
+		}
+	}()
+
+	os.Setenv("ACR_AGENT", "claude")
+	state := LoadEnvState()
+
+	if !state.AgentSet {
+		t.Error("expected AgentSet to be true")
+	}
+	if state.Agent != "claude" {
+		t.Errorf("expected agent='claude', got %q", state.Agent)
+	}
+}
+
+func TestLoadEnvState_Agent_NotSet(t *testing.T) {
+	// Save and restore original env
+	original := os.Getenv("ACR_AGENT")
+	defer func() {
+		if original != "" {
+			os.Setenv("ACR_AGENT", original)
+		} else {
+			os.Unsetenv("ACR_AGENT")
+		}
+	}()
+
+	os.Unsetenv("ACR_AGENT")
+	state := LoadEnvState()
+
+	if state.AgentSet {
+		t.Error("expected AgentSet to be false")
+	}
+	if state.Agent != "" {
+		t.Errorf("expected empty agent, got %q", state.Agent)
+	}
+}
+
 func TestResolvePrompt_Precedence(t *testing.T) {
 	// Test that verifies the exact precedence order
 	dir := t.TempDir()

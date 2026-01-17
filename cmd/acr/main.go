@@ -182,6 +182,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		BaseSet:             cmd.Flags().Changed("base"),
 		TimeoutSet:          cmd.Flags().Changed("timeout"),
 		RetriesSet:          cmd.Flags().Changed("retries"),
+		AgentSet:            cmd.Flags().Changed("agent"),
 		ReviewPromptSet:     cmd.Flags().Changed("prompt"),
 		ReviewPromptFileSet: cmd.Flags().Changed("prompt-file"),
 	}
@@ -196,6 +197,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		Base:             baseRef,
 		Timeout:          timeout,
 		Retries:          retries,
+		Agent:            agentName,
 		ReviewPrompt:     prompt,
 		ReviewPromptFile: promptFile,
 	}
@@ -209,6 +211,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	baseRef = resolved.Base
 	timeout = resolved.Timeout
 	retries = resolved.Retries
+	agentName = resolved.Agent
 
 	// Validate resolved config
 	if reviewers < 1 {

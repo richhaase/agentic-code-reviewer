@@ -59,6 +59,7 @@ type Config struct {
 	Base             *string      `yaml:"base"`
 	Timeout          *Duration    `yaml:"timeout"`
 	Retries          *int         `yaml:"retries"`
+	Agent            *string      `yaml:"agent"`
 	ReviewPrompt     *string      `yaml:"review_prompt"`
 	ReviewPromptFile *string      `yaml:"review_prompt_file"`
 	Filters          FilterConfig `yaml:"filters"`
@@ -141,7 +142,7 @@ func (c *Config) validatePatterns() error {
 }
 
 // knownTopLevelKeys are the valid top-level keys in the config file.
-var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "review_prompt", "review_prompt_file", "filters"}
+var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "agent", "review_prompt", "review_prompt_file", "filters"}
 
 // knownFilterKeys are the valid keys under the "filters" section.
 var knownFilterKeys = []string{"exclude_patterns"}
@@ -267,6 +268,9 @@ func (c *Config) Validate() error {
 	if c.Timeout != nil && *c.Timeout <= 0 {
 		return fmt.Errorf("timeout must be > 0, got %s", time.Duration(*c.Timeout))
 	}
+	if c.Agent != nil && !slices.Contains(agent.SupportedAgents, *c.Agent) {
+		return fmt.Errorf("agent must be one of %v, got %q", agent.SupportedAgents, *c.Agent)
+	}
 	return nil
 }
 
@@ -277,6 +281,7 @@ var Defaults = ResolvedConfig{
 	Base:        "main",
 	Timeout:     5 * time.Minute,
 	Retries:     1,
+	Agent:       agent.DefaultAgent,
 }
 
 // ResolvedConfig holds the final resolved configuration values.
@@ -286,6 +291,7 @@ type ResolvedConfig struct {
 	Base             string
 	Timeout          time.Duration
 	Retries          int
+	Agent            string
 	ReviewPrompt     string
 	ReviewPromptFile string
 }
@@ -297,6 +303,7 @@ type FlagState struct {
 	BaseSet             bool
 	TimeoutSet          bool
 	RetriesSet          bool
+	AgentSet            bool
 	ReviewPromptSet     bool
 	ReviewPromptFileSet bool
 }
@@ -313,6 +320,8 @@ type EnvState struct {
 	TimeoutSet          bool
 	Retries             int
 	RetriesSet          bool
+	Agent               string
+	AgentSet            bool
 	ReviewPrompt        string
 	ReviewPromptSet     bool
 	ReviewPromptFile    string
@@ -354,6 +363,10 @@ func LoadEnvState() EnvState {
 			state.RetriesSet = true
 		}
 	}
+	if v := os.Getenv("ACR_AGENT"); v != "" {
+		state.Agent = v
+		state.AgentSet = true
+	}
 	if v := os.Getenv("ACR_REVIEW_PROMPT"); v != "" {
 		state.ReviewPrompt = v
 		state.ReviewPromptSet = true
@@ -388,6 +401,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 		if cfg.Retries != nil {
 			result.Retries = *cfg.Retries
 		}
+		if cfg.Agent != nil {
+			result.Agent = *cfg.Agent
+		}
 		if cfg.ReviewPrompt != nil {
 			result.ReviewPrompt = *cfg.ReviewPrompt
 		}
@@ -412,6 +428,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	if envState.RetriesSet {
 		result.Retries = envState.Retries
 	}
+	if envState.AgentSet {
+		result.Agent = envState.Agent
+	}
 	if envState.ReviewPromptSet {
 		result.ReviewPrompt = envState.ReviewPrompt
 	}
@@ -434,6 +453,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	}
 	if flagState.RetriesSet {
 		result.Retries = flagValues.Retries
+	}
+	if flagState.AgentSet {
+		result.Agent = flagValues.Agent
 	}
 	if flagState.ReviewPromptSet {
 		result.ReviewPrompt = flagValues.ReviewPrompt
