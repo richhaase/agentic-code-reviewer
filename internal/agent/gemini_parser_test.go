@@ -32,6 +32,12 @@ func TestGeminiOutputParser_ReadFinding(t *testing.T) {
 			want:       []string{"Performance issue detected"},
 		},
 		{
+			name:       "JSON finding with response field (gemini CLI format)",
+			reviewerID: 1,
+			input:      `{"session_id": "abc123", "response": "internal/agent/claude.go:61: ARG_MAX risk", "stats": {"models": {}}}`,
+			want:       []string{"internal/agent/claude.go:61: ARG_MAX risk"},
+		},
+		{
 			name:       "multiple JSON findings",
 			reviewerID: 2,
 			input: `{"text": "Finding 1"}

@@ -22,6 +22,7 @@ func NewGeminiOutputParser(reviewerID int) *GeminiOutputParser {
 
 // ReadFinding reads and parses the next finding from the gemini output stream.
 // Gemini outputs JSON format. This parser handles several common formats:
+//   - {"response": "finding description", "stats": {...}}
 //   - {"text": "finding description"}
 //   - {"message": "finding description"}
 //   - {"content": "finding description"}
@@ -41,7 +42,7 @@ func (p *GeminiOutputParser) ReadFinding(scanner *bufio.Scanner) (*domain.Findin
 		if err := json.Unmarshal([]byte(line), &jsonObj); err == nil {
 			// Successfully parsed as JSON, extract text from common fields
 			var text string
-			for _, field := range []string{"text", "message", "content", "finding"} {
+			for _, field := range []string{"response", "text", "message", "content", "finding"} {
 				if val, ok := jsonObj[field]; ok {
 					if str, ok := val.(string); ok && str != "" {
 						text = str
