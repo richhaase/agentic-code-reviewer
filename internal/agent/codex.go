@@ -81,6 +81,7 @@ func (c *CodexAgent) Execute(ctx context.Context, config *AgentConfig) (io.Reade
 	return &cmdReader{
 		Reader: stdout,
 		cmd:    cmd,
+		ctx:    ctx,
 	}, nil
 }
 
@@ -89,12 +90,15 @@ func (c *CodexAgent) Execute(ctx context.Context, config *AgentConfig) (io.Reade
 type cmdReader struct {
 	io.Reader
 	cmd      *exec.Cmd
+	ctx      context.Context
 	exitCode int
 	closed   bool
 }
 
 // Close implements io.Closer and waits for the command to complete.
 // After Close returns, ExitCode() will return the process exit code.
+// If the context was canceled, it kills the entire process group to ensure
+// no orphaned processes are left behind.
 func (r *cmdReader) Close() error {
 	if r.closed {
 		return nil
@@ -106,8 +110,14 @@ func (r *cmdReader) Close() error {
 		_ = closer.Close()
 	}
 
-	// Wait for command to complete and capture exit code
+	// Kill the process group if context was canceled
 	if r.cmd != nil && r.cmd.Process != nil {
+		if r.ctx != nil && r.ctx.Err() != nil {
+			// Kill the entire process group (negative PID)
+			_ = syscall.Kill(-r.cmd.Process.Pid, syscall.SIGKILL)
+		}
+
+		// Wait for command to complete and capture exit code
 		err := r.cmd.Wait()
 		if err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {

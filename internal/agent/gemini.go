@@ -80,5 +80,6 @@ func (g *GeminiAgent) Execute(ctx context.Context, config *AgentConfig) (io.Read
 	return &cmdReader{
 		Reader: stdout,
 		cmd:    cmd,
+		ctx:    ctx,
 	}, nil
 }

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"syscall"
 	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
@@ -103,14 +104,59 @@ func Summarize(ctx context.Context, aggregated []domain.AggregatedFinding) (*Res
 
 	fullPrompt := groupPrompt + "\n\nINPUT JSON:\n" + string(payload) + "\n"
 
+	// Check if context is already canceled
+	if ctx.Err() != nil {
+		return &Result{
+			ExitCode: -1,
+			Stderr:   "context canceled",
+			Duration: time.Since(start),
+		}, nil
+	}
+
 	cmd := exec.CommandContext(ctx, "codex", "exec", "--color", "never", "-")
 	cmd.Stdin = bytes.NewReader([]byte(fullPrompt))
+
+	// Set process group for proper signal handling
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err = cmd.Run()
+	if err = cmd.Start(); err != nil {
+		// Handle context cancellation during start
+		if ctx.Err() != nil {
+			return &Result{
+				ExitCode: -1,
+				Stderr:   "context canceled",
+				Duration: time.Since(start),
+			}, nil
+		}
+		return nil, fmt.Errorf("failed to start summarizer: %w", err)
+	}
+
+	// Wait for completion, but kill process group if context is canceled
+	waitDone := make(chan error, 1)
+	go func() {
+		waitDone <- cmd.Wait()
+	}()
+
+	select {
+	case <-ctx.Done():
+		// Kill the entire process group
+		if cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+		<-waitDone // Wait for process to be reaped
+		return &Result{
+			ExitCode: -1,
+			Stderr:   "context canceled",
+			Duration: time.Since(start),
+		}, nil
+	case err = <-waitDone:
+		// Process completed normally
+	}
+
 	duration := time.Since(start)
 
 	exitCode := 0
@@ -118,12 +164,6 @@ func Summarize(ctx context.Context, aggregated []domain.AggregatedFinding) (*Res
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()
-		} else if ctx.Err() != nil {
-			return &Result{
-				ExitCode: -1,
-				Stderr:   "context canceled",
-				Duration: duration,
-			}, nil
 		} else {
 			exitCode = 1
 		}
