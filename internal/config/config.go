@@ -279,7 +279,7 @@ var Defaults = ResolvedConfig{
 	Reviewers:   5,
 	Concurrency: 0, // means "same as reviewers"
 	Base:        "main",
-	Timeout:     5 * time.Minute,
+	Timeout:     10 * time.Minute,
 	Retries:     1,
 	Agent:       agent.DefaultAgent,
 }
@@ -524,6 +524,6 @@ func ResolvePrompt(cfg *Config, envState EnvState, flagState FlagState, flagValu
 		return string(content), nil
 	}
 
-	// 7. Fall back to default
-	return agent.DefaultClaudePrompt, nil
+	// 7. No explicit prompt configured - return empty to let agent use its default behavior
+	return "", nil
 }

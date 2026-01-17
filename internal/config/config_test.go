@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -831,11 +830,11 @@ func TestResolvePrompt(t *testing.T) {
 			want: "prompt from config file",
 		},
 		{
-			name: "default prompt when nothing is set",
-			want: "You are a code reviewer",
+			name: "empty prompt when nothing is set",
+			want: "",
 		},
 		{
-			name: "empty strings are ignored",
+			name: "empty strings result in empty prompt",
 			cfg: &Config{
 				ReviewPrompt:     strPtr(""),
 				ReviewPromptFile: strPtr(""),
@@ -854,7 +853,7 @@ func TestResolvePrompt(t *testing.T) {
 				ReviewPrompt:     "",
 				ReviewPromptFile: "",
 			},
-			want: "You are a code reviewer",
+			want: "",
 		},
 		{
 			name: "error reading flag prompt file",
@@ -891,12 +890,7 @@ func TestResolvePrompt(t *testing.T) {
 				return
 			}
 			if !tt.wantErr {
-				// For default prompt, just check it starts with expected text
-				if tt.want == "You are a code reviewer" {
-					if !strings.HasPrefix(got, tt.want) {
-						t.Errorf("ResolvePrompt() = %q, want prompt starting with %q", got, tt.want)
-					}
-				} else if got != tt.want {
+				if got != tt.want {
 					t.Errorf("ResolvePrompt() = %q, want %q", got, tt.want)
 				}
 			}

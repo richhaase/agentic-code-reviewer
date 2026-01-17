@@ -36,3 +36,35 @@
 {"id":"tl-e27c4b53","ts":"2026-01-17T02:06:30.238022Z","type":"status","status":"done","resolution":"completed","notes":"Validated behavior by running system acr vs local acr - both found same issues. Fixed all 5 blocking bugs: exit code masking, parser infinite loop, custom prompts not wired, codex dependency blocking, and missing diff context for claude/gemini."}
 {"id":"caaf71b4","ts":"2026-01-17T02:22:17.921497Z","type":"create","title":"Fix: ResolvePrompt always returns default prompt, breaking codex review mode","status":"open","priority":1,"labels":["bug","phase1"],"description":"ResolvePrompt always falls back to DefaultClaudePrompt even when no prompt is configured. This causes CodexAgent to use 'codex exec -' (custom prompt mode) instead of 'codex exec review --base' (built-in review mode), which means codex reviews run without diff context. Fix: return empty string when no prompt source is explicitly set, so codex uses its built-in review path."}
 {"id":"eae177a1","ts":"2026-01-17T02:22:29.814906Z","type":"create","title":"Fix: Timed-out agents don't terminate process groups","status":"open","priority":2,"labels":["bug","phase1"],"description":"On timeout, runner only calls closeReader() but doesn't kill the process group. Since agents set Setpgid: true, child processes spawned by CLI tools can survive after the parent is killed by context cancellation. This can leave orphaned agent processes running after timeout. Fix: explicitly kill the process group when timeout occurs."}
+{"id":"tl-1fe744b6","ts":"2026-01-17T02:24:47.747696Z","type":"status","status":"in_progress"}
+{"id":"tl-1fe744b6","ts":"2026-01-17T02:28:34.257288Z","type":"status","status":"open"}
+{"id":"f94952f8","ts":"2026-01-17T02:31:47.575167Z","type":"create","title":"Test: Verify claude agent works end-to-end","status":"open","labels":["testing","phase1"],"description":"Run acr with --agent claude against a test repo and verify it produces valid findings."}
+{"id":"tl-1fe744b6","ts":"2026-01-17T02:31:47.575716Z","type":"dep","dep":"f94952f8","action":"add"}
+{"id":"e9e04fdf","ts":"2026-01-17T02:31:54.050782Z","type":"create","title":"Test: Verify gemini agent works end-to-end","status":"open","labels":["testing","phase1"],"description":"Run acr with --agent gemini against a test repo and verify it produces valid findings."}
+{"id":"tl-1fe744b6","ts":"2026-01-17T02:31:54.051357Z","type":"dep","dep":"e9e04fdf","action":"add"}
+{"id":"f98d8feb","ts":"2026-01-17T02:32:01.601436Z","type":"create","title":"Test: Verify custom prompts work with each agent","status":"open","labels":["testing","phase1"],"description":"Run acr with --prompt or --prompt-file for codex, claude, and gemini agents. Verify custom prompts produce different/focused output."}
+{"id":"tl-1fe744b6","ts":"2026-01-17T02:32:01.602025Z","type":"dep","dep":"f98d8feb","action":"add"}
+{"id":"caaf71b4","ts":"2026-01-17T02:34:51.582576Z","type":"update","priority":3,"notes":"This bug is useful for testing"}
+{"id":"caaf71b4","ts":"2026-01-17T02:35:28.012379Z","type":"dep","dep":"f94952f8","action":"add"}
+{"id":"caaf71b4","ts":"2026-01-17T02:35:28.013488Z","type":"dep","dep":"e9e04fdf","action":"add"}
+{"id":"caaf71b4","ts":"2026-01-17T02:35:28.014571Z","type":"dep","dep":"f98d8feb","action":"add"}
+{"id":"caaf71b4","ts":"2026-01-17T02:36:11.461386Z","type":"dep","dep":"f94952f8","action":"add"}
+{"id":"caaf71b4","ts":"2026-01-17T02:36:11.462331Z","type":"dep","dep":"e9e04fdf","action":"add"}
+{"id":"caaf71b4","ts":"2026-01-17T02:36:11.463255Z","type":"dep","dep":"f98d8feb","action":"add"}
+{"id":"eae177a1","ts":"2026-01-17T02:36:21.347002Z","type":"dep","dep":"f94952f8","action":"add"}
+{"id":"eae177a1","ts":"2026-01-17T02:36:21.348123Z","type":"dep","dep":"e9e04fdf","action":"add"}
+{"id":"eae177a1","ts":"2026-01-17T02:36:21.349231Z","type":"dep","dep":"f98d8feb","action":"add"}
+{"id":"eae177a1","ts":"2026-01-17T02:36:39.084199Z","type":"update","priority":3,"notes":"This bug is useful for testing"}
+{"id":"5882e60e","ts":"2026-01-17T02:37:51.847224Z","type":"dep","dep":"f94952f8","action":"add"}
+{"id":"5882e60e","ts":"2026-01-17T02:37:51.848344Z","type":"dep","dep":"e9e04fdf","action":"add"}
+{"id":"5882e60e","ts":"2026-01-17T02:37:51.849464Z","type":"dep","dep":"f98d8feb","action":"add"}
+{"id":"f94952f8","ts":"2026-01-17T02:39:07.520079Z","type":"status","status":"in_progress","notes":"Starting end-to-end test of claude agent"}
+{"id":"f94952f8","ts":"2026-01-17T02:45:22.348204Z","type":"status","status":"open","notes":"Blocked on OpenAI rate limit for summarizer (resets ~11:23 PM)"}
+{"id":"5b3bb939","ts":"2026-01-17T02:50:05.661941Z","type":"create","title":"Add --summarizer-agent flag to CLI","status":"open","labels":["feature","phase1"],"description":"Add flag with env ACR_SUMMARIZER_AGENT, default codex. Follow existing --agent pattern in main.go"}
+{"id":"e753f7f5","ts":"2026-01-17T02:50:08.355309Z","type":"create","title":"Add SummarizerAgent to config resolution","status":"open","labels":["feature","phase1"],"description":"Add to Config struct, FlagState, EnvState, ResolvedConfig, Defaults, Resolve(), Validate(), knownTopLevelKeys"}
+{"id":"42f475fa","ts":"2026-01-17T02:50:09.89992Z","type":"create","title":"Update summarizer to accept agent parameter","status":"open","labels":["feature","phase1"],"description":"Change Summarize() signature to accept agentName string. Use agent factory and build command based on agent type (codex stdin, claude --print, gemini -p)"}
+{"id":"49d1a0f5","ts":"2026-01-17T02:50:11.449467Z","type":"create","title":"Wire summarizer agent through review.go","status":"open","labels":["feature","phase1"],"description":"Pass resolved summarizerAgentName to summarizer.Summarize() call"}
+{"id":"42f475fa","ts":"2026-01-17T02:50:17.949519Z","type":"dep","dep":"5b3bb939","action":"add"}
+{"id":"42f475fa","ts":"2026-01-17T02:50:17.950808Z","type":"dep","dep":"e753f7f5","action":"add"}
+{"id":"49d1a0f5","ts":"2026-01-17T02:50:25.872982Z","type":"dep","dep":"42f475fa","action":"add"}
+{"id":"f94952f8","ts":"2026-01-17T02:51:39.115076Z","type":"status","status":"in_progress","notes":"Retrying now that Codex rate limit resolved"}

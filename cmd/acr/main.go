@@ -66,7 +66,7 @@ Exit codes:
 	rootCmd.Flags().StringVarP(&baseRef, "base", "b", "",
 		"Base ref for review command (default: main, env: ACR_BASE_REF)")
 	rootCmd.Flags().DurationVarP(&timeout, "timeout", "t", 0,
-		"Timeout per reviewer (default: 5m, env: ACR_TIMEOUT)")
+		"Timeout per reviewer (default: 10m, env: ACR_TIMEOUT)")
 	rootCmd.Flags().IntVarP(&retries, "retries", "R", 0,
 		"Retry failed reviewers N times (default: 1, env: ACR_RETRIES)")
 	rootCmd.Flags().StringVar(&prompt, "prompt", "",
