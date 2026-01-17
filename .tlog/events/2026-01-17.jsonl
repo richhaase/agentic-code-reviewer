@@ -118,3 +118,6 @@
 {"id":"e753f7f5","ts":"2026-01-17T17:33:51.526505Z","type":"status","status":"in_progress"}
 {"id":"6c083573","ts":"2026-01-17T17:37:33.744782Z","type":"create","title":"Rename Agent to ReviewerAgent throughout codebase","status":"open","description":"Comprehensive rename: internal fields (Agent -\u003e ReviewerAgent), YAML (agent -\u003e reviewer_agent), env var (ACR_AGENT -\u003e ACR_REVIEWER_AGENT), CLI flag (--agent -\u003e --reviewer-agent). All generic 'agent' references should be specific to either reviewer_agent or summarizer_agent."}
 {"id":"e753f7f5","ts":"2026-01-17T17:37:54.889761Z","type":"status","status":"done","resolution":"completed","notes":"Added full config resolution: Config struct field, knownTopLevelKeys, EnvState, LoadEnvState, Resolve, and Validate"}
+{"id":"42f475fa","ts":"2026-01-17T17:39:52.06088Z","type":"status","status":"in_progress"}
+{"id":"42f475fa","ts":"2026-01-17T17:43:19.981219Z","type":"status","status":"done","resolution":"completed","notes":"Updated Summarize() to accept agentName, added buildCommand helper for codex/claude/gemini, updated all callers"}
+{"id":"49d1a0f5","ts":"2026-01-17T17:43:34.822914Z","type":"status","status":"done","resolution":"completed","notes":"Already wired as part of 42f475fa - review.go now passes summarizerAgentName to summarizer.Summarize()"}
