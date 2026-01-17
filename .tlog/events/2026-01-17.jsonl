@@ -143,3 +143,5 @@
 {"id":"cc84c234","ts":"2026-01-17T19:30:28.155363Z","type":"status","status":"done","resolution":"completed","notes":"Added [experimental] markers to CLI help messages and README documentation for multi-agent (--reviewer-agent, --summarizer-agent) and custom prompt (--prompt, --prompt-file) features"}
 {"id":"be709232","ts":"2026-01-17T19:32:54.472254Z","type":"status","status":"in_progress"}
 {"id":"be709232","ts":"2026-01-17T19:34:03.399462Z","type":"status","status":"done","resolution":"completed","notes":"Split smoke.bats into 3 files: smoke.bats (1 test - default codex), multi-agent.bats (2 tests - claude/gemini), custom-prompt.bats (3 tests - all agents with custom prompts)"}
+{"id":"5b8ee663","ts":"2026-01-17T19:48:17.371685Z","type":"status","status":"in_progress"}
+{"id":"5b8ee663","ts":"2026-01-17T19:49:43.035039Z","type":"status","status":"done","resolution":"completed","notes":"Created custom-summarizer.bats with 2 tests: codex reviewers (3) with claude summarizer, codex reviewers (3) with gemini summarizer"}
