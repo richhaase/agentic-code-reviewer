@@ -45,10 +45,16 @@ func (c *CodexAgent) Execute(ctx context.Context, config *AgentConfig) (io.Reade
 	var args []string
 
 	if config.CustomPrompt != "" {
-		// Custom prompt mode: pipe prompt to 'codex exec -'
+		// Custom prompt mode: pipe prompt + diff to 'codex exec -'
+		diff, err := GetGitDiff(config.BaseRef, config.WorkDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get diff for review: %w", err)
+		}
+		prompt := BuildPromptWithDiff(config.CustomPrompt, diff)
+
 		args = []string{"exec", "--json", "--color", "never", "-"}
 		cmd = exec.CommandContext(ctx, "codex", args...)
-		cmd.Stdin = bytes.NewReader([]byte(config.CustomPrompt))
+		cmd.Stdin = bytes.NewReader([]byte(prompt))
 	} else {
 		// Default mode: use built-in 'codex exec review'
 		args = []string{"exec", "--json", "--color", "never", "review", "--base", config.BaseRef}
