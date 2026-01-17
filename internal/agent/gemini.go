@@ -36,6 +36,7 @@ func (g *GeminiAgent) IsAvailable() error {
 //
 // Uses 'gemini -o json -' with the prompt piped to stdin.
 // If config.CustomPrompt is empty, uses DefaultGeminiPrompt.
+// The git diff is automatically appended to the prompt.
 func (g *GeminiAgent) Execute(ctx context.Context, config *AgentConfig) (io.Reader, error) {
 	if err := g.IsAvailable(); err != nil {
 		return nil, err
@@ -46,6 +47,13 @@ func (g *GeminiAgent) Execute(ctx context.Context, config *AgentConfig) (io.Read
 	if prompt == "" {
 		prompt = DefaultGeminiPrompt
 	}
+
+	// Get git diff and append to prompt
+	diff, err := GetGitDiff(config.BaseRef, config.WorkDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get diff for review: %w", err)
+	}
+	prompt = BuildPromptWithDiff(prompt, diff)
 
 	// Build command: gemini -o json -
 	args := []string{"-o", "json", "-"}

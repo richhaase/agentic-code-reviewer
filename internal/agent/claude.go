@@ -36,6 +36,7 @@ func (c *ClaudeAgent) IsAvailable() error {
 //
 // Uses 'claude --print "prompt"' for non-interactive execution.
 // If config.CustomPrompt is empty, uses DefaultClaudePrompt.
+// The git diff is automatically appended to the prompt.
 func (c *ClaudeAgent) Execute(ctx context.Context, config *AgentConfig) (io.Reader, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
@@ -46,6 +47,13 @@ func (c *ClaudeAgent) Execute(ctx context.Context, config *AgentConfig) (io.Read
 	if prompt == "" {
 		prompt = DefaultClaudePrompt
 	}
+
+	// Get git diff and append to prompt
+	diff, err := GetGitDiff(config.BaseRef, config.WorkDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get diff for review: %w", err)
+	}
+	prompt = BuildPromptWithDiff(prompt, diff)
 
 	// Build command: claude --print "prompt"
 	// --print: Output response only (non-interactive)
