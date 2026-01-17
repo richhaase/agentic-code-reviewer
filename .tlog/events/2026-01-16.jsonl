@@ -128,3 +128,21 @@
 {"id":"tl-8bc4ea6c","ts":"2026-01-16T21:08:07.326829Z","type":"dep","dep":"tl-fe06615e","action":"add"}
 {"id":"tl-241bf6d4","ts":"2026-01-16T21:10:48.684527Z","type":"status","status":"in_progress"}
 {"id":"tl-241bf6d4","ts":"2026-01-16T22:27:55.97424Z","type":"status","status":"done","resolution":"completed","notes":"Implemented GeminiAgent with full test coverage. Created gemini.go (Agent implementation), gemini_parser.go (JSON/plain text output parser), gemini_test.go (agent tests), and gemini_parser_test.go (parser tests with 15+ test cases). All quality checks pass (fmt, lint, vet, staticcheck, tests)."}
+{"id":"tl-37f8a160","ts":"2026-01-16T23:12:40.797028Z","type":"status","status":"in_progress"}
+{"id":"tl-c1a836bf","ts":"2026-01-16T23:18:38.408254Z","type":"create","title":"remove 'tl-' prefix from tasks.  it provides no information and adds 3 characters repeatedly to output and log","status":"open","priority":1}
+{"id":"tl-23d9576a","ts":"2026-01-16T23:20:38.612984Z","type":"create","title":"Review and normalize command line flags, e.g. some commands use '--note' and other use '--notes'","status":"open","priority":3}
+{"id":"tl-37f8a160","ts":"2026-01-16T23:22:22.093594Z","type":"status","status":"done","resolution":"completed"}
+{"id":"tl-c1a836bf","ts":"2026-01-16T23:26:46.552313Z","type":"status","status":"done","resolution":"wontfix","notes":"Task added to the wrong repo"}
+{"id":"tl-23d9576a","ts":"2026-01-16T23:27:08.39417Z","type":"status","status":"done","resolution":"wontfix","notes":"Task added to the wrong repo"}
+{"id":"tl-48231db4","ts":"2026-01-16T23:39:02.992788Z","type":"create","title":"Remove integration tests that invoke real CLIs","status":"open","priority":2,"description":"Remove all tests that actually execute claude/gemini/codex CLI tools. These are unit tests and should not make real external calls. Tests currently guarded by ACR_INTEGRATION_TESTS=1 should be deleted entirely."}
+{"id":"tl-f3fe961f","ts":"2026-01-16T23:39:05.00734Z","type":"create","title":"Investigate integration testing strategy","status":"open","priority":2,"description":"Research and design how we want to handle integration tests. Consider: separate test suite, build tags, CI-only execution, test fixtures/mocks, etc."}
+{"id":"tl-48231db4","ts":"2026-01-16T23:42:49.898336Z","type":"status","status":"in_progress"}
+{"id":"tl-e27c4b53","ts":"2026-01-16T23:46:08.20809Z","type":"dep","dep":"tl-f3fe961f","action":"add"}
+{"id":"tl-e27c4b53","ts":"2026-01-16T23:46:42.45908Z","type":"dep","dep":"tl-f3fe961f","action":"remove"}
+{"id":"tl-f3fe961f","ts":"2026-01-16T23:46:54.620832Z","type":"dep","dep":"tl-e27c4b53","action":"add"}
+{"id":"tl-ddf507bc","ts":"2026-01-16T23:47:25.505287Z","type":"dep","dep":"tl-f3fe961f","action":"add"}
+{"id":"tl-48231db4","ts":"2026-01-16T23:48:18.791359Z","type":"status","status":"done","resolution":"completed","notes":"Removed integration tests from codex_test.go, gemini_test.go, and claude_test.go that invoked real CLIs. Kept unit tests for Name(), IsAvailable(), interface compliance, and error handling when CLI not available."}
+{"id":"tl-480b2d6f","ts":"2026-01-16T23:50:27.022768Z","type":"status","status":"in_progress"}
+{"id":"tl-480b2d6f","ts":"2026-01-16T23:51:10.820851Z","type":"status","status":"done","resolution":"completed","notes":"ClaudeOutputParser already implemented with full test coverage. Parses plain text output, filters non-findings (comments, markdown, 'no issues' messages), implements OutputParser interface."}
+{"id":"tl-2eda9207","ts":"2026-01-16T23:53:48.480816Z","type":"status","status":"in_progress"}
+{"id":"tl-2eda9207","ts":"2026-01-16T23:54:50.356969Z","type":"status","status":"done","resolution":"completed","notes":"GeminiOutputParser already implemented. Added interface compliance test for consistency. Parses JSON (text/message/content/finding fields) and plain text, filters non-findings."}
