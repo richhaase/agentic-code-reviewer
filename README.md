@@ -85,6 +85,9 @@ acr --verbose
 | `--no`              | `-n`  | false   | Skip submitting review                   |
 | `--exclude-pattern` |       |         | Exclude findings matching regex (repeat) |
 | `--no-config`       |       | false   | Skip loading .acr.yaml config file       |
+| `--agent`           | `-a`  | codex   | Agent backend (codex, claude, gemini)    |
+| `--prompt`          |       |         | Custom review prompt (inline)            |
+| `--prompt-file`     |       |         | Path to file containing review prompt    |
 
 ### Concurrency Control
 
@@ -100,15 +103,57 @@ acr -r 10 -R 3 -c 3
 
 By default, concurrency equals the reviewer count (all run in parallel).
 
+### Agent Selection
+
+ACR supports multiple AI backends for code review:
+
+| Agent | CLI | Description |
+|-------|-----|-------------|
+| `codex` | [Codex CLI](https://github.com/openai/codex-cli) | Default. Uses built-in `codex exec review` |
+| `claude` | [Claude Code](https://github.com/anthropics/claude-code) | Anthropic's Claude via CLI |
+| `gemini` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google's Gemini via CLI |
+
+```bash
+# Use Claude instead of Codex
+acr --agent claude
+
+# Use Gemini
+acr -a gemini
+```
+
+Different agents may find different issues. The appropriate CLI must be installed and authenticated for the selected agent.
+
+### Custom Prompts
+
+Override the default review prompt to focus on specific concerns:
+
+```bash
+# Inline prompt
+acr --prompt "Review for security vulnerabilities only. Output: file:line: description"
+
+# Prompt from file
+acr --prompt-file prompts/security-review.txt
+```
+
+Effective prompts should:
+- Be specific about what to look for
+- Explicitly state what to skip (reduces noise)
+- Specify the desired output format
+
+The git diff is automatically appended to your prompt.
+
 ### Environment Variables
 
 | Variable                  | Description                              |
 | ------------------------- | ---------------------------------------- |
-| `ACR_REVIEWERS`        | Default number of reviewers              |
-| `ACR_CONCURRENCY`      | Default max concurrent reviewers         |
-| `ACR_BASE_REF`         | Default base ref                         |
-| `ACR_TIMEOUT`          | Default timeout (e.g., "5m" or "300")    |
-| `ACR_RETRIES`          | Default retry count                      |
+| `ACR_REVIEWERS`           | Default number of reviewers              |
+| `ACR_CONCURRENCY`         | Default max concurrent reviewers         |
+| `ACR_BASE_REF`            | Default base ref                         |
+| `ACR_TIMEOUT`             | Default timeout (e.g., "5m" or "300")    |
+| `ACR_RETRIES`             | Default retry count                      |
+| `ACR_AGENT`               | Default agent backend                    |
+| `ACR_REVIEW_PROMPT`       | Default review prompt                    |
+| `ACR_REVIEW_PROMPT_FILE`  | Path to default review prompt file       |
 
 ## Configuration
 
@@ -121,6 +166,13 @@ concurrency: 5            # Max concurrent reviewers (defaults to reviewers)
 base: main                # Base ref for diff comparison
 timeout: 5m               # Timeout per reviewer (supports "5m", "300s", or 300)
 retries: 1                # Retry failed reviewers N times
+agent: codex              # Agent backend (codex, claude, gemini)
+
+# Custom review prompt (inline or file)
+# review_prompt: |
+#   Review for bugs only. Skip style issues.
+#   Output: file:line: description
+# review_prompt_file: prompts/security.txt
 
 filters:
   exclude_patterns:       # Regex patterns to exclude from findings
