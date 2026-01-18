@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"os/exec"
+	"sync"
 	"syscall"
 )
 
@@ -15,45 +16,43 @@ import (
 // subprocess lifecycle.
 type cmdReader struct {
 	io.Reader
-	cmd      *exec.Cmd
-	ctx      context.Context
-	stderr   *bytes.Buffer
-	exitCode int
-	closed   bool
+	cmd       *exec.Cmd
+	ctx       context.Context
+	stderr    *bytes.Buffer
+	exitCode  int
+	closeOnce sync.Once
 }
 
 // Close implements io.Closer and waits for the command to complete.
 // After Close returns, ExitCode() will return the process exit code.
 // If the context was canceled or timed out, it kills the entire process group
 // to ensure no orphaned processes are left behind.
+// Close is safe for concurrent calls - only the first call performs cleanup.
 func (r *cmdReader) Close() error {
-	if r.closed {
-		return nil
-	}
-	r.closed = true
-
-	// Close the reader if it implements io.Closer
-	if closer, ok := r.Reader.(io.Closer); ok {
-		_ = closer.Close()
-	}
-
-	// Kill the process group if context was canceled or timed out
-	if r.cmd != nil && r.cmd.Process != nil {
-		if r.ctx != nil && r.ctx.Err() != nil {
-			// Kill the entire process group (negative PID)
-			_ = syscall.Kill(-r.cmd.Process.Pid, syscall.SIGKILL)
+	r.closeOnce.Do(func() {
+		// Close the reader if it implements io.Closer
+		if closer, ok := r.Reader.(io.Closer); ok {
+			_ = closer.Close()
 		}
 
-		// Wait for command to complete and capture exit code
-		err := r.cmd.Wait()
-		if err != nil {
-			if exitErr, ok := err.(*exec.ExitError); ok {
-				r.exitCode = exitErr.ExitCode()
-			} else {
-				r.exitCode = -1
+		// Kill the process group if context was canceled or timed out
+		if r.cmd != nil && r.cmd.Process != nil {
+			if r.ctx != nil && r.ctx.Err() != nil {
+				// Kill the entire process group (negative PID)
+				_ = syscall.Kill(-r.cmd.Process.Pid, syscall.SIGKILL)
+			}
+
+			// Wait for command to complete and capture exit code
+			err := r.cmd.Wait()
+			if err != nil {
+				if exitErr, ok := err.(*exec.ExitError); ok {
+					r.exitCode = exitErr.ExitCode()
+				} else {
+					r.exitCode = -1
+				}
 			}
 		}
-	}
+	})
 
 	return nil
 }
