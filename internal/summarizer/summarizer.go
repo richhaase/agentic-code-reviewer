@@ -2,53 +2,14 @@
 package summarizer
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"os/exec"
-	"strings"
-	"syscall"
+	"io"
 	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
-
-// claudeOutputSchema is the JSON schema for Claude's structured output.
-// This ensures Claude returns properly formatted JSON without markdown wrapping.
-const claudeOutputSchema = `{"type":"object","properties":{"findings":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"summary":{"type":"string"},"messages":{"type":"array","items":{"type":"string"}},"reviewer_count":{"type":"integer"},"sources":{"type":"array","items":{"type":"integer"}}},"required":["title","summary","messages","reviewer_count","sources"]}},"info":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"summary":{"type":"string"},"messages":{"type":"array","items":{"type":"string"}},"reviewer_count":{"type":"integer"},"sources":{"type":"array","items":{"type":"integer"}}},"required":["title","summary","messages","reviewer_count","sources"]}}},"required":["findings","info"]}`
-
-// claudeWrapper represents the JSON wrapper Claude outputs with --output-format json.
-// The actual structured output is in the StructuredOutput field when using --json-schema.
-type claudeWrapper struct {
-	StructuredOutput domain.GroupedFindings `json:"structured_output"`
-}
-
-// geminiWrapper represents the JSON wrapper Gemini outputs with -o json.
-// The response field contains a JSON string that must be parsed separately.
-type geminiWrapper struct {
-	Response string `json:"response"`
-}
-
-// stripMarkdownCodeFence removes markdown code fences from a string.
-// Handles ```json\n...\n``` or ```\n...\n``` patterns.
-func stripMarkdownCodeFence(s string) string {
-	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "```") {
-		// Find end of first line (the opening fence)
-		if idx := strings.Index(s, "\n"); idx != -1 {
-			s = s[idx+1:]
-		}
-		// Remove closing fence
-		if strings.HasSuffix(s, "```") {
-			s = strings.TrimSuffix(s, "```")
-			s = strings.TrimSpace(s)
-		}
-	}
-	return s
-}
 
 const groupPrompt = `# Codex Review Summarizer
 
@@ -106,28 +67,11 @@ type Result struct {
 	Duration time.Duration
 }
 
-// buildCommand creates the appropriate exec.Cmd for the given agent.
-// Each agent has different CLI conventions:
-//   - codex: codex exec --color never - (prompt via stdin)
-//   - claude: claude --print "prompt" (prompt as argument)
-//   - gemini: gemini -o json (prompt via stdin, no positional arg needed)
-func buildCommand(ctx context.Context, agentName, prompt string) (*exec.Cmd, error) {
-	switch agentName {
-	case "codex":
-		cmd := exec.CommandContext(ctx, "codex", "exec", "--color", "never", "-")
-		cmd.Stdin = bytes.NewReader([]byte(prompt))
-		return cmd, nil
-	case "claude":
-		cmd := exec.CommandContext(ctx, "claude", "--print", "--output-format", "json", "--json-schema", claudeOutputSchema, prompt)
-		cmd.Stdin = bytes.NewReader([]byte{}) // Empty stdin for non-interactive
-		return cmd, nil
-	case "gemini":
-		cmd := exec.CommandContext(ctx, "gemini", "-o", "json")
-		cmd.Stdin = bytes.NewReader([]byte(prompt))
-		return cmd, nil
-	default:
-		return nil, fmt.Errorf("unsupported summarizer agent %q, supported: %v", agentName, agent.SupportedAgents)
-	}
+// inputItem represents a single finding for the summarizer input payload.
+type inputItem struct {
+	ID        int    `json:"id"`
+	Text      string `json:"text"`
+	Reviewers []int  `json:"reviewers"`
 }
 
 // Summarize summarizes the aggregated findings using an LLM.
@@ -142,13 +86,13 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 		}, nil
 	}
 
-	// Build input payload
-	type inputItem struct {
-		ID        int    `json:"id"`
-		Text      string `json:"text"`
-		Reviewers []int  `json:"reviewers"`
+	// Create agent
+	ag, err := agent.NewAgent(agentName)
+	if err != nil {
+		return nil, err
 	}
 
+	// Build input payload
 	items := make([]inputItem, len(aggregated))
 	for i, a := range aggregated {
 		items[i] = inputItem{
@@ -160,10 +104,8 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 
 	payload, err := json.Marshal(items)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal aggregated findings: %w", err)
+		return nil, err
 	}
-
-	fullPrompt := groupPrompt + "\n\nINPUT JSON:\n" + string(payload) + "\n"
 
 	// Check if context is already canceled
 	if ctx.Err() != nil {
@@ -174,20 +116,10 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 		}, nil
 	}
 
-	cmd, err := buildCommand(ctx, agentName, fullPrompt)
+	// Execute summary via agent
+	reader, err := ag.ExecuteSummary(ctx, groupPrompt, payload)
 	if err != nil {
-		return nil, err
-	}
-
-	// Set process group for proper signal handling
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err = cmd.Start(); err != nil {
-		// Handle context cancellation during start
+		// Handle context cancellation
 		if ctx.Err() != nil {
 			return &Result{
 				ExitCode: -1,
@@ -195,110 +127,70 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 				Duration: time.Since(start),
 			}, nil
 		}
-		return nil, fmt.Errorf("failed to start summarizer: %w", err)
+		return nil, err
 	}
 
-	// Wait for completion, but kill process group if context is canceled
-	waitDone := make(chan error, 1)
-	go func() {
-		waitDone <- cmd.Wait()
-	}()
-
-	select {
-	case <-ctx.Done():
-		// Kill the entire process group
-		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	// Read all output
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		// Close reader before returning
+		if closer, ok := reader.(io.Closer); ok {
+			_ = closer.Close()
 		}
-		<-waitDone // Wait for process to be reaped
-		return &Result{
-			ExitCode: -1,
-			Stderr:   "context canceled",
-			Duration: time.Since(start),
-		}, nil
-	case err = <-waitDone:
-		// Process completed normally
+		// Handle context cancellation
+		if ctx.Err() != nil {
+			return &Result{
+				ExitCode: -1,
+				Stderr:   "context canceled",
+				Duration: time.Since(start),
+			}, nil
+		}
+		return nil, err
+	}
+
+	// Close reader and get exit code
+	// Exit code is only valid after Close() has been called
+	if closer, ok := reader.(io.Closer); ok {
+		_ = closer.Close()
 	}
 
 	duration := time.Since(start)
 
 	exitCode := 0
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			exitCode = exitErr.ExitCode()
-		} else {
-			exitCode = 1
-		}
+	if exitCoder, ok := reader.(agent.ExitCoder); ok {
+		exitCode = exitCoder.ExitCode()
 	}
 
-	output := stdout.String()
-	stderrStr := stderr.String()
-
-	if output == "" {
+	if len(output) == 0 {
 		return &Result{
 			Grouped:  domain.GroupedFindings{},
 			ExitCode: exitCode,
-			Stderr:   stderrStr,
 			Duration: duration,
 		}, nil
 	}
 
-	var grouped domain.GroupedFindings
-	switch agentName {
-	case "claude":
-		// Claude wraps output in a metadata object; extract structured_output
-		var wrapper claudeWrapper
-		if err := json.Unmarshal([]byte(output), &wrapper); err != nil {
-			return &Result{
-				Grouped:  domain.GroupedFindings{},
-				ExitCode: 1,
-				Stderr:   "failed to parse Claude JSON wrapper",
-				RawOut:   output,
-				Duration: duration,
-			}, nil
-		}
-		grouped = wrapper.StructuredOutput
-	case "gemini":
-		// Gemini wraps output; response field is a JSON string requiring double-parse
-		// Response may also contain markdown code fences that need stripping
-		var wrapper geminiWrapper
-		if err := json.Unmarshal([]byte(output), &wrapper); err != nil {
-			return &Result{
-				Grouped:  domain.GroupedFindings{},
-				ExitCode: 1,
-				Stderr:   "failed to parse Gemini JSON wrapper",
-				RawOut:   output,
-				Duration: duration,
-			}, nil
-		}
-		responseJSON := stripMarkdownCodeFence(wrapper.Response)
-		if err := json.Unmarshal([]byte(responseJSON), &grouped); err != nil {
-			return &Result{
-				Grouped:  domain.GroupedFindings{},
-				ExitCode: 1,
-				Stderr:   "failed to parse Gemini response content",
-				RawOut:   output,
-				Duration: duration,
-			}, nil
-		}
-	default:
-		if err := json.Unmarshal([]byte(output), &grouped); err != nil {
-			return &Result{
-				Grouped:  domain.GroupedFindings{},
-				ExitCode: 1,
-				Stderr:   "failed to parse summarizer JSON output",
-				RawOut:   output,
-				Duration: duration,
-			}, nil
-		}
+	// Create parser for this agent's output format
+	parser, err := agent.NewSummaryParser(agentName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse the output
+	grouped, err := parser.Parse(output)
+	if err != nil {
+		return &Result{
+			Grouped:  domain.GroupedFindings{},
+			ExitCode: 1,
+			Stderr:   "failed to parse summarizer output: " + err.Error(),
+			RawOut:   string(output),
+			Duration: duration,
+		}, nil
 	}
 
 	return &Result{
-		Grouped:  grouped,
+		Grouped:  *grouped,
 		ExitCode: exitCode,
-		Stderr:   stderrStr,
-		RawOut:   output,
+		RawOut:   string(output),
 		Duration: duration,
 	}, nil
 }
