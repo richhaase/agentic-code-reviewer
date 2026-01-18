@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	"io"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -167,7 +168,7 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		WorkDir:      r.config.WorkDir,
 		Verbose:      r.config.Verbose,
 		CustomPrompt: r.config.CustomPrompt,
-		ReviewerID:   string(rune(reviewerID)),
+		ReviewerID:   strconv.Itoa(reviewerID),
 	}
 
 	// Execute the agent
