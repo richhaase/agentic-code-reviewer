@@ -67,3 +67,14 @@
 {"id":"87f2c01e","ts":"2026-01-18T16:45:59.99433Z","type":"status","status":"done","resolution":"completed","notes":"Created codex_summary_parser.go with CodexSummaryParser"}
 {"id":"ccd77e2e","ts":"2026-01-18T16:45:59.999751Z","type":"status","status":"done","resolution":"completed","notes":"Created claude_summary_parser.go with ClaudeSummaryParser"}
 {"id":"3885ae4c","ts":"2026-01-18T16:46:00.00505Z","type":"status","status":"done","resolution":"completed","notes":"Created gemini_summary_parser.go with GeminiSummaryParser"}
+{"id":"06dc82ab","ts":"2026-01-18T16:46:35.399056Z","type":"status","status":"done","resolution":"completed","notes":"ExecuteSummary already implemented in CodexAgent"}
+{"id":"ece95aca","ts":"2026-01-18T16:46:35.403918Z","type":"status","status":"done","resolution":"completed","notes":"ExecuteSummary already implemented in ClaudeAgent"}
+{"id":"7addb8c0","ts":"2026-01-18T16:46:35.408577Z","type":"status","status":"done","resolution":"completed","notes":"ExecuteSummary already implemented in GeminiAgent"}
+{"id":"306d491e","ts":"2026-01-18T16:46:35.413034Z","type":"status","status":"done","resolution":"completed","notes":"Runner already updated to use NewReviewParser"}
+{"id":"b960febf","ts":"2026-01-18T16:47:30.299407Z","type":"status","status":"in_progress"}
+{"id":"ef2bd4f8","ts":"2026-01-18T16:47:30.304137Z","type":"status","status":"in_progress"}
+{"id":"8d5faa5a","ts":"2026-01-18T16:47:30.30876Z","type":"status","status":"in_progress"}
+{"id":"b960febf","ts":"2026-01-18T16:49:33.649337Z","type":"status","status":"done","resolution":"completed","notes":"Refactored summarizer to use Agent.ExecuteSummary and SummaryParser. Removed duplicated code."}
+{"id":"4e8fda8b","ts":"2026-01-18T16:54:31.028132Z","type":"create","title":"Fix: Summarizer prompt references 'Codex' but should be agent-agnostic","status":"open","priority":1,"labels":["bug"],"description":"The groupPrompt in summarizer.go mentions 'Codex Review Summarizer' and 'Codex review runs' but the summarizer groups results from any reviewer agent. Update prompt to be agent-neutral."}
+{"id":"ef2bd4f8","ts":"2026-01-18T16:59:28.639796Z","type":"status","status":"done","resolution":"completed","notes":"Added unit tests for all three SummaryParser implementations (Codex, Claude, Gemini) with comprehensive coverage of JSON parsing, edge cases, and interface compliance"}
+{"id":"8d5faa5a","ts":"2026-01-18T16:59:30.103788Z","type":"status","status":"done","resolution":"completed","notes":"Added tests for ExecuteSummary on all agents verifying correct error handling when CLI is unavailable"}
