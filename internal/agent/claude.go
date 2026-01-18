@@ -38,7 +38,7 @@ func (c *ClaudeAgent) IsAvailable() error {
 // ExecuteReview runs a code review using the claude CLI.
 // Returns an io.Reader for streaming the output.
 //
-// Uses 'claude --print "prompt"' for non-interactive execution.
+// Uses 'claude --print -' with the prompt piped via stdin.
 // If config.CustomPrompt is empty, uses DefaultClaudePrompt.
 // The git diff is automatically appended to the prompt.
 func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (io.Reader, error) {
@@ -59,14 +59,14 @@ func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 	}
 	prompt = BuildPromptWithDiff(prompt, diff)
 
-	// Build command: claude --print "prompt"
+	// Build command: claude --print -
 	// --print: Output response only (non-interactive)
-	// prompt is passed as a positional argument
-	args := []string{"--print", prompt}
+	// -: Read prompt from stdin (avoids ARG_MAX limits on large diffs)
+	args := []string{"--print", "-"}
 	cmd := exec.CommandContext(ctx, "claude", args...)
 
-	// Pipe empty stdin to ensure non-interactive mode
-	cmd.Stdin = bytes.NewReader([]byte{})
+	// Pipe prompt via stdin
+	cmd.Stdin = bytes.NewReader([]byte(prompt))
 
 	if config.WorkDir != "" {
 		cmd.Dir = config.WorkDir
@@ -93,8 +93,8 @@ func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 }
 
 // ExecuteSummary runs a summarization task using the claude CLI.
-// Uses 'claude --print --output-format json --json-schema <schema> <prompt>'
-// with the prompt containing both instructions and input data.
+// Uses 'claude --print --output-format json --json-schema <schema> -'
+// with the prompt piped via stdin.
 func (c *ClaudeAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (io.Reader, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
@@ -104,11 +104,12 @@ func (c *ClaudeAgent) ExecuteSummary(ctx context.Context, prompt string, input [
 	fullPrompt := prompt + "\n\nINPUT JSON:\n" + string(input) + "\n"
 
 	// Build command with JSON schema for structured output
-	args := []string{"--print", "--output-format", "json", "--json-schema", claudeSummarySchema, fullPrompt}
+	// -: Read prompt from stdin (avoids ARG_MAX limits on large inputs)
+	args := []string{"--print", "--output-format", "json", "--json-schema", claudeSummarySchema, "-"}
 	cmd := exec.CommandContext(ctx, "claude", args...)
 
-	// Pipe empty stdin to ensure non-interactive mode
-	cmd.Stdin = bytes.NewReader([]byte{})
+	// Pipe prompt via stdin
+	cmd.Stdin = bytes.NewReader([]byte(fullPrompt))
 
 	// Set process group for proper signal handling
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
