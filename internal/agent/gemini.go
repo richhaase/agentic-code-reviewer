@@ -67,6 +67,10 @@ func (g *GeminiAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 	// Set process group for proper signal handling
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
+	// Capture stderr for error diagnostics
+	stderr := &bytes.Buffer{}
+	cmd.Stderr = stderr
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
@@ -81,6 +85,7 @@ func (g *GeminiAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 		Reader: stdout,
 		cmd:    cmd,
 		ctx:    ctx,
+		stderr: stderr,
 	}, nil
 }
 
@@ -102,6 +107,10 @@ func (g *GeminiAgent) ExecuteSummary(ctx context.Context, prompt string, input [
 	// Set process group for proper signal handling
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
+	// Capture stderr for error diagnostics
+	stderr := &bytes.Buffer{}
+	cmd.Stderr = stderr
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
@@ -115,5 +124,6 @@ func (g *GeminiAgent) ExecuteSummary(ctx context.Context, prompt string, input [
 		Reader: stdout,
 		cmd:    cmd,
 		ctx:    ctx,
+		stderr: stderr,
 	}, nil
 }

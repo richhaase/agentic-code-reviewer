@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os/exec"
@@ -8,13 +9,15 @@ import (
 )
 
 // cmdReader wraps an io.Reader and ensures the command is waited on when closed.
-// It implements io.Closer and ExitCoder to provide process exit code after Close().
+// It implements io.Closer, ExitCoder, and StderrProvider to provide process exit
+// code and stderr output after Close().
 // This type is used by all agent implementations (codex, claude, gemini) to manage
 // subprocess lifecycle.
 type cmdReader struct {
 	io.Reader
 	cmd      *exec.Cmd
 	ctx      context.Context
+	stderr   *bytes.Buffer
 	exitCode int
 	closed   bool
 }
@@ -60,4 +63,14 @@ func (r *cmdReader) Close() error {
 // -1 if process could not be waited on, or the actual exit code otherwise.
 func (r *cmdReader) ExitCode() int {
 	return r.exitCode
+}
+
+// Stderr implements StderrProvider and returns captured stderr output.
+// Only valid after Close() has been called. Returns empty string if no
+// stderr was captured or if stderr buffer was not configured.
+func (r *cmdReader) Stderr() string {
+	if r.stderr == nil {
+		return ""
+	}
+	return r.stderr.String()
 }

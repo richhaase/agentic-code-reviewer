@@ -35,3 +35,10 @@ type Agent interface {
 type ExitCoder interface {
 	ExitCode() int
 }
+
+// StderrProvider is an optional interface for readers that capture subprocess stderr.
+// Readers returned by Agent.ExecuteReview may implement this interface.
+// The stderr output is only valid after Close() has been called.
+type StderrProvider interface {
+	Stderr() string
+}
