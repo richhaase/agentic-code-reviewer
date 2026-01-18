@@ -31,13 +31,13 @@ func (g *GeminiAgent) IsAvailable() error {
 	return nil
 }
 
-// Execute runs a code review using the gemini CLI.
+// ExecuteReview runs a code review using the gemini CLI.
 // Returns an io.Reader for streaming the JSON output.
 //
 // Uses 'gemini -o json -' with the prompt piped to stdin.
 // If config.CustomPrompt is empty, uses DefaultGeminiPrompt.
 // The git diff is automatically appended to the prompt.
-func (g *GeminiAgent) Execute(ctx context.Context, config *AgentConfig) (io.Reader, error) {
+func (g *GeminiAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (io.Reader, error) {
 	if err := g.IsAvailable(); err != nil {
 		return nil, err
 	}

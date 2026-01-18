@@ -64,7 +64,7 @@ func TestNewAgent(t *testing.T) {
 	}
 }
 
-func TestNewOutputParser(t *testing.T) {
+func TestNewReviewParser(t *testing.T) {
 	tests := []struct {
 		name       string
 		agentName  string
@@ -99,7 +99,7 @@ func TestNewOutputParser(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parser, err := NewOutputParser(tt.agentName, tt.reviewerID)
+			parser, err := NewReviewParser(tt.agentName, tt.reviewerID)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")

@@ -6,9 +6,9 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
-// OutputParser is responsible for parsing agent output and converting it to findings.
+// ReviewParser parses streaming review output into findings.
 // Each agent implementation provides its own parser to handle its specific output format.
-type OutputParser interface {
+type ReviewParser interface {
 	// ReadFinding reads and parses the next finding from the output stream.
 	// Returns nil when the stream is exhausted or if no finding is available.
 	// Returns an error if parsing fails.
@@ -20,4 +20,13 @@ type OutputParser interface {
 
 	// Close releases any resources held by the parser.
 	Close() error
+}
+
+// SummaryParser parses summary output into grouped findings.
+// Each agent implementation provides its own parser to handle its specific output format.
+type SummaryParser interface {
+	// Parse parses the complete summary output and returns grouped findings.
+	// The data parameter contains the raw output from ExecuteSummary.
+	// Returns an error if parsing fails.
+	Parse(data []byte) (*domain.GroupedFindings, error)
 }

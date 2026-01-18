@@ -248,8 +248,8 @@ func TestNewGeminiOutputParser(t *testing.T) {
 }
 
 func TestGeminiOutputParserInterface(t *testing.T) {
-	// Verify that GeminiOutputParser implements the OutputParser interface
-	var _ OutputParser = (*GeminiOutputParser)(nil)
+	// Verify that GeminiOutputParser implements the ReviewParser interface
+	var _ ReviewParser = (*GeminiOutputParser)(nil)
 }
 
 func BenchmarkGeminiOutputParser_ReadFinding(b *testing.B) {

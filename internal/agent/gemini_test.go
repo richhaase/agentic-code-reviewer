@@ -48,7 +48,7 @@ func TestGeminiAgent_IsAvailable(t *testing.T) {
 	}
 }
 
-func TestGeminiAgent_Execute_GeminiNotAvailable(t *testing.T) {
+func TestGeminiAgent_ExecuteReview_GeminiNotAvailable(t *testing.T) {
 	// Temporarily remove PATH to ensure gemini is not available
 	originalPath := os.Getenv("PATH")
 	defer os.Setenv("PATH", originalPath)
@@ -56,23 +56,23 @@ func TestGeminiAgent_Execute_GeminiNotAvailable(t *testing.T) {
 
 	agent := NewGeminiAgent()
 	ctx := context.Background()
-	config := &AgentConfig{
+	config := &ReviewConfig{
 		BaseRef: "main",
 		WorkDir: ".",
 	}
 
-	reader, err := agent.Execute(ctx, config)
+	reader, err := agent.ExecuteReview(ctx, config)
 	if err == nil {
 		if reader != nil {
 			if closer, ok := reader.(io.Closer); ok {
 				closer.Close()
 			}
 		}
-		t.Error("Execute() should return error when gemini is not available")
+		t.Error("ExecuteReview() should return error when gemini is not available")
 	}
 
 	if !strings.Contains(err.Error(), "gemini CLI not found") {
-		t.Errorf("Execute() error = %v, want error containing 'gemini CLI not found'", err)
+		t.Errorf("ExecuteReview() error = %v, want error containing 'gemini CLI not found'", err)
 	}
 }
 

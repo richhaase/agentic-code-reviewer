@@ -2,8 +2,8 @@ package agent
 
 import "time"
 
-// AgentConfig contains the configuration for a single agent execution.
-type AgentConfig struct {
+// ReviewConfig contains the configuration for a code review execution.
+type ReviewConfig struct {
 	// BaseRef is the git reference to compare against (e.g., "main", "HEAD~1").
 	BaseRef string
 

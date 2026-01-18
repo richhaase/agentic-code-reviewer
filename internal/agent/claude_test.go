@@ -48,7 +48,7 @@ func TestClaudeAgent_IsAvailable(t *testing.T) {
 	}
 }
 
-func TestClaudeAgent_Execute_ClaudeNotAvailable(t *testing.T) {
+func TestClaudeAgent_ExecuteReview_ClaudeNotAvailable(t *testing.T) {
 	// Temporarily remove PATH to ensure claude is not available
 	originalPath := os.Getenv("PATH")
 	defer os.Setenv("PATH", originalPath)
@@ -56,23 +56,23 @@ func TestClaudeAgent_Execute_ClaudeNotAvailable(t *testing.T) {
 
 	agent := NewClaudeAgent()
 	ctx := context.Background()
-	config := &AgentConfig{
+	config := &ReviewConfig{
 		BaseRef: "main",
 		WorkDir: ".",
 	}
 
-	reader, err := agent.Execute(ctx, config)
+	reader, err := agent.ExecuteReview(ctx, config)
 	if err == nil {
 		if reader != nil {
 			if closer, ok := reader.(io.Closer); ok {
 				closer.Close()
 			}
 		}
-		t.Error("Execute() should return error when claude is not available")
+		t.Error("ExecuteReview() should return error when claude is not available")
 	}
 
 	if !strings.Contains(err.Error(), "claude CLI not found") {
-		t.Errorf("Execute() error = %v, want error containing 'claude CLI not found'", err)
+		t.Errorf("ExecuteReview() error = %v, want error containing 'claude CLI not found'", err)
 	}
 }
 

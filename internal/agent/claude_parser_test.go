@@ -264,8 +264,8 @@ func TestNewClaudeOutputParser(t *testing.T) {
 }
 
 func TestClaudeOutputParserInterface(t *testing.T) {
-	// Verify that ClaudeOutputParser implements the OutputParser interface
-	var _ OutputParser = (*ClaudeOutputParser)(nil)
+	// Verify that ClaudeOutputParser implements the ReviewParser interface
+	var _ ReviewParser = (*ClaudeOutputParser)(nil)
 }
 
 func BenchmarkClaudeOutputParser_ReadFinding(b *testing.B) {

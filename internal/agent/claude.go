@@ -31,13 +31,13 @@ func (c *ClaudeAgent) IsAvailable() error {
 	return nil
 }
 
-// Execute runs a code review using the claude CLI.
+// ExecuteReview runs a code review using the claude CLI.
 // Returns an io.Reader for streaming the output.
 //
 // Uses 'claude --print "prompt"' for non-interactive execution.
 // If config.CustomPrompt is empty, uses DefaultClaudePrompt.
 // The git diff is automatically appended to the prompt.
-func (c *ClaudeAgent) Execute(ctx context.Context, config *AgentConfig) (io.Reader, error) {
+func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (io.Reader, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
 	}

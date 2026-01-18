@@ -161,8 +161,8 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	timeoutCtx, cancel := context.WithTimeout(ctx, r.config.Timeout)
 	defer cancel()
 
-	// Create agent configuration
-	agentConfig := &agent.AgentConfig{
+	// Create review configuration
+	reviewConfig := &agent.ReviewConfig{
 		BaseRef:      r.config.BaseRef,
 		Timeout:      r.config.Timeout,
 		WorkDir:      r.config.WorkDir,
@@ -171,8 +171,8 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		ReviewerID:   strconv.Itoa(reviewerID),
 	}
 
-	// Execute the agent
-	reader, err := r.agent.Execute(timeoutCtx, agentConfig)
+	// Execute the review
+	reader, err := r.agent.ExecuteReview(timeoutCtx, reviewConfig)
 	if err != nil {
 		result.ExitCode = -1
 		result.Duration = time.Since(start)
@@ -191,7 +191,7 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	}
 
 	// Create parser for this agent's output
-	parser, err := agent.NewOutputParser(r.agent.Name(), reviewerID)
+	parser, err := agent.NewReviewParser(r.agent.Name(), reviewerID)
 	if err != nil {
 		closeReader()
 		result.ExitCode = -1

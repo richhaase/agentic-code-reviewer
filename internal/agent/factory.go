@@ -26,9 +26,9 @@ func NewAgent(name string) (Agent, error) {
 	}
 }
 
-// NewOutputParser creates an OutputParser for the given agent name.
+// NewReviewParser creates a ReviewParser for the given agent name.
 // The parser matches the output format of the corresponding agent.
-func NewOutputParser(agentName string, reviewerID int) (OutputParser, error) {
+func NewReviewParser(agentName string, reviewerID int) (ReviewParser, error) {
 	switch agentName {
 	case "codex":
 		return NewCodexOutputParser(reviewerID), nil

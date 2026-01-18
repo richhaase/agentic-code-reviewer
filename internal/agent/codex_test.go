@@ -48,7 +48,7 @@ func TestCodexAgent_IsAvailable(t *testing.T) {
 	}
 }
 
-func TestCodexAgent_Execute_CodexNotAvailable(t *testing.T) {
+func TestCodexAgent_ExecuteReview_CodexNotAvailable(t *testing.T) {
 	// Temporarily remove PATH to ensure codex is not available
 	originalPath := os.Getenv("PATH")
 	defer os.Setenv("PATH", originalPath)
@@ -56,23 +56,23 @@ func TestCodexAgent_Execute_CodexNotAvailable(t *testing.T) {
 
 	agent := NewCodexAgent()
 	ctx := context.Background()
-	config := &AgentConfig{
+	config := &ReviewConfig{
 		BaseRef: "main",
 		WorkDir: ".",
 	}
 
-	reader, err := agent.Execute(ctx, config)
+	reader, err := agent.ExecuteReview(ctx, config)
 	if err == nil {
 		if reader != nil {
 			if closer, ok := reader.(io.Closer); ok {
 				closer.Close()
 			}
 		}
-		t.Error("Execute() should return error when codex is not available")
+		t.Error("ExecuteReview() should return error when codex is not available")
 	}
 
 	if !strings.Contains(err.Error(), "codex CLI not found") {
-		t.Errorf("Execute() error = %v, want error containing 'codex CLI not found'", err)
+		t.Errorf("ExecuteReview() error = %v, want error containing 'codex CLI not found'", err)
 	}
 }
 

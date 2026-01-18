@@ -31,12 +31,12 @@ func (c *CodexAgent) IsAvailable() error {
 	return nil
 }
 
-// Execute runs a code review using the codex CLI.
+// ExecuteReview runs a code review using the codex CLI.
 // Returns an io.Reader for streaming the JSONL output.
 //
 // If config.CustomPrompt is provided, uses 'codex exec -' with the prompt on stdin.
 // Otherwise, uses 'codex exec review --base X' for the built-in review behavior.
-func (c *CodexAgent) Execute(ctx context.Context, config *AgentConfig) (io.Reader, error) {
+func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (io.Reader, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
 	}
