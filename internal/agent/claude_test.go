@@ -79,3 +79,27 @@ func TestClaudeAgent_ExecuteReview_ClaudeNotAvailable(t *testing.T) {
 func TestClaudeAgentInterface(t *testing.T) {
 	var _ Agent = (*ClaudeAgent)(nil)
 }
+
+func TestClaudeAgent_ExecuteSummary_ClaudeNotAvailable(t *testing.T) {
+	// Temporarily remove PATH to ensure claude is not available
+	originalPath := os.Getenv("PATH")
+	defer os.Setenv("PATH", originalPath)
+	os.Setenv("PATH", "")
+
+	agent := NewClaudeAgent()
+	ctx := context.Background()
+
+	reader, err := agent.ExecuteSummary(ctx, "test prompt", []byte(`{"findings":[]}`))
+	if err == nil {
+		if reader != nil {
+			if closer, ok := reader.(io.Closer); ok {
+				closer.Close()
+			}
+		}
+		t.Error("ExecuteSummary() should return error when claude is not available")
+	}
+
+	if !strings.Contains(err.Error(), "claude CLI not found") {
+		t.Errorf("ExecuteSummary() error = %v, want error containing 'claude CLI not found'", err)
+	}
+}

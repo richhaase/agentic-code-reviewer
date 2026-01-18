@@ -211,3 +211,27 @@ func TestCmdReader_Close_Idempotent(t *testing.T) {
 		t.Errorf("Second Close() error = %v, want nil", err)
 	}
 }
+
+func TestCodexAgent_ExecuteSummary_CodexNotAvailable(t *testing.T) {
+	// Temporarily remove PATH to ensure codex is not available
+	originalPath := os.Getenv("PATH")
+	defer os.Setenv("PATH", originalPath)
+	os.Setenv("PATH", "")
+
+	agent := NewCodexAgent()
+	ctx := context.Background()
+
+	reader, err := agent.ExecuteSummary(ctx, "test prompt", []byte(`{"findings":[]}`))
+	if err == nil {
+		if reader != nil {
+			if closer, ok := reader.(io.Closer); ok {
+				closer.Close()
+			}
+		}
+		t.Error("ExecuteSummary() should return error when codex is not available")
+	}
+
+	if !strings.Contains(err.Error(), "codex CLI not found") {
+		t.Errorf("ExecuteSummary() error = %v, want error containing 'codex CLI not found'", err)
+	}
+}
