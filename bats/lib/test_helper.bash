@@ -31,8 +31,13 @@ clone_repo() {
     local repo="$1"
     local ref="${2:-main}"
 
-    gh repo clone "$repo" repo -- --depth 1 --branch "$ref" 2>/dev/null || \
-        git clone --depth 1 --branch "$ref" "https://github.com/$repo.git" repo
+    # Try gh first (handles auth), fall back to git clone
+    if ! gh repo clone "$repo" repo -- --depth 1 --branch "$ref" 2>/dev/null; then
+        if ! git clone --depth 1 --branch "$ref" "https://github.com/$repo.git" repo 2>&1; then
+            echo "Failed to clone $repo (ref: $ref) - check repo exists and ref is valid" >&2
+            exit 1
+        fi
+    fi
 
     cd repo || exit 1
 }
@@ -43,9 +48,18 @@ clone_pr() {
     local repo="$1"
     local pr_number="$2"
 
-    gh repo clone "$repo" repo -- --depth 1 2>/dev/null || \
-        git clone --depth 1 "https://github.com/$repo.git" repo
+    # Try gh first (handles auth), fall back to git clone
+    if ! gh repo clone "$repo" repo -- --depth 1 2>/dev/null; then
+        if ! git clone --depth 1 "https://github.com/$repo.git" repo 2>&1; then
+            echo "Failed to clone $repo - check repo exists and you have access" >&2
+            exit 1
+        fi
+    fi
 
     cd repo || exit 1
-    gh pr checkout "$pr_number"
+
+    if ! gh pr checkout "$pr_number" 2>&1; then
+        echo "Failed to checkout PR #$pr_number - check PR exists and gh is authenticated" >&2
+        exit 1
+    fi
 }
