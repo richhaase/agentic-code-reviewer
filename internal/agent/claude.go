@@ -9,6 +9,10 @@ import (
 	"syscall"
 )
 
+// claudeSummarySchema is the JSON schema for Claude's structured summary output.
+// This ensures Claude returns properly formatted JSON without markdown wrapping.
+const claudeSummarySchema = `{"type":"object","properties":{"findings":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"summary":{"type":"string"},"messages":{"type":"array","items":{"type":"string"}},"reviewer_count":{"type":"integer"},"sources":{"type":"array","items":{"type":"integer"}}},"required":["title","summary","messages","reviewer_count","sources"]}},"info":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"summary":{"type":"string"},"messages":{"type":"array","items":{"type":"string"}},"reviewer_count":{"type":"integer"},"sources":{"type":"array","items":{"type":"integer"}}},"required":["title","summary","messages","reviewer_count","sources"]}}},"required":["findings","info"]}`
+
 // ClaudeAgent implements the Agent interface for the Claude CLI backend.
 type ClaudeAgent struct{}
 
@@ -81,6 +85,43 @@ func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 	}
 
 	// Return a reader that will also wait for the command to complete
+	return &cmdReader{
+		Reader: stdout,
+		cmd:    cmd,
+		ctx:    ctx,
+	}, nil
+}
+
+// ExecuteSummary runs a summarization task using the claude CLI.
+// Uses 'claude --print --output-format json --json-schema <schema> <prompt>'
+// with the prompt containing both instructions and input data.
+func (c *ClaudeAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (io.Reader, error) {
+	if err := c.IsAvailable(); err != nil {
+		return nil, err
+	}
+
+	// Combine prompt and input
+	fullPrompt := prompt + "\n\nINPUT JSON:\n" + string(input) + "\n"
+
+	// Build command with JSON schema for structured output
+	args := []string{"--print", "--output-format", "json", "--json-schema", claudeSummarySchema, fullPrompt}
+	cmd := exec.CommandContext(ctx, "claude", args...)
+
+	// Pipe empty stdin to ensure non-interactive mode
+	cmd.Stdin = bytes.NewReader([]byte{})
+
+	// Set process group for proper signal handling
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start claude: %w", err)
+	}
+
 	return &cmdReader{
 		Reader: stdout,
 		cmd:    cmd,

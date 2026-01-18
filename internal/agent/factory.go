@@ -40,3 +40,18 @@ func NewReviewParser(agentName string, reviewerID int) (ReviewParser, error) {
 		return nil, fmt.Errorf("unknown agent %q, no parser available", agentName)
 	}
 }
+
+// NewSummaryParser creates a SummaryParser for the given agent name.
+// The parser matches the summary output format of the corresponding agent.
+func NewSummaryParser(agentName string) (SummaryParser, error) {
+	switch agentName {
+	case "codex":
+		return NewCodexSummaryParser(), nil
+	case "claude":
+		return NewClaudeSummaryParser(), nil
+	case "gemini":
+		return NewGeminiSummaryParser(), nil
+	default:
+		return nil, fmt.Errorf("unknown agent %q, no summary parser available", agentName)
+	}
+}

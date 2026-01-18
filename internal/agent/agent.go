@@ -5,8 +5,8 @@ import (
 	"io"
 )
 
-// Agent represents a code review backend that can execute reviews.
-// Implementations include CodexAgent, ClaudeAgent, GeminiAgent, etc.
+// Agent represents a backend that can execute code reviews and summarizations.
+// Implementations include CodexAgent, ClaudeAgent, GeminiAgent.
 type Agent interface {
 	// Name returns the agent's identifier (e.g., "codex", "claude", "gemini").
 	Name() string
@@ -20,6 +20,13 @@ type Agent interface {
 	// The caller is responsible for closing the reader if it implements io.Closer.
 	// If the reader implements ExitCoder, the caller can retrieve the process exit code.
 	ExecuteReview(ctx context.Context, config *ReviewConfig) (io.Reader, error)
+
+	// ExecuteSummary runs a summarization task with the given prompt and input data.
+	// The prompt contains the summarization instructions.
+	// The input contains the data to summarize (typically JSON-encoded aggregated findings).
+	// Returns an io.Reader for the output.
+	// The caller is responsible for closing the reader if it implements io.Closer.
+	ExecuteSummary(ctx context.Context, prompt string, input []byte) (io.Reader, error)
 }
 
 // ExitCoder is an optional interface for readers that can report process exit codes.

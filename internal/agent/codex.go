@@ -85,6 +85,39 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (i
 	}, nil
 }
 
+// ExecuteSummary runs a summarization task using the codex CLI.
+// Uses 'codex exec --color never -' with the prompt and input piped to stdin.
+func (c *CodexAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (io.Reader, error) {
+	if err := c.IsAvailable(); err != nil {
+		return nil, err
+	}
+
+	// Combine prompt and input
+	fullPrompt := prompt + "\n\nINPUT JSON:\n" + string(input) + "\n"
+
+	args := []string{"exec", "--color", "never", "-"}
+	cmd := exec.CommandContext(ctx, "codex", args...)
+	cmd.Stdin = bytes.NewReader([]byte(fullPrompt))
+
+	// Set process group for proper signal handling
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start codex: %w", err)
+	}
+
+	return &cmdReader{
+		Reader: stdout,
+		cmd:    cmd,
+		ctx:    ctx,
+	}, nil
+}
+
 // cmdReader wraps an io.Reader and ensures the command is waited on when closed.
 // It implements io.Closer and ExitCoder to provide process exit code after Close().
 type cmdReader struct {
