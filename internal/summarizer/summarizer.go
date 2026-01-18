@@ -25,6 +25,12 @@ type claudeWrapper struct {
 	StructuredOutput domain.GroupedFindings `json:"structured_output"`
 }
 
+// geminiWrapper represents the JSON wrapper Gemini outputs with -o json.
+// The response field contains a JSON string that must be parsed separately.
+type geminiWrapper struct {
+	Response string `json:"response"`
+}
+
 const groupPrompt = `# Codex Review Summarizer
 
 You are grouping results from repeated Codex review runs.
@@ -219,7 +225,8 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 	}
 
 	var grouped domain.GroupedFindings
-	if agentName == "claude" {
+	switch agentName {
+	case "claude":
 		// Claude wraps output in a metadata object; extract structured_output
 		var wrapper claudeWrapper
 		if err := json.Unmarshal([]byte(output), &wrapper); err != nil {
@@ -232,7 +239,28 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 			}, nil
 		}
 		grouped = wrapper.StructuredOutput
-	} else {
+	case "gemini":
+		// Gemini wraps output; response field is a JSON string requiring double-parse
+		var wrapper geminiWrapper
+		if err := json.Unmarshal([]byte(output), &wrapper); err != nil {
+			return &Result{
+				Grouped:  domain.GroupedFindings{},
+				ExitCode: 1,
+				Stderr:   "failed to parse Gemini JSON wrapper",
+				RawOut:   output,
+				Duration: duration,
+			}, nil
+		}
+		if err := json.Unmarshal([]byte(wrapper.Response), &grouped); err != nil {
+			return &Result{
+				Grouped:  domain.GroupedFindings{},
+				ExitCode: 1,
+				Stderr:   "failed to parse Gemini response content",
+				RawOut:   output,
+				Duration: duration,
+			}, nil
+		}
+	default:
 		if err := json.Unmarshal([]byte(output), &grouped); err != nil {
 			return &Result{
 				Grouped:  domain.GroupedFindings{},
