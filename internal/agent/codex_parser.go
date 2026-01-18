@@ -16,7 +16,8 @@ const (
 
 // CodexOutputParser parses JSONL output from the codex CLI.
 type CodexOutputParser struct {
-	reviewerID int
+	reviewerID  int
+	parseErrors int
 }
 
 // NewCodexOutputParser creates a new parser for codex output.
@@ -48,7 +49,8 @@ func (p *CodexOutputParser) ReadFinding(scanner *bufio.Scanner) (*domain.Finding
 		}
 
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			// Skip lines that don't parse (could be non-JSON output)
+			// Track parse errors but continue processing
+			p.parseErrors++
 			continue
 		}
 
@@ -68,6 +70,11 @@ func (p *CodexOutputParser) ReadFinding(scanner *bufio.Scanner) (*domain.Finding
 
 	// No more findings
 	return nil, nil
+}
+
+// ParseErrors returns the number of recoverable parse errors encountered.
+func (p *CodexOutputParser) ParseErrors() int {
+	return p.parseErrors
 }
 
 // Close releases any resources held by the parser.

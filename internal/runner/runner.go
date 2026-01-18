@@ -241,6 +241,9 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 
 	result.Duration = time.Since(start)
 
+	// Capture parse errors tracked by the parser
+	result.ParseErrors += parser.ParseErrors()
+
 	// Close reader and capture exit code
 	exitCode := closeReader()
 

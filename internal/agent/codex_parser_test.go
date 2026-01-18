@@ -116,6 +116,79 @@ func TestCodexOutputParser_ReadFinding(t *testing.T) {
 	}
 }
 
+func TestCodexOutputParser_ParseErrors(t *testing.T) {
+	tests := []struct {
+		name            string
+		input           string
+		wantFindings    int
+		wantParseErrors int
+	}{
+		{
+			name:            "no parse errors",
+			input:           `{"item": {"type": "agent_message", "text": "Valid finding"}}`,
+			wantFindings:    1,
+			wantParseErrors: 0,
+		},
+		{
+			name: "single parse error",
+			input: `not valid json
+{"item": {"type": "agent_message", "text": "Valid finding"}}`,
+			wantFindings:    1,
+			wantParseErrors: 1,
+		},
+		{
+			name: "multiple parse errors",
+			input: `not valid json
+{"item": {"type": "agent_message", "text": "Finding 1"}}
+{malformed json
+also invalid
+{"item": {"type": "agent_message", "text": "Finding 2"}}`,
+			wantFindings:    2,
+			wantParseErrors: 3,
+		},
+		{
+			name:            "all lines invalid",
+			input:           "invalid\nalso invalid\nstill invalid",
+			wantFindings:    0,
+			wantParseErrors: 3,
+		},
+		{
+			name:            "empty input no errors",
+			input:           "",
+			wantFindings:    0,
+			wantParseErrors: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parser := NewCodexOutputParser(1)
+			scanner := bufio.NewScanner(strings.NewReader(tt.input))
+			ConfigureScanner(scanner)
+
+			findingCount := 0
+			for {
+				finding, err := parser.ReadFinding(scanner)
+				if err != nil {
+					t.Fatalf("ReadFinding() error = %v", err)
+				}
+				if finding == nil {
+					break
+				}
+				findingCount++
+			}
+
+			if findingCount != tt.wantFindings {
+				t.Errorf("got %d findings, want %d", findingCount, tt.wantFindings)
+			}
+
+			if parser.ParseErrors() != tt.wantParseErrors {
+				t.Errorf("ParseErrors() = %d, want %d", parser.ParseErrors(), tt.wantParseErrors)
+			}
+		})
+	}
+}
+
 func TestCodexOutputParser_Close(t *testing.T) {
 	parser := NewCodexOutputParser(1)
 	err := parser.Close()

@@ -14,6 +14,10 @@ type OutputParser interface {
 	// Returns an error if parsing fails.
 	ReadFinding(scanner *bufio.Scanner) (*domain.Finding, error)
 
+	// ParseErrors returns the number of recoverable parse errors encountered.
+	// This count includes lines that failed to parse but were skipped to continue processing.
+	ParseErrors() int
+
 	// Close releases any resources held by the parser.
 	Close() error
 }

@@ -189,6 +189,48 @@ performance/cache.go:50: Inefficient loop - O(n^2) complexity could be reduced t
 	}
 }
 
+func TestClaudeOutputParser_ParseErrors(t *testing.T) {
+	// ClaudeOutputParser parses plain text, so it doesn't have parse errors
+	tests := []struct {
+		name            string
+		input           string
+		wantParseErrors int
+	}{
+		{
+			name:            "valid plain text",
+			input:           "Some finding text",
+			wantParseErrors: 0,
+		},
+		{
+			name:            "empty input",
+			input:           "",
+			wantParseErrors: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parser := NewClaudeOutputParser(1)
+			scanner := bufio.NewScanner(strings.NewReader(tt.input))
+			ConfigureScanner(scanner)
+
+			for {
+				finding, err := parser.ReadFinding(scanner)
+				if err != nil {
+					t.Fatalf("ReadFinding() error = %v", err)
+				}
+				if finding == nil {
+					break
+				}
+			}
+
+			if parser.ParseErrors() != tt.wantParseErrors {
+				t.Errorf("ParseErrors() = %d, want %d", parser.ParseErrors(), tt.wantParseErrors)
+			}
+		})
+	}
+}
+
 func TestClaudeOutputParser_Close(t *testing.T) {
 	parser := NewClaudeOutputParser(1)
 	err := parser.Close()

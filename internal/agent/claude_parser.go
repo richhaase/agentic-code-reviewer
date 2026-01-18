@@ -9,7 +9,8 @@ import (
 
 // ClaudeOutputParser parses text output from the claude CLI.
 type ClaudeOutputParser struct {
-	reviewerID int
+	reviewerID  int
+	parseErrors int
 }
 
 // NewClaudeOutputParser creates a new parser for claude output.
@@ -59,6 +60,12 @@ func (p *ClaudeOutputParser) ReadFinding(scanner *bufio.Scanner) (*domain.Findin
 
 	// No more findings
 	return nil, nil
+}
+
+// ParseErrors returns the number of recoverable parse errors encountered.
+// ClaudeOutputParser parses plain text, so parse errors don't occur.
+func (p *ClaudeOutputParser) ParseErrors() int {
+	return p.parseErrors
 }
 
 // Close releases any resources held by the parser.

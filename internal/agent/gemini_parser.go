@@ -10,7 +10,8 @@ import (
 
 // GeminiOutputParser parses JSON output from the gemini CLI.
 type GeminiOutputParser struct {
-	reviewerID int
+	reviewerID  int
+	parseErrors int
 }
 
 // NewGeminiOutputParser creates a new parser for gemini output.
@@ -82,6 +83,12 @@ func (p *GeminiOutputParser) ReadFinding(scanner *bufio.Scanner) (*domain.Findin
 
 	// No more findings
 	return nil, nil
+}
+
+// ParseErrors returns the number of recoverable parse errors encountered.
+// GeminiOutputParser treats non-JSON lines as plain text, so parse errors are rare.
+func (p *GeminiOutputParser) ParseErrors() int {
+	return p.parseErrors
 }
 
 // Close releases any resources held by the parser.

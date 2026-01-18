@@ -168,6 +168,53 @@ LOOKS GOOD`,
 	}
 }
 
+func TestGeminiOutputParser_ParseErrors(t *testing.T) {
+	// GeminiOutputParser treats non-JSON as plain text, so it doesn't report parse errors
+	tests := []struct {
+		name            string
+		input           string
+		wantParseErrors int
+	}{
+		{
+			name:            "valid JSON",
+			input:           `{"text": "Valid finding"}`,
+			wantParseErrors: 0,
+		},
+		{
+			name:            "invalid JSON treated as plain text",
+			input:           "not valid json",
+			wantParseErrors: 0,
+		},
+		{
+			name:            "empty input",
+			input:           "",
+			wantParseErrors: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parser := NewGeminiOutputParser(1)
+			scanner := bufio.NewScanner(strings.NewReader(tt.input))
+			ConfigureScanner(scanner)
+
+			for {
+				finding, err := parser.ReadFinding(scanner)
+				if err != nil {
+					t.Fatalf("ReadFinding() error = %v", err)
+				}
+				if finding == nil {
+					break
+				}
+			}
+
+			if parser.ParseErrors() != tt.wantParseErrors {
+				t.Errorf("ParseErrors() = %d, want %d", parser.ParseErrors(), tt.wantParseErrors)
+			}
+		})
+	}
+}
+
 func TestGeminiOutputParser_Close(t *testing.T) {
 	parser := NewGeminiOutputParser(1)
 	err := parser.Close()
