@@ -53,3 +53,17 @@
 {"id":"0e1162c9","ts":"2026-01-18T16:40:03.524509Z","type":"status","status":"done","resolution":"completed","notes":"Renamed AgentConfig to ReviewConfig"}
 {"id":"7fe16397","ts":"2026-01-18T16:40:03.529172Z","type":"status","status":"done","resolution":"completed","notes":"Renamed Execute to ExecuteReview in Agent interface"}
 {"id":"501700b1","ts":"2026-01-18T16:40:03.534171Z","type":"status","status":"done","resolution":"completed","notes":"Renamed OutputParser to ReviewParser, updated factory to NewReviewParser"}
+{"id":"4a5867d7","ts":"2026-01-18T16:41:35.862629Z","type":"status","status":"in_progress"}
+{"id":"87f2c01e","ts":"2026-01-18T16:41:35.867225Z","type":"status","status":"in_progress"}
+{"id":"ccd77e2e","ts":"2026-01-18T16:41:35.87194Z","type":"status","status":"in_progress"}
+{"id":"3885ae4c","ts":"2026-01-18T16:41:35.876684Z","type":"status","status":"in_progress"}
+{"id":"91c916b9","ts":"2026-01-18T16:41:35.881549Z","type":"status","status":"in_progress"}
+{"id":"00d1592d","ts":"2026-01-18T16:41:35.886161Z","type":"status","status":"in_progress"}
+{"id":"e46264ab","ts":"2026-01-18T16:41:35.89069Z","type":"status","status":"in_progress"}
+{"id":"4a5867d7","ts":"2026-01-18T16:45:59.968771Z","type":"status","status":"done","resolution":"completed","notes":"Added ExecuteSummary to Agent interface, implemented in all 3 agents"}
+{"id":"91c916b9","ts":"2026-01-18T16:45:59.976329Z","type":"status","status":"done","resolution":"completed","notes":"Renamed codex_parser.go to codex_review_parser.go"}
+{"id":"00d1592d","ts":"2026-01-18T16:45:59.982895Z","type":"status","status":"done","resolution":"completed","notes":"Renamed claude_parser.go to claude_review_parser.go"}
+{"id":"e46264ab","ts":"2026-01-18T16:45:59.988776Z","type":"status","status":"done","resolution":"completed","notes":"Renamed gemini_parser.go to gemini_review_parser.go"}
+{"id":"87f2c01e","ts":"2026-01-18T16:45:59.99433Z","type":"status","status":"done","resolution":"completed","notes":"Created codex_summary_parser.go with CodexSummaryParser"}
+{"id":"ccd77e2e","ts":"2026-01-18T16:45:59.999751Z","type":"status","status":"done","resolution":"completed","notes":"Created claude_summary_parser.go with ClaudeSummaryParser"}
+{"id":"3885ae4c","ts":"2026-01-18T16:46:00.00505Z","type":"status","status":"done","resolution":"completed","notes":"Created gemini_summary_parser.go with GeminiSummaryParser"}
