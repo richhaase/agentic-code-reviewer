@@ -181,6 +181,21 @@ func TestStripMarkdownCodeFence(t *testing.T) {
 			input: "```json\n{\"findings\": []}",
 			want:  `{"findings": []}`,
 		},
+		{
+			name:  "single-line code fence with language",
+			input: "```json{\"findings\": []}```",
+			want:  `{"findings": []}`,
+		},
+		{
+			name:  "single-line code fence without language",
+			input: "```{\"findings\": []}```",
+			want:  `{"findings": []}`,
+		},
+		{
+			name:  "single-line code fence with array",
+			input: "```json[1, 2, 3]```",
+			want:  `[1, 2, 3]`,
+		},
 	}
 
 	for _, tt := range tests {

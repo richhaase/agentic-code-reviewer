@@ -42,13 +42,24 @@ func (p *GeminiSummaryParser) Parse(data []byte) (*domain.GroupedFindings, error
 }
 
 // stripMarkdownCodeFence removes markdown code fences from a string.
-// Handles ```json\n...\n``` or ```\n...\n``` patterns.
+// Handles ```json\n...\n``` or ```\n...\n``` patterns, as well as
+// single-line fences like ```json{...}```.
 func stripMarkdownCodeFence(s string) string {
 	s = strings.TrimSpace(s)
 	if strings.HasPrefix(s, "```") {
 		// Find end of first line (the opening fence)
 		if idx := strings.Index(s, "\n"); idx != -1 {
 			s = s[idx+1:]
+		} else {
+			// Single-line: remove opening ``` and optional language identifier
+			s = strings.TrimPrefix(s, "```")
+			// Skip language identifier (letters before JSON content)
+			for i, c := range s {
+				if c == '{' || c == '[' {
+					s = s[i:]
+					break
+				}
+			}
 		}
 		// Remove closing fence
 		if after, found := strings.CutSuffix(s, "```"); found {
