@@ -15,6 +15,16 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
+// claudeOutputSchema is the JSON schema for Claude's structured output.
+// This ensures Claude returns properly formatted JSON without markdown wrapping.
+const claudeOutputSchema = `{"type":"object","properties":{"findings":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"summary":{"type":"string"},"messages":{"type":"array","items":{"type":"string"}},"reviewer_count":{"type":"integer"},"sources":{"type":"array","items":{"type":"integer"}}},"required":["title","summary","messages","reviewer_count","sources"]}},"info":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"summary":{"type":"string"},"messages":{"type":"array","items":{"type":"string"}},"reviewer_count":{"type":"integer"},"sources":{"type":"array","items":{"type":"integer"}}},"required":["title","summary","messages","reviewer_count","sources"]}}},"required":["findings","info"]}`
+
+// claudeWrapper represents the JSON wrapper Claude outputs with --output-format json.
+// The actual structured output is in the StructuredOutput field when using --json-schema.
+type claudeWrapper struct {
+	StructuredOutput domain.GroupedFindings `json:"structured_output"`
+}
+
 const groupPrompt = `# Codex Review Summarizer
 
 You are grouping results from repeated Codex review runs.
@@ -83,7 +93,7 @@ func buildCommand(ctx context.Context, agentName, prompt string) (*exec.Cmd, err
 		cmd.Stdin = bytes.NewReader([]byte(prompt))
 		return cmd, nil
 	case "claude":
-		cmd := exec.CommandContext(ctx, "claude", "--print", "--output-format", "json", prompt)
+		cmd := exec.CommandContext(ctx, "claude", "--print", "--output-format", "json", "--json-schema", claudeOutputSchema, prompt)
 		cmd.Stdin = bytes.NewReader([]byte{}) // Empty stdin for non-interactive
 		return cmd, nil
 	case "gemini":
@@ -209,14 +219,29 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 	}
 
 	var grouped domain.GroupedFindings
-	if err := json.Unmarshal([]byte(output), &grouped); err != nil {
-		return &Result{
-			Grouped:  domain.GroupedFindings{},
-			ExitCode: 1,
-			Stderr:   "failed to parse summarizer JSON output",
-			RawOut:   output,
-			Duration: duration,
-		}, nil
+	if agentName == "claude" {
+		// Claude wraps output in a metadata object; extract structured_output
+		var wrapper claudeWrapper
+		if err := json.Unmarshal([]byte(output), &wrapper); err != nil {
+			return &Result{
+				Grouped:  domain.GroupedFindings{},
+				ExitCode: 1,
+				Stderr:   "failed to parse Claude JSON wrapper",
+				RawOut:   output,
+				Duration: duration,
+			}, nil
+		}
+		grouped = wrapper.StructuredOutput
+	} else {
+		if err := json.Unmarshal([]byte(output), &grouped); err != nil {
+			return &Result{
+				Grouped:  domain.GroupedFindings{},
+				ExitCode: 1,
+				Stderr:   "failed to parse summarizer JSON output",
+				RawOut:   output,
+				Duration: duration,
+			}, nil
+		}
 	}
 
 	return &Result{
