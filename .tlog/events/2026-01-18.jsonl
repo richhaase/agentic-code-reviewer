@@ -45,3 +45,11 @@
 {"id":"501700b1","ts":"2026-01-18T16:35:05.303118Z","type":"dep","dep":"c2048a73","action":"add"}
 {"id":"ca39cbb4","ts":"2026-01-18T16:35:05.309271Z","type":"dep","dep":"c2048a73","action":"add"}
 {"id":"c2048a73","ts":"2026-01-18T16:35:22.371299Z","type":"status","status":"done","resolution":"completed","notes":"Design documented in task notes. Key decisions: ExecuteSummary returns io.Reader, SummaryParser.Parse([]byte), rename OutputParser-\u003eReviewParser, AgentConfig-\u003eReviewConfig, Execute-\u003eExecuteReview"}
+{"id":"ca39cbb4","ts":"2026-01-18T16:36:32.052202Z","type":"status","status":"in_progress"}
+{"id":"0e1162c9","ts":"2026-01-18T16:36:32.056945Z","type":"status","status":"in_progress"}
+{"id":"7fe16397","ts":"2026-01-18T16:36:32.061265Z","type":"status","status":"in_progress"}
+{"id":"501700b1","ts":"2026-01-18T16:36:32.065794Z","type":"status","status":"in_progress"}
+{"id":"ca39cbb4","ts":"2026-01-18T16:40:03.519289Z","type":"status","status":"done","resolution":"completed","notes":"Added SummaryParser interface to parser.go"}
+{"id":"0e1162c9","ts":"2026-01-18T16:40:03.524509Z","type":"status","status":"done","resolution":"completed","notes":"Renamed AgentConfig to ReviewConfig"}
+{"id":"7fe16397","ts":"2026-01-18T16:40:03.529172Z","type":"status","status":"done","resolution":"completed","notes":"Renamed Execute to ExecuteReview in Agent interface"}
+{"id":"501700b1","ts":"2026-01-18T16:40:03.534171Z","type":"status","status":"done","resolution":"completed","notes":"Renamed OutputParser to ReviewParser, updated factory to NewReviewParser"}
