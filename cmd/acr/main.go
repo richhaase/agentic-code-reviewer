@@ -156,6 +156,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	// Load config file (unless --no-config)
 	// When using a worktree, load config from the worktree (branch-specific settings)
 	var cfg *config.Config
+	var configDir string
 	if !noConfig {
 		var result *config.LoadResult
 		var err error
@@ -169,6 +170,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 			return exitCode(domain.ExitError)
 		}
 		cfg = result.Config
+		configDir = result.ConfigDir
 		// Display warnings for unknown keys
 		for _, warning := range result.Warnings {
 			logger.Logf(terminal.StyleWarning, "Warning: %s", warning)
@@ -234,7 +236,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	allExcludePatterns := config.Merge(cfg, excludePatterns)
 
 	// Resolve custom prompt (precedence: flags > env vars > config file)
-	customPrompt, err := config.ResolvePrompt(cfg, envState, flagState, flagValues)
+	customPrompt, err := config.ResolvePrompt(cfg, envState, flagState, flagValues, configDir)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Failed to resolve prompt: %v", err)
 		return exitCode(domain.ExitError)

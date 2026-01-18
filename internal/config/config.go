@@ -95,8 +95,9 @@ func LoadFromDirWithWarnings(dir string) (*LoadResult, error) {
 
 // LoadResult contains the loaded config and any warnings encountered.
 type LoadResult struct {
-	Config   *Config
-	Warnings []string
+	Config    *Config
+	ConfigDir string // Directory containing the config file (for resolving relative paths)
+	Warnings  []string
 }
 
 // LoadFromPathWithWarnings reads a config file and returns warnings for unknown keys.
@@ -129,7 +130,7 @@ func LoadFromPathWithWarnings(path string) (*LoadResult, error) {
 		return nil, fmt.Errorf("%s: %w", ConfigFileName, err)
 	}
 
-	return &LoadResult{Config: &cfg, Warnings: warnings}, nil
+	return &LoadResult{Config: &cfg, ConfigDir: filepath.Dir(path), Warnings: warnings}, nil
 }
 
 // validatePatterns checks that all exclude patterns are valid regex.
@@ -493,6 +494,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 // Unlike other config fields, prompts have a special precedence where prompt-file
 // sources are checked separately from prompt string sources.
 //
+// The configDir parameter is used to resolve relative paths in review_prompt_file
+// config field. Flag and env var paths are resolved relative to CWD as expected.
+//
 // Precedence (highest to lowest):
 // 1. --prompt flag
 // 2. --prompt-file flag
@@ -503,7 +507,7 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 // 7. DefaultClaudePrompt constant
 //
 // Returns the resolved prompt and an error if a prompt file cannot be read.
-func ResolvePrompt(cfg *Config, envState EnvState, flagState FlagState, flagValues ResolvedConfig) (string, error) {
+func ResolvePrompt(cfg *Config, envState EnvState, flagState FlagState, flagValues ResolvedConfig, configDir string) (string, error) {
 	// 1. Check --prompt flag (highest priority)
 	if flagState.ReviewPromptSet && flagValues.ReviewPrompt != "" {
 		return flagValues.ReviewPrompt, nil
@@ -539,7 +543,12 @@ func ResolvePrompt(cfg *Config, envState EnvState, flagState FlagState, flagValu
 
 	// 6. Check review_prompt_file config field
 	if cfg != nil && cfg.ReviewPromptFile != nil && *cfg.ReviewPromptFile != "" {
-		content, err := os.ReadFile(*cfg.ReviewPromptFile)
+		promptPath := *cfg.ReviewPromptFile
+		// Resolve relative paths against config file directory
+		if !filepath.IsAbs(promptPath) && configDir != "" {
+			promptPath = filepath.Join(configDir, promptPath)
+		}
+		content, err := os.ReadFile(promptPath)
 		if err != nil {
 			return "", fmt.Errorf("failed to read prompt file %q: %w", *cfg.ReviewPromptFile, err)
 		}

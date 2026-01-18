@@ -884,7 +884,7 @@ func TestResolvePrompt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ResolvePrompt(tt.cfg, tt.envState, tt.flagState, tt.flagValues)
+			got, err := ResolvePrompt(tt.cfg, tt.envState, tt.flagState, tt.flagValues, "")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ResolvePrompt() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -1070,11 +1070,73 @@ func TestResolvePrompt_Precedence(t *testing.T) {
 		ReviewPromptFile: "",
 	}
 
-	got, err := ResolvePrompt(cfg, envState, flagState, flagValues)
+	got, err := ResolvePrompt(cfg, envState, flagState, flagValues, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got != "flag prompt" {
 		t.Errorf("expected 'flag prompt', got %q", got)
+	}
+}
+
+func TestResolvePrompt_ConfigFileRelativePath(t *testing.T) {
+	// Create a temp directory structure:
+	// tempdir/
+	//   prompts/
+	//     review.md
+	dir := t.TempDir()
+	promptsDir := filepath.Join(dir, "prompts")
+	if err := os.MkdirAll(promptsDir, 0755); err != nil {
+		t.Fatalf("failed to create prompts dir: %v", err)
+	}
+	promptFile := filepath.Join(promptsDir, "review.md")
+	promptContent := "custom review prompt from file"
+	if err := os.WriteFile(promptFile, []byte(promptContent), 0644); err != nil {
+		t.Fatalf("failed to write prompt file: %v", err)
+	}
+
+	// Config with relative path
+	relativePath := "prompts/review.md"
+	cfg := &Config{
+		ReviewPromptFile: &relativePath,
+	}
+	envState := EnvState{}
+	flagState := FlagState{}
+	flagValues := ResolvedConfig{}
+
+	// Resolve with configDir set to temp directory
+	got, err := ResolvePrompt(cfg, envState, flagState, flagValues, dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != promptContent {
+		t.Errorf("ResolvePrompt() = %q, want %q", got, promptContent)
+	}
+}
+
+func TestResolvePrompt_ConfigFileAbsolutePath(t *testing.T) {
+	// Create a temp file with prompt content
+	dir := t.TempDir()
+	promptFile := filepath.Join(dir, "prompt.md")
+	promptContent := "absolute path prompt"
+	if err := os.WriteFile(promptFile, []byte(promptContent), 0644); err != nil {
+		t.Fatalf("failed to write prompt file: %v", err)
+	}
+
+	// Config with absolute path - should work regardless of configDir
+	cfg := &Config{
+		ReviewPromptFile: &promptFile,
+	}
+	envState := EnvState{}
+	flagState := FlagState{}
+	flagValues := ResolvedConfig{}
+
+	// Resolve with a different configDir - absolute path should still work
+	got, err := ResolvePrompt(cfg, envState, flagState, flagValues, "/some/other/dir")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != promptContent {
+		t.Errorf("ResolvePrompt() = %q, want %q", got, promptContent)
 	}
 }
