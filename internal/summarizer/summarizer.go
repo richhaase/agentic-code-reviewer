@@ -11,9 +11,9 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
-const groupPrompt = `# Codex Review Summarizer
+const groupPrompt = `# Code Review Summarizer
 
-You are grouping results from repeated Codex review runs.
+You are grouping results from repeated code review runs.
 
 Input: a JSON array of objects, each with "id" (input identifier), "text" (the finding),
 and "reviewers" (list of reviewer IDs that found it).
