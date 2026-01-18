@@ -90,7 +90,7 @@ func (g *GeminiAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 }
 
 // ExecuteSummary runs a summarization task using the gemini CLI.
-// Uses 'gemini -o json' with the prompt and input piped to stdin.
+// Uses 'gemini -o json -' with the prompt and input piped to stdin.
 func (g *GeminiAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (io.Reader, error) {
 	if err := g.IsAvailable(); err != nil {
 		return nil, err
@@ -99,8 +99,9 @@ func (g *GeminiAgent) ExecuteSummary(ctx context.Context, prompt string, input [
 	// Combine prompt and input
 	fullPrompt := prompt + "\n\nINPUT JSON:\n" + string(input) + "\n"
 
-	// Build command: gemini -o json (reads from stdin)
-	args := []string{"-o", "json"}
+	// Build command: gemini -o json -
+	// -: Explicitly read prompt from stdin
+	args := []string{"-o", "json", "-"}
 	cmd := exec.CommandContext(ctx, "gemini", args...)
 	cmd.Stdin = bytes.NewReader([]byte(fullPrompt))
 
