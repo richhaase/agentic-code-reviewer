@@ -9,7 +9,8 @@ import (
 // GetGitDiff returns the git diff against the specified base reference.
 // If workDir is empty, uses the current directory.
 func GetGitDiff(baseRef, workDir string) (string, error) {
-	args := []string{"diff", baseRef}
+	// Use -- to prevent baseRef from being interpreted as a flag if it starts with -
+	args := []string{"diff", baseRef, "--"}
 	cmd := exec.Command("git", args...)
 
 	if workDir != "" {
