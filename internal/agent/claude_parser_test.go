@@ -231,14 +231,6 @@ func TestClaudeOutputParser_ParseErrors(t *testing.T) {
 	}
 }
 
-func TestClaudeOutputParser_Close(t *testing.T) {
-	parser := NewClaudeOutputParser(1)
-	err := parser.Close()
-	if err != nil {
-		t.Errorf("Close() error = %v, want nil", err)
-	}
-}
-
 func TestNewClaudeOutputParser(t *testing.T) {
 	tests := []struct {
 		name       string

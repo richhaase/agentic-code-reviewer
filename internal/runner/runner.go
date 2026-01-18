@@ -198,7 +198,6 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		result.Duration = time.Since(start)
 		return result
 	}
-	defer parser.Close()
 
 	// Configure scanner
 	scanner := bufio.NewScanner(reader)

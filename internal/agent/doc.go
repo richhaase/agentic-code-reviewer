@@ -46,8 +46,6 @@
 // Example usage:
 //
 //	parser := agent.NewCodexOutputParser(reviewerID)
-//	defer parser.Close()
-//
 //	scanner := bufio.NewScanner(reader)
 //	agent.ConfigureScanner(scanner)
 //

@@ -215,14 +215,6 @@ func TestGeminiOutputParser_ParseErrors(t *testing.T) {
 	}
 }
 
-func TestGeminiOutputParser_Close(t *testing.T) {
-	parser := NewGeminiOutputParser(1)
-	err := parser.Close()
-	if err != nil {
-		t.Errorf("Close() error = %v, want nil", err)
-	}
-}
-
 func TestNewGeminiOutputParser(t *testing.T) {
 	tests := []struct {
 		name       string

@@ -189,14 +189,6 @@ also invalid
 	}
 }
 
-func TestCodexOutputParser_Close(t *testing.T) {
-	parser := NewCodexOutputParser(1)
-	err := parser.Close()
-	if err != nil {
-		t.Errorf("Close() error = %v, want nil", err)
-	}
-}
-
 func TestNewCodexOutputParser(t *testing.T) {
 	tests := []struct {
 		name       string

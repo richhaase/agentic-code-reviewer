@@ -77,12 +77,6 @@ func (p *CodexOutputParser) ParseErrors() int {
 	return p.parseErrors
 }
 
-// Close releases any resources held by the parser.
-func (p *CodexOutputParser) Close() error {
-	// No resources to clean up for codex parser
-	return nil
-}
-
 // ConfigureScanner configures a bufio.Scanner with appropriate buffer sizes
 // for parsing codex output (64KB initial, 100MB max).
 func ConfigureScanner(scanner *bufio.Scanner) {

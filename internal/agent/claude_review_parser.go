@@ -67,9 +67,3 @@ func (p *ClaudeOutputParser) ReadFinding(scanner *bufio.Scanner) (*domain.Findin
 func (p *ClaudeOutputParser) ParseErrors() int {
 	return p.parseErrors
 }
-
-// Close releases any resources held by the parser.
-func (p *ClaudeOutputParser) Close() error {
-	// No resources to clean up for claude parser
-	return nil
-}

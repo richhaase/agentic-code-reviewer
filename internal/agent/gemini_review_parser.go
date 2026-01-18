@@ -90,9 +90,3 @@ func (p *GeminiOutputParser) ReadFinding(scanner *bufio.Scanner) (*domain.Findin
 func (p *GeminiOutputParser) ParseErrors() int {
 	return p.parseErrors
 }
-
-// Close releases any resources held by the parser.
-func (p *GeminiOutputParser) Close() error {
-	// No resources to clean up for gemini parser
-	return nil
-}
