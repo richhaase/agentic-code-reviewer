@@ -110,7 +110,7 @@ type Result struct {
 // Each agent has different CLI conventions:
 //   - codex: codex exec --color never - (prompt via stdin)
 //   - claude: claude --print "prompt" (prompt as argument)
-//   - gemini: gemini -o json - (prompt via stdin)
+//   - gemini: gemini -o json (prompt via stdin, no positional arg needed)
 func buildCommand(ctx context.Context, agentName, prompt string) (*exec.Cmd, error) {
 	switch agentName {
 	case "codex":
@@ -122,7 +122,8 @@ func buildCommand(ctx context.Context, agentName, prompt string) (*exec.Cmd, err
 		cmd.Stdin = bytes.NewReader([]byte{}) // Empty stdin for non-interactive
 		return cmd, nil
 	case "gemini":
-		cmd := exec.CommandContext(ctx, "gemini", "-o", "json", prompt)
+		cmd := exec.CommandContext(ctx, "gemini", "-o", "json")
+		cmd.Stdin = bytes.NewReader([]byte(prompt))
 		return cmd, nil
 	default:
 		return nil, fmt.Errorf("unsupported summarizer agent %q, supported: %v", agentName, agent.SupportedAgents)
