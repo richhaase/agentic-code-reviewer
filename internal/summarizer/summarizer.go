@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strings"
 	"syscall"
 	"time"
 
@@ -29,6 +30,24 @@ type claudeWrapper struct {
 // The response field contains a JSON string that must be parsed separately.
 type geminiWrapper struct {
 	Response string `json:"response"`
+}
+
+// stripMarkdownCodeFence removes markdown code fences from a string.
+// Handles ```json\n...\n``` or ```\n...\n``` patterns.
+func stripMarkdownCodeFence(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "```") {
+		// Find end of first line (the opening fence)
+		if idx := strings.Index(s, "\n"); idx != -1 {
+			s = s[idx+1:]
+		}
+		// Remove closing fence
+		if strings.HasSuffix(s, "```") {
+			s = strings.TrimSuffix(s, "```")
+			s = strings.TrimSpace(s)
+		}
+	}
+	return s
 }
 
 const groupPrompt = `# Codex Review Summarizer
@@ -241,6 +260,7 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 		grouped = wrapper.StructuredOutput
 	case "gemini":
 		// Gemini wraps output; response field is a JSON string requiring double-parse
+		// Response may also contain markdown code fences that need stripping
 		var wrapper geminiWrapper
 		if err := json.Unmarshal([]byte(output), &wrapper); err != nil {
 			return &Result{
@@ -251,7 +271,8 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 				Duration: duration,
 			}, nil
 		}
-		if err := json.Unmarshal([]byte(wrapper.Response), &grouped); err != nil {
+		responseJSON := stripMarkdownCodeFence(wrapper.Response)
+		if err := json.Unmarshal([]byte(responseJSON), &grouped); err != nil {
 			return &Result{
 				Grouped:  domain.GroupedFindings{},
 				ExitCode: 1,
