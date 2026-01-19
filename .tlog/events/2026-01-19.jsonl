@@ -17,3 +17,5 @@
 {"id":"d8c2bba4","ts":"2026-01-19T17:50:03.387047Z","type":"create","title":"Validate summarizer agent availability before running reviews","status":"open","priority":3,"labels":["enhancement"],"description":"cmd/acr/review.go validates reviewer agent but not summarizer agent. If summarizer CLI is missing, reviews run first (wasting time/cost) then fail during summarization. Add IsAvailable() check for summarizer agent alongside reviewer agent check."}
 {"id":"cc60f1ed","ts":"2026-01-19T17:52:20.81638Z","type":"status","status":"in_progress"}
 {"id":"cc60f1ed","ts":"2026-01-19T17:55:28.817074Z","type":"status","status":"done","resolution":"completed","notes":"FALSE POSITIVE: Tested codex CLI - both custom prompt (codex exec -) and built-in review (codex exec review) emit agent_message type. No assistant_message type exists. Parser is correct."}
+{"id":"d8c2bba4","ts":"2026-01-19T18:10:40.194686Z","type":"status","status":"in_progress"}
+{"id":"d8c2bba4","ts":"2026-01-19T18:16:27.831934Z","type":"status","status":"done","resolution":"completed","commit":"84033e3"}
