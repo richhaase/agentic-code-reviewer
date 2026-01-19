@@ -53,7 +53,7 @@ func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 	}
 
 	// Get git diff and append to prompt
-	diff, err := GetGitDiff(config.BaseRef, config.WorkDir)
+	diff, err := GetGitDiff(ctx, config.BaseRef, config.WorkDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get diff for review: %w", err)
 	}

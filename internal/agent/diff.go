@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -8,10 +9,11 @@ import (
 
 // GetGitDiff returns the git diff against the specified base reference.
 // If workDir is empty, uses the current directory.
-func GetGitDiff(baseRef, workDir string) (string, error) {
+// The context is used to support cancellation/timeout.
+func GetGitDiff(ctx context.Context, baseRef, workDir string) (string, error) {
 	// Use -- before baseRef to prevent flag injection if baseRef starts with -
 	args := []string{"diff", "--", baseRef}
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(ctx, "git", args...)
 
 	if workDir != "" {
 		cmd.Dir = workDir
