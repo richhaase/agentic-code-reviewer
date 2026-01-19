@@ -82,13 +82,10 @@ func TestClaudeSummaryParser_Parse(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:  "missing structured_output field",
-			input: []byte(`{"findings": [], "info": []}`),
-			want: &domain.GroupedFindings{
-				Findings: nil,
-				Info:     nil,
-			},
-			wantErr: false,
+			name:    "missing structured_output field",
+			input:   []byte(`{"findings": [], "info": []}`),
+			want:    nil,
+			wantErr: true,
 		},
 		{
 			name: "multiple findings",

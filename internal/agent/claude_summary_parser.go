@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
@@ -9,7 +10,7 @@ import (
 // claudeSummaryWrapper represents the JSON wrapper Claude outputs with --output-format json.
 // The actual structured output is in the StructuredOutput field when using --json-schema.
 type claudeSummaryWrapper struct {
-	StructuredOutput domain.GroupedFindings `json:"structured_output"`
+	StructuredOutput *domain.GroupedFindings `json:"structured_output"`
 }
 
 // ClaudeSummaryParser parses summary output from the Claude CLI.
@@ -23,10 +24,14 @@ func NewClaudeSummaryParser() *ClaudeSummaryParser {
 
 // Parse parses the summary output and returns grouped findings.
 // Claude wraps output in a metadata object; this extracts the structured_output field.
+// Returns an error if structured_output is missing (indicates CLI error or format change).
 func (p *ClaudeSummaryParser) Parse(data []byte) (*domain.GroupedFindings, error) {
 	var wrapper claudeSummaryWrapper
 	if err := json.Unmarshal(data, &wrapper); err != nil {
 		return nil, err
 	}
-	return &wrapper.StructuredOutput, nil
+	if wrapper.StructuredOutput == nil {
+		return nil, errors.New("claude output missing structured_output field")
+	}
+	return wrapper.StructuredOutput, nil
 }
