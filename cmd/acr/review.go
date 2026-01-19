@@ -34,6 +34,17 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		return domain.ExitError
 	}
 
+	// Validate summarizer agent up front to fail fast if CLI is missing
+	summarizerAgent, err := agent.NewAgent(summarizerAgentName)
+	if err != nil {
+		logger.Logf(terminal.StyleError, "Invalid summarizer agent: %v", err)
+		return domain.ExitError
+	}
+	if err := summarizerAgent.IsAvailable(); err != nil {
+		logger.Logf(terminal.StyleError, "%s CLI not found (summarizer): %v", summarizerAgentName, err)
+		return domain.ExitError
+	}
+
 	if verbose {
 		logger.Logf(terminal.StyleDim, "%sUsing agent: %s%s",
 			terminal.Color(terminal.Dim), agentName, terminal.Color(terminal.Reset))
