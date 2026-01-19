@@ -149,7 +149,7 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 	}
 
 	// Close reader and get exit code
-	// Exit code is only valid after Close() has been called
+	// Exit code and stderr are only valid after Close() has been called
 	if closer, ok := reader.(io.Closer); ok {
 		_ = closer.Close()
 	}
@@ -161,10 +161,17 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 		exitCode = exitCoder.ExitCode()
 	}
 
+	// Capture stderr for diagnostics (valid after Close)
+	var stderr string
+	if stderrProvider, ok := reader.(agent.StderrProvider); ok {
+		stderr = stderrProvider.Stderr()
+	}
+
 	if len(output) == 0 {
 		return &Result{
 			Grouped:  domain.GroupedFindings{},
 			ExitCode: exitCode,
+			Stderr:   stderr,
 			Duration: duration,
 		}, nil
 	}
@@ -178,10 +185,14 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 	// Parse the output
 	grouped, err := parser.Parse(output)
 	if err != nil {
+		parseErr := "failed to parse summarizer output: " + err.Error()
+		if stderr != "" {
+			parseErr = stderr + "\n" + parseErr
+		}
 		return &Result{
 			Grouped:  domain.GroupedFindings{},
 			ExitCode: 1,
-			Stderr:   "failed to parse summarizer output: " + err.Error(),
+			Stderr:   parseErr,
 			RawOut:   string(output),
 			Duration: duration,
 		}, nil
@@ -190,6 +201,7 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 	return &Result{
 		Grouped:  *grouped,
 		ExitCode: exitCode,
+		Stderr:   stderr,
 		RawOut:   string(output),
 		Duration: duration,
 	}, nil
