@@ -11,3 +11,9 @@
 {"id":"442c001a","ts":"2026-01-19T15:58:02.162436Z","type":"status","status":"done","resolution":"completed","commit":"00b5a6b"}
 {"id":"f19d4cfa","ts":"2026-01-19T16:04:57.297893Z","type":"status","status":"in_progress"}
 {"id":"f19d4cfa","ts":"2026-01-19T16:07:46.190483Z","type":"status","status":"done","resolution":"completed","commit":"17ef799"}
+{"id":"328230ac","ts":"2026-01-19T16:24:14.942083Z","type":"create","title":"Fix git diff argument order regression","status":"open","priority":1,"labels":["bug"],"description":"Commit a138401 broke GetGitDiff by placing -- before baseRef, causing refs to be treated as pathspecs (empty diffs). Fix: restore baseRef before --, add validation that baseRef doesn't start with - to prevent flag injection."}
+{"id":"328230ac","ts":"2026-01-19T16:24:20.919554Z","type":"status","status":"in_progress"}
+{"id":"328230ac","ts":"2026-01-19T16:24:53.839836Z","type":"status","status":"done","resolution":"completed","commit":"46b47c4"}
+{"id":"d8c2bba4","ts":"2026-01-19T17:50:03.387047Z","type":"create","title":"Validate summarizer agent availability before running reviews","status":"open","priority":3,"labels":["enhancement"],"description":"cmd/acr/review.go validates reviewer agent but not summarizer agent. If summarizer CLI is missing, reviews run first (wasting time/cost) then fail during summarization. Add IsAvailable() check for summarizer agent alongside reviewer agent check."}
+{"id":"cc60f1ed","ts":"2026-01-19T17:52:20.81638Z","type":"status","status":"in_progress"}
+{"id":"cc60f1ed","ts":"2026-01-19T17:55:28.817074Z","type":"status","status":"done","resolution":"completed","notes":"FALSE POSITIVE: Tested codex CLI - both custom prompt (codex exec -) and built-in review (codex exec review) emit agent_message type. No assistant_message type exists. Parser is correct."}
