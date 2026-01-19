@@ -4,44 +4,41 @@ package runner
 import (
 	"bufio"
 	"context"
-	"encoding/json"
-	"errors"
-	"os/exec"
+	"io"
+	"strconv"
 	"sync/atomic"
-	"syscall"
 	"time"
 
+	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
-const (
-	scannerInitialBuffer = 64 * 1024         // 64KB
-	scannerMaxLineSize   = 100 * 1024 * 1024 // 100MB
-)
-
 // Config holds the runner configuration.
 type Config struct {
-	Reviewers   int
-	Concurrency int
-	BaseRef     string
-	Timeout     time.Duration
-	Retries     int
-	Verbose     bool
-	WorkDir     string
+	Reviewers    int
+	Concurrency  int
+	BaseRef      string
+	Timeout      time.Duration
+	Retries      int
+	Verbose      bool
+	WorkDir      string
+	CustomPrompt string
 }
 
 // Runner executes parallel code reviews.
 type Runner struct {
 	config    Config
+	agent     agent.Agent
 	logger    *terminal.Logger
 	completed *atomic.Int32
 }
 
 // New creates a new runner.
-func New(config Config, logger *terminal.Logger) *Runner {
+func New(config Config, agent agent.Agent, logger *terminal.Logger) *Runner {
 	return &Runner{
 		config:    config,
+		agent:     agent,
 		logger:    logger,
 		completed: &atomic.Int32{},
 	}
@@ -164,86 +161,102 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	timeoutCtx, cancel := context.WithTimeout(ctx, r.config.Timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(timeoutCtx, "codex", "exec", "--json", "--color", "never", "review", "--base", r.config.BaseRef) //nolint:gosec // BaseRef is validated CLI input
-	if r.config.WorkDir != "" {
-		cmd.Dir = r.config.WorkDir
+	// Create review configuration
+	reviewConfig := &agent.ReviewConfig{
+		BaseRef:      r.config.BaseRef,
+		Timeout:      r.config.Timeout,
+		WorkDir:      r.config.WorkDir,
+		Verbose:      r.config.Verbose,
+		CustomPrompt: r.config.CustomPrompt,
+		ReviewerID:   strconv.Itoa(reviewerID),
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	stdout, err := cmd.StdoutPipe()
+	// Execute the review
+	reader, err := r.agent.ExecuteReview(timeoutCtx, reviewConfig)
 	if err != nil {
 		result.ExitCode = -1
 		result.Duration = time.Since(start)
 		return result
 	}
 
-	if err := cmd.Start(); err != nil {
+	// closeReader closes the reader and returns the process exit code if available
+	closeReader := func() int {
+		if closer, ok := reader.(io.Closer); ok {
+			_ = closer.Close()
+		}
+		if exitCoder, ok := reader.(agent.ExitCoder); ok {
+			return exitCoder.ExitCode()
+		}
+		return 0
+	}
+
+	// Create parser for this agent's output
+	parser, err := agent.NewReviewParser(r.agent.Name(), reviewerID)
+	if err != nil {
+		closeReader()
 		result.ExitCode = -1
 		result.Duration = time.Since(start)
 		return result
 	}
 
-	// Read output
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 0, scannerInitialBuffer), scannerMaxLineSize)
+	// Configure scanner
+	scanner := bufio.NewScanner(reader)
+	agent.ConfigureScanner(scanner)
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
+	// Parse output
+	for {
+		// Check for timeout
+		if timeoutCtx.Err() == context.DeadlineExceeded {
+			closeReader()
+			result.TimedOut = true
+			result.ExitCode = -1
+			result.Duration = time.Since(start)
+			return result
 		}
 
-		var event struct {
-			Item struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"item"`
-		}
-
-		if err := json.Unmarshal([]byte(line), &event); err != nil {
+		finding, err := parser.ReadFinding(scanner)
+		if err != nil {
+			// Scanner error is permanent - break to avoid infinite loop
 			result.ParseErrors++
-			continue
+			break
 		}
 
-		if event.Item.Type == "agent_message" && event.Item.Text != "" {
-			result.Findings = append(result.Findings, domain.Finding{
-				Text:       event.Item.Text,
-				ReviewerID: reviewerID,
-			})
+		if finding == nil {
+			// End of stream
+			break
+		}
 
-			if r.verbose() {
-				text := event.Item.Text
-				if len(text) > 120 {
-					text = text[:120] + "..."
-				}
-				r.logger.Logf(terminal.StyleDim, "%s#%d:%s %s%s%s",
-					terminal.Color(terminal.Dim), reviewerID, terminal.Color(terminal.Reset),
-					terminal.Color(terminal.Dim), text, terminal.Color(terminal.Reset))
+		result.Findings = append(result.Findings, *finding)
+
+		if r.verbose() {
+			text := finding.Text
+			if len(text) > 120 {
+				text = text[:120] + "..."
 			}
+			r.logger.Logf(terminal.StyleDim, "%s#%d:%s %s%s%s",
+				terminal.Color(terminal.Dim), reviewerID, terminal.Color(terminal.Reset),
+				terminal.Color(terminal.Dim), text, terminal.Color(terminal.Reset))
 		}
 	}
 
-	err = cmd.Wait()
+	// Capture parse errors tracked by the parser
+	result.ParseErrors += parser.ParseErrors()
+
+	// Close reader and capture exit code
+	exitCode := closeReader()
+
+	// Record duration after process fully exits
 	result.Duration = time.Since(start)
 
+	// Check for timeout after parsing
 	if timeoutCtx.Err() == context.DeadlineExceeded {
 		result.TimedOut = true
 		result.ExitCode = -1
-		// Kill process group
-		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
 		return result
 	}
 
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			result.ExitCode = exitErr.ExitCode()
-		} else {
-			result.ExitCode = -1
-		}
-	}
+	// Use the actual agent exit code
+	result.ExitCode = exitCode
 
 	return result
 }

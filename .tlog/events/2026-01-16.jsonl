@@ -1,0 +1,148 @@
+{"id":"tl-a16a78c7","ts":"2026-01-16T15:58:42.869114Z","type":"status","status":"in_progress"}
+{"id":"tl-a16a78c7","ts":"2026-01-16T16:03:03.730761Z","type":"status","status":"done","resolution":"completed","notes":"Added comprehensive unit tests for agent package with 92.3% coverage. Created codex_test.go and codex_parser_test.go with tests for all exported functions and methods. All tests pass and lint is clean."}
+{"id":"tl-e27c4b53","ts":"2026-01-16T19:31:53.540275Z","type":"dep","dep":"tl-9d15fc48","action":"remove"}
+{"id":"tl-9d15fc48","ts":"2026-01-16T19:31:53.544526Z","type":"dep","dep":"tl-43de09bf","action":"remove"}
+{"id":"tl-43de09bf","ts":"2026-01-16T19:31:53.548445Z","type":"dep","dep":"tl-6fc40608","action":"remove"}
+{"id":"tl-43de09bf","ts":"2026-01-16T19:31:53.55249Z","type":"dep","dep":"tl-825e226b","action":"remove"}
+{"id":"tl-6fc40608","ts":"2026-01-16T19:31:53.556426Z","type":"dep","dep":"tl-9eab21ae","action":"remove"}
+{"id":"tl-9eab21ae","ts":"2026-01-16T19:31:53.56053Z","type":"dep","dep":"tl-c274eb76","action":"remove"}
+{"id":"tl-c274eb76","ts":"2026-01-16T19:31:53.564244Z","type":"dep","dep":"tl-1fe744b6","action":"remove"}
+{"id":"tl-1fe744b6","ts":"2026-01-16T19:31:53.56798Z","type":"dep","dep":"tl-ba6c625b","action":"remove"}
+{"id":"tl-ba6c625b","ts":"2026-01-16T19:31:53.57168Z","type":"dep","dep":"tl-37f8a160","action":"remove"}
+{"id":"tl-ba6c625b","ts":"2026-01-16T19:31:53.575516Z","type":"dep","dep":"tl-241bf6d4","action":"remove"}
+{"id":"tl-37f8a160","ts":"2026-01-16T19:31:53.579296Z","type":"dep","dep":"tl-480b2d6f","action":"remove"}
+{"id":"tl-480b2d6f","ts":"2026-01-16T19:31:53.582942Z","type":"dep","dep":"tl-a1d894b9","action":"remove"}
+{"id":"tl-a1d894b9","ts":"2026-01-16T19:31:53.586779Z","type":"dep","dep":"tl-3d188cc8","action":"remove"}
+{"id":"tl-3d188cc8","ts":"2026-01-16T19:31:53.590572Z","type":"dep","dep":"tl-c1b149b9","action":"remove"}
+{"id":"tl-c1b149b9","ts":"2026-01-16T19:31:53.594073Z","type":"dep","dep":"tl-5fd66814","action":"remove"}
+{"id":"tl-5fd66814","ts":"2026-01-16T19:31:53.597619Z","type":"dep","dep":"tl-fe06615e","action":"remove"}
+{"id":"tl-fe06615e","ts":"2026-01-16T19:31:53.60119Z","type":"dep","dep":"tl-8bc4ea6c","action":"remove"}
+{"id":"tl-241bf6d4","ts":"2026-01-16T19:31:53.604418Z","type":"dep","dep":"tl-2eda9207","action":"remove"}
+{"id":"tl-825e226b","ts":"2026-01-16T19:31:53.60763Z","type":"dep","dep":"tl-bc026816","action":"remove"}
+{"id":"tl-825e226b","ts":"2026-01-16T19:31:53.61092Z","type":"dep","dep":"tl-812cb4c2","action":"remove"}
+{"id":"tl-bc026816","ts":"2026-01-16T19:31:53.614646Z","type":"dep","dep":"tl-297433c0","action":"remove"}
+{"id":"tl-43de09bf","ts":"2026-01-16T19:31:53.618992Z","type":"dep","dep":"tl-9d15fc48","action":"add"}
+{"id":"tl-6fc40608","ts":"2026-01-16T19:31:53.622792Z","type":"dep","dep":"tl-43de09bf","action":"add"}
+{"id":"tl-825e226b","ts":"2026-01-16T19:31:53.626495Z","type":"dep","dep":"tl-6fc40608","action":"add"}
+{"id":"tl-bc026816","ts":"2026-01-16T19:31:53.63055Z","type":"dep","dep":"tl-6fc40608","action":"add"}
+{"id":"tl-812cb4c2","ts":"2026-01-16T19:31:53.633873Z","type":"dep","dep":"tl-825e226b","action":"add"}
+{"id":"tl-297433c0","ts":"2026-01-16T19:31:53.637848Z","type":"dep","dep":"tl-bc026816","action":"add"}
+{"id":"tl-9eab21ae","ts":"2026-01-16T19:31:53.641962Z","type":"dep","dep":"tl-812cb4c2","action":"add"}
+{"id":"tl-9eab21ae","ts":"2026-01-16T19:31:53.646325Z","type":"dep","dep":"tl-297433c0","action":"add"}
+{"id":"tl-c274eb76","ts":"2026-01-16T19:31:53.650516Z","type":"dep","dep":"tl-9eab21ae","action":"add"}
+{"id":"tl-1fe744b6","ts":"2026-01-16T19:31:53.654258Z","type":"dep","dep":"tl-c274eb76","action":"add"}
+{"id":"tl-37f8a160","ts":"2026-01-16T19:31:53.65825Z","type":"dep","dep":"tl-c274eb76","action":"add"}
+{"id":"tl-480b2d6f","ts":"2026-01-16T19:31:53.662051Z","type":"dep","dep":"tl-37f8a160","action":"add"}
+{"id":"tl-241bf6d4","ts":"2026-01-16T19:31:53.665728Z","type":"dep","dep":"tl-c274eb76","action":"add"}
+{"id":"tl-2eda9207","ts":"2026-01-16T19:31:53.669413Z","type":"dep","dep":"tl-241bf6d4","action":"add"}
+{"id":"tl-a1d894b9","ts":"2026-01-16T19:31:53.673153Z","type":"dep","dep":"tl-480b2d6f","action":"add"}
+{"id":"tl-a1d894b9","ts":"2026-01-16T19:31:53.677089Z","type":"dep","dep":"tl-2eda9207","action":"add"}
+{"id":"tl-3d188cc8","ts":"2026-01-16T19:31:53.680747Z","type":"dep","dep":"tl-a1d894b9","action":"add"}
+{"id":"tl-c1b149b9","ts":"2026-01-16T19:31:53.684142Z","type":"dep","dep":"tl-3d188cc8","action":"add"}
+{"id":"tl-5fd66814","ts":"2026-01-16T19:31:53.688125Z","type":"dep","dep":"tl-c1b149b9","action":"add"}
+{"id":"tl-fe06615e","ts":"2026-01-16T19:31:53.692028Z","type":"dep","dep":"tl-5fd66814","action":"add"}
+{"id":"tl-ba6c625b","ts":"2026-01-16T19:31:53.696406Z","type":"dep","dep":"tl-1fe744b6","action":"add"}
+{"id":"tl-8bc4ea6c","ts":"2026-01-16T19:31:53.700377Z","type":"dep","dep":"tl-fe06615e","action":"add"}
+{"id":"tl-e27c4b53","ts":"2026-01-16T19:31:53.70424Z","type":"dep","dep":"tl-ba6c625b","action":"add"}
+{"id":"tl-e27c4b53","ts":"2026-01-16T19:31:53.708092Z","type":"dep","dep":"tl-8bc4ea6c","action":"add"}
+{"id":"tl-9eab21ae","ts":"2026-01-16T19:33:18.033948Z","type":"dep","dep":"tl-6fc40608","action":"remove"}
+{"id":"tl-825e226b","ts":"2026-01-16T19:33:18.037793Z","type":"dep","dep":"tl-43de09bf","action":"remove"}
+{"id":"tl-bc026816","ts":"2026-01-16T19:33:18.041457Z","type":"dep","dep":"tl-825e226b","action":"remove"}
+{"id":"tl-9d15fc48","ts":"2026-01-16T19:33:18.044972Z","type":"dep","dep":"tl-e27c4b53","action":"remove"}
+{"id":"tl-37f8a160","ts":"2026-01-16T19:34:03.657587Z","type":"dep","dep":"tl-ba6c625b","action":"remove"}
+{"id":"tl-241bf6d4","ts":"2026-01-16T19:34:03.661374Z","type":"dep","dep":"tl-ba6c625b","action":"remove"}
+{"id":"tl-37f8a160","ts":"2026-01-16T19:41:22.307575Z","type":"update","notes":"Research required: Verify correct Claude CLI command syntax. Check: 1) What -p flag does, 2) If --output-format=json is supported, 3) How to pass prompt (positional arg vs stdin), 4) Exact JSON output structure (JSONL vs single object)"}
+{"id":"tl-241bf6d4","ts":"2026-01-16T19:42:42.136588Z","type":"update","notes":"Gemini CLI command syntax verified: 'gemini -o json PROMPT' or 'gemini --output-format=json PROMPT'. Positional prompt preferred. Output format options: text, json, stream-json. May need to research exact JSON structure."}
+{"id":"tl-825e226b","ts":"2026-01-16T19:43:26.849088Z","type":"update","notes":"Prompt precedence order (highest to lowest): 1) --prompt flag, 2) --prompt-file flag, 3) review_prompt config field, 4) review_prompt_file config field, 5) DefaultReviewPrompt constant. Implement resolution logic in config package."}
+{"id":"tl-a1d894b9","ts":"2026-01-16T19:44:02.859495Z","type":"update","notes":"Agent precedence order (highest to lowest): 1) --agent flag, 2) ACR_AGENT environment variable, 3) agent config field, 4) 'codex' default. Implement resolution logic following existing config pattern."}
+{"id":"tl-6fc40608","ts":"2026-01-16T19:50:49.318932Z","type":"dep","dep":"tl-43de09bf","action":"remove"}
+{"id":"tl-43de09bf","ts":"2026-01-16T19:50:49.32356Z","type":"dep","dep":"tl-9d15fc48","action":"remove"}
+{"id":"tl-6fc40608","ts":"2026-01-16T19:51:08.631727Z","type":"dep","dep":"tl-43de09bf","action":"remove"}
+{"id":"tl-43de09bf","ts":"2026-01-16T19:51:08.636095Z","type":"dep","dep":"tl-9d15fc48","action":"remove"}
+{"id":"tl-9d15fc48","ts":"2026-01-16T19:51:08.63976Z","type":"status","status":"done","resolution":"wontfix","notes":"Removed: No prompt package needed. Prompts live in agent package instead."}
+{"id":"tl-43de09bf","ts":"2026-01-16T19:51:08.643786Z","type":"status","status":"done","resolution":"wontfix","notes":"Removed: No Builder/templating needed. Agents are agentic and handle diffs themselves."}
+{"id":"tl-6fc40608","ts":"2026-01-16T19:51:08.647669Z","type":"update","description":"Create internal/agent/prompts.go with DefaultClaudePrompt and DefaultGeminiPrompt constants. Start with same prompt for both agents, but structure allows different prompts per agent type. CodexAgent doesn't use prompts (has built-in review logic)."}
+{"id":"tl-9eab21ae","ts":"2026-01-16T19:51:08.651634Z","type":"update","description":"No changes needed to CodexAgent - it uses built-in 'codex exec review' prompt. This task verifies CodexAgent continues to work unchanged while ClaudeAgent/GeminiAgent use custom prompts.","notes":"CodexAgent uses 'codex exec review --base X' which has built-in review logic. Prompt config/flags only apply to claude/gemini agents."}
+{"id":"tl-c274eb76","ts":"2026-01-16T19:51:08.655479Z","type":"update","description":"Test prompt config loading, CLI flag precedence, file loading, and that prompts are correctly passed to Claude/Gemini agents (but not Codex)."}
+{"id":"tl-37f8a160","ts":"2026-01-16T19:51:08.659658Z","type":"update","description":"Implement ClaudeAgent that passes custom prompt to Claude CLI. Use prompt from config/flags with fallback to DefaultClaudePrompt.","notes":"Research required: Verify correct Claude CLI command syntax. Check: 1) What -p flag does, 2) If --output-format=json is supported, 3) How to pass prompt (positional arg vs stdin), 4) Exact JSON output structure (JSONL vs single object). Agent should use prompt precedence: --prompt flag \u003e --prompt-file flag \u003e review_prompt config \u003e review_prompt_file config \u003e DefaultClaudePrompt."}
+{"id":"tl-241bf6d4","ts":"2026-01-16T19:51:08.663907Z","type":"update","description":"Implement GeminiAgent that passes custom prompt to Gemini CLI. Use prompt from config/flags with fallback to DefaultGeminiPrompt.","notes":"Gemini CLI command syntax verified: 'gemini -o json PROMPT' or 'gemini --output-format=json PROMPT'. Positional prompt preferred. Output format options: text, json, stream-json. May need to research exact JSON structure. Agent should use prompt precedence: --prompt flag \u003e --prompt-file flag \u003e review_prompt config \u003e review_prompt_file config \u003e DefaultGeminiPrompt."}
+{"id":"tl-c1b149b9","ts":"2026-01-16T19:53:52.609257Z","type":"update","notes":"Use explicit switch-based factory pattern (Rob Pike style pragmatism). Example: func NewAgent(name string, cfg Config) (Agent, error) { switch name { case \"codex\": return NewCodexAgent(cfg); case \"claude\": return NewClaudeAgent(cfg); ... } }. No init() registration, no global maps - keep it simple and explicit."}
+{"id":"tl-37f8a160","ts":"2026-01-16T19:56:03.836974Z","type":"update","notes":"Research required: Verify correct Claude CLI command syntax. Check: 1) What -p flag does, 2) If --output-format=json is supported, 3) How to pass prompt (positional arg vs stdin), 4) Exact JSON output structure (JSONL vs single object). Agent should use prompt precedence: --prompt flag \u003e --prompt-file flag \u003e review_prompt config \u003e review_prompt_file config \u003e DefaultClaudePrompt.\n\nIsAvailable() implementation: Use exec.LookPath(\"claude\") to check if CLI exists in PATH. Simple path check only, no version verification needed. Example: func (a *ClaudeAgent) IsAvailable() bool { _, err := exec.LookPath(\"claude\"); return err == nil }"}
+{"id":"tl-e27c4b53","ts":"2026-01-16T19:57:16.357754Z","type":"update","description":"Integration test verifying all phases work correctly: 1) All three agents (codex, claude, gemini) execute reviews successfully, 2) Custom prompts work via config/flags, 3) Agent selection works via config/flags, 4) Prompt precedence is correct, 5) Agent precedence is correct, 6) CodexAgent maintains backward compatibility with existing behavior."}
+{"id":"tl-5fd66814","ts":"2026-01-16T20:07:08.926169Z","type":"update","notes":"Error handling: If user specifies an agent that isn't available (via --agent flag, ACR_AGENT env var, or config), fail fast with clear error message. Example: 'Error: agent \"claude\" is not available. Install Claude CLI or use --agent=codex'. No fallback behavior - explicit failure helps users understand configuration issues."}
+{"id":"tl-6fc40608","ts":"2026-01-16T20:09:47.744947Z","type":"status","status":"in_progress"}
+{"id":"tl-6fc40608","ts":"2026-01-16T20:13:47.062537Z","type":"status","status":"done","resolution":"completed","notes":"Created internal/agent/prompts.go with DefaultClaudePrompt and DefaultGeminiPrompt constants. Both start with the same comprehensive code review prompt that focuses on bugs, security, performance, and maintainability. Added comprehensive unit tests. All quality checks pass."}
+{"id":"tl-825e226b","ts":"2026-01-16T20:16:30.638012Z","type":"status","status":"in_progress"}
+{"id":"tl-825e226b","ts":"2026-01-16T20:22:40.97513Z","type":"status","status":"done","resolution":"completed","notes":"Added review_prompt and review_prompt_file fields to Config struct with full YAML support. Implemented ResolvePrompt() function with custom precedence logic (flags \u003e env vars \u003e config \u003e default). Added comprehensive tests. All quality checks pass."}
+{"id":"tl-bc026816","ts":"2026-01-16T20:23:38.930341Z","type":"status","status":"in_progress"}
+{"id":"tl-bc026816","ts":"2026-01-16T20:23:46.407001Z","type":"status","status":"done","resolution":"completed","notes":"Already implemented in tl-825e226b. The review_prompt_file field was added to Config struct along with review_prompt, and the ResolvePrompt() function handles file loading logic with proper precedence (flag file \u003e env file \u003e config file). Includes error handling for missing files and comprehensive tests."}
+{"id":"tl-812cb4c2","ts":"2026-01-16T20:24:32.853736Z","type":"status","status":"in_progress"}
+{"id":"tl-297433c0","ts":"2026-01-16T20:24:32.857586Z","type":"status","status":"in_progress"}
+{"id":"tl-812cb4c2","ts":"2026-01-16T20:30:03.86141Z","type":"status","status":"done","resolution":"completed","notes":"Added --prompt CLI flag to cmd/acr/main.go. Flag integrates with config resolution system and has highest precedence. Includes env var support (ACR_REVIEW_PROMPT). All quality checks pass."}
+{"id":"tl-297433c0","ts":"2026-01-16T20:30:16.271918Z","type":"status","status":"done","resolution":"completed","notes":"Added --prompt-file CLI flag to cmd/acr/main.go. Flag integrates with config resolution system with second-highest precedence (after --prompt). Includes env var support (ACR_REVIEW_PROMPT_FILE) and file loading logic. All quality checks pass."}
+{"id":"tl-9eab21ae","ts":"2026-01-16T20:32:34.822883Z","type":"update","notes":"CodexAgent should support custom prompts but default to built-in behavior: If custom prompt provided, use 'codex exec -' with prompt on stdin. If no custom prompt, use 'codex exec review --base X' (maintains current behavior). This provides backward compatibility while enabling custom prompts when explicitly configured."}
+{"id":"tl-9eab21ae","ts":"2026-01-16T20:32:41.331072Z","type":"status","status":"in_progress"}
+{"id":"tl-9eab21ae","ts":"2026-01-16T20:35:02.599053Z","type":"status","status":"done","resolution":"completed","notes":"Updated CodexAgent.Execute() to support custom prompts conditionally. If CustomPrompt is set, uses 'codex exec -' with prompt on stdin. If empty, uses 'codex exec review --base X' (default behavior). Added tests for both paths. All quality checks pass."}
+{"id":"tl-c274eb76","ts":"2026-01-16T20:38:30.599911Z","type":"update","notes":"Current state: Config loading tests (TestResolvePrompt with 11 cases), CLI flag precedence tests, and file loading tests are complete. CodexAgent tests verify both custom prompt and default behavior. All agents (Codex, Claude, Gemini) now support custom prompts. This task should be completed after Claude/Gemini agents are implemented so we can verify end-to-end prompt passing for all agent types."}
+{"id":"tl-c274eb76","ts":"2026-01-16T20:40:54.765412Z","type":"dep","dep":"tl-37f8a160","action":"add"}
+{"id":"tl-c274eb76","ts":"2026-01-16T20:41:06.58581Z","type":"dep","dep":"tl-241bf6d4","action":"add"}
+{"id":"tl-37f8a160","ts":"2026-01-16T20:41:53.699217Z","type":"dep","dep":"tl-c274eb76","action":"remove"}
+{"id":"tl-37f8a160","ts":"2026-01-16T20:43:31.663773Z","type":"dep","dep":"tl-37f8a160","action":"remove"}
+{"id":"tl-37f8a160","ts":"2026-01-16T20:43:49.811355Z","type":"dep","dep":"tl-c274eb76","action":"remove"}
+{"id":"tl-c274eb76","ts":"2026-01-16T20:44:12.152595Z","type":"dep","dep":"tl-37f8a160","action":"remove"}
+{"id":"tl-480b2d6f","ts":"2026-01-16T20:44:34.434167Z","type":"dep","dep":"tl-37f8a160","action":"remove"}
+{"id":"tl-a1d894b9","ts":"2026-01-16T20:44:54.070179Z","type":"dep","dep":"tl-480b2d6f","action":"remove"}
+{"id":"tl-3d188cc8","ts":"2026-01-16T20:45:06.378471Z","type":"dep","dep":"tl-a1d894b9","action":"remove"}
+{"id":"tl-c1b149b9","ts":"2026-01-16T20:45:22.592089Z","type":"dep","dep":"tl-3d188cc8","action":"remove"}
+{"id":"tl-5fd66814","ts":"2026-01-16T20:45:35.137705Z","type":"dep","dep":"tl-c1b149b9","action":"remove"}
+{"id":"tl-fe06615e","ts":"2026-01-16T20:45:55.972315Z","type":"dep","dep":"tl-5fd66814","action":"remove"}
+{"id":"tl-8bc4ea6c","ts":"2026-01-16T20:46:06.654213Z","type":"dep","dep":"tl-fe06615e","action":"remove"}
+{"id":"tl-e27c4b53","ts":"2026-01-16T20:46:17.101528Z","type":"dep","dep":"tl-8bc4ea6c","action":"remove"}
+{"id":"tl-a1d894b9","ts":"2026-01-16T20:48:13.403089Z","type":"dep","dep":"tl-2eda9207","action":"remove"}
+{"id":"tl-2eda9207","ts":"2026-01-16T20:48:19.92267Z","type":"dep","dep":"tl-241bf6d4","action":"remove"}
+{"id":"tl-241bf6d4","ts":"2026-01-16T20:48:27.849532Z","type":"dep","dep":"tl-c274eb76","action":"remove"}
+{"id":"tl-c274eb76","ts":"2026-01-16T20:48:35.29262Z","type":"dep","dep":"tl-241bf6d4","action":"remove"}
+{"id":"tl-1fe744b6","ts":"2026-01-16T20:48:41.680759Z","type":"dep","dep":"tl-c274eb76","action":"remove"}
+{"id":"tl-ba6c625b","ts":"2026-01-16T20:48:47.211706Z","type":"dep","dep":"tl-1fe744b6","action":"remove"}
+{"id":"tl-e27c4b53","ts":"2026-01-16T20:48:54.40913Z","type":"dep","dep":"tl-ba6c625b","action":"remove"}
+{"id":"tl-480b2d6f","ts":"2026-01-16T20:51:40.408699Z","type":"dep","dep":"tl-37f8a160","action":"add"}
+{"id":"tl-2eda9207","ts":"2026-01-16T20:52:00.706987Z","type":"dep","dep":"tl-241bf6d4","action":"add"}
+{"id":"tl-5fd66814","ts":"2026-01-16T20:54:57.920271Z","type":"dep","dep":"tl-c1b149b9","action":"add"}
+{"id":"tl-c1b149b9","ts":"2026-01-16T20:55:33.142701Z","type":"dep","dep":"tl-3d188cc8","action":"add"}
+{"id":"tl-c1b149b9","ts":"2026-01-16T20:55:41.504953Z","type":"dep","dep":"tl-a1d894b9","action":"add"}
+{"id":"tl-a1d894b9","ts":"2026-01-16T20:56:51.726913Z","type":"dep","dep":"tl-480b2d6f","action":"add"}
+{"id":"tl-a1d894b9","ts":"2026-01-16T20:57:16.946661Z","type":"dep","dep":"tl-3d188cc8","action":"add"}
+{"id":"tl-3d188cc8","ts":"2026-01-16T20:57:48.657777Z","type":"dep","dep":"tl-480b2d6f","action":"add"}
+{"id":"tl-a1d894b9","ts":"2026-01-16T20:58:23.201885Z","type":"dep","dep":"tl-2eda9207","action":"add"}
+{"id":"tl-3d188cc8","ts":"2026-01-16T20:59:07.827835Z","type":"dep","dep":"tl-2eda9207","action":"add"}
+{"id":"tl-ba6c625b","ts":"2026-01-16T21:02:58.310793Z","type":"dep","dep":"tl-1fe744b6","action":"add"}
+{"id":"tl-1fe744b6","ts":"2026-01-16T21:03:33.711336Z","type":"dep","dep":"tl-1fe744b6","action":"add"}
+{"id":"tl-1fe744b6","ts":"2026-01-16T21:04:15.990726Z","type":"dep","dep":"tl-c274eb76","action":"add"}
+{"id":"tl-c274eb76","ts":"2026-01-16T21:04:43.12745Z","type":"dep","dep":"tl-5fd66814","action":"add"}
+{"id":"tl-fe06615e","ts":"2026-01-16T21:05:08.549774Z","type":"dep","dep":"tl-5fd66814","action":"add"}
+{"id":"tl-e27c4b53","ts":"2026-01-16T21:05:58.473702Z","type":"dep","dep":"tl-c274eb76","action":"add"}
+{"id":"tl-e27c4b53","ts":"2026-01-16T21:06:06.502116Z","type":"dep","dep":"tl-fe06615e","action":"add"}
+{"id":"tl-8bc4ea6c","ts":"2026-01-16T21:06:44.063542Z","type":"dep","dep":"tl-5fd66814","action":"add"}
+{"id":"tl-ddf507bc","ts":"2026-01-16T21:07:41.412709Z","type":"dep","dep":"tl-ba6c625b","action":"add"}
+{"id":"tl-ddf507bc","ts":"2026-01-16T21:07:55.509763Z","type":"dep","dep":"tl-8bc4ea6c","action":"add"}
+{"id":"tl-8bc4ea6c","ts":"2026-01-16T21:08:07.326829Z","type":"dep","dep":"tl-fe06615e","action":"add"}
+{"id":"tl-241bf6d4","ts":"2026-01-16T21:10:48.684527Z","type":"status","status":"in_progress"}
+{"id":"tl-241bf6d4","ts":"2026-01-16T22:27:55.97424Z","type":"status","status":"done","resolution":"completed","notes":"Implemented GeminiAgent with full test coverage. Created gemini.go (Agent implementation), gemini_parser.go (JSON/plain text output parser), gemini_test.go (agent tests), and gemini_parser_test.go (parser tests with 15+ test cases). All quality checks pass (fmt, lint, vet, staticcheck, tests)."}
+{"id":"tl-37f8a160","ts":"2026-01-16T23:12:40.797028Z","type":"status","status":"in_progress"}
+{"id":"tl-c1a836bf","ts":"2026-01-16T23:18:38.408254Z","type":"create","title":"remove 'tl-' prefix from tasks.  it provides no information and adds 3 characters repeatedly to output and log","status":"open","priority":1}
+{"id":"tl-23d9576a","ts":"2026-01-16T23:20:38.612984Z","type":"create","title":"Review and normalize command line flags, e.g. some commands use '--note' and other use '--notes'","status":"open","priority":3}
+{"id":"tl-37f8a160","ts":"2026-01-16T23:22:22.093594Z","type":"status","status":"done","resolution":"completed"}
+{"id":"tl-c1a836bf","ts":"2026-01-16T23:26:46.552313Z","type":"status","status":"done","resolution":"wontfix","notes":"Task added to the wrong repo"}
+{"id":"tl-23d9576a","ts":"2026-01-16T23:27:08.39417Z","type":"status","status":"done","resolution":"wontfix","notes":"Task added to the wrong repo"}
+{"id":"tl-48231db4","ts":"2026-01-16T23:39:02.992788Z","type":"create","title":"Remove integration tests that invoke real CLIs","status":"open","priority":2,"description":"Remove all tests that actually execute claude/gemini/codex CLI tools. These are unit tests and should not make real external calls. Tests currently guarded by ACR_INTEGRATION_TESTS=1 should be deleted entirely."}
+{"id":"tl-f3fe961f","ts":"2026-01-16T23:39:05.00734Z","type":"create","title":"Investigate integration testing strategy","status":"open","priority":2,"description":"Research and design how we want to handle integration tests. Consider: separate test suite, build tags, CI-only execution, test fixtures/mocks, etc."}
+{"id":"tl-48231db4","ts":"2026-01-16T23:42:49.898336Z","type":"status","status":"in_progress"}
+{"id":"tl-e27c4b53","ts":"2026-01-16T23:46:08.20809Z","type":"dep","dep":"tl-f3fe961f","action":"add"}
+{"id":"tl-e27c4b53","ts":"2026-01-16T23:46:42.45908Z","type":"dep","dep":"tl-f3fe961f","action":"remove"}
+{"id":"tl-f3fe961f","ts":"2026-01-16T23:46:54.620832Z","type":"dep","dep":"tl-e27c4b53","action":"add"}
+{"id":"tl-ddf507bc","ts":"2026-01-16T23:47:25.505287Z","type":"dep","dep":"tl-f3fe961f","action":"add"}
+{"id":"tl-48231db4","ts":"2026-01-16T23:48:18.791359Z","type":"status","status":"done","resolution":"completed","notes":"Removed integration tests from codex_test.go, gemini_test.go, and claude_test.go that invoked real CLIs. Kept unit tests for Name(), IsAvailable(), interface compliance, and error handling when CLI not available."}
+{"id":"tl-480b2d6f","ts":"2026-01-16T23:50:27.022768Z","type":"status","status":"in_progress"}
+{"id":"tl-480b2d6f","ts":"2026-01-16T23:51:10.820851Z","type":"status","status":"done","resolution":"completed","notes":"ClaudeOutputParser already implemented with full test coverage. Parses plain text output, filters non-findings (comments, markdown, 'no issues' messages), implements OutputParser interface."}
+{"id":"tl-2eda9207","ts":"2026-01-16T23:53:48.480816Z","type":"status","status":"in_progress"}
+{"id":"tl-2eda9207","ts":"2026-01-16T23:54:50.356969Z","type":"status","status":"done","resolution":"completed","notes":"GeminiOutputParser already implemented. Added interface compliance test for consistency. Parses JSON (text/message/content/finding fields) and plain text, filters non-findings."}

@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
@@ -19,18 +18,22 @@ import (
 )
 
 var (
-	reviewers       int
-	concurrency     int
-	baseRef         string
-	timeout         time.Duration
-	retries         int
-	verbose         bool
-	local           bool
-	worktreeBranch  string
-	autoYes         bool
-	autoNo          bool
-	excludePatterns []string
-	noConfig        bool
+	reviewers           int
+	concurrency         int
+	baseRef             string
+	timeout             time.Duration
+	retries             int
+	prompt              string
+	promptFile          string
+	verbose             bool
+	local               bool
+	worktreeBranch      string
+	autoYes             bool
+	autoNo              bool
+	excludePatterns     []string
+	noConfig            bool
+	agentName           string
+	summarizerAgentName string
 )
 
 func main() {
@@ -64,9 +67,13 @@ Exit codes:
 	rootCmd.Flags().StringVarP(&baseRef, "base", "b", "",
 		"Base ref for review command (default: main, env: ACR_BASE_REF)")
 	rootCmd.Flags().DurationVarP(&timeout, "timeout", "t", 0,
-		"Timeout per reviewer (default: 5m, env: ACR_TIMEOUT)")
+		"Timeout per reviewer (default: 10m, env: ACR_TIMEOUT)")
 	rootCmd.Flags().IntVarP(&retries, "retries", "R", 0,
 		"Retry failed reviewers N times (default: 1, env: ACR_RETRIES)")
+	rootCmd.Flags().StringVar(&prompt, "prompt", "",
+		"[experimental] Custom review prompt (env: ACR_REVIEW_PROMPT)")
+	rootCmd.Flags().StringVar(&promptFile, "prompt-file", "",
+		"[experimental] Path to file containing review prompt (env: ACR_REVIEW_PROMPT_FILE)")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false,
 		"Print agent messages as they arrive")
 	rootCmd.Flags().BoolVarP(&local, "local", "l", false,
@@ -86,8 +93,16 @@ Exit codes:
 		"Exclude findings matching regex pattern (repeatable)")
 	rootCmd.Flags().BoolVar(&noConfig, "no-config", false,
 		"Skip loading .acr.yaml config file")
+	rootCmd.Flags().StringVarP(&agentName, "reviewer-agent", "a", "codex",
+		"[experimental] Agent to use for reviews: codex, claude, gemini (env: ACR_REVIEWER_AGENT)")
+	rootCmd.Flags().StringVarP(&summarizerAgentName, "summarizer-agent", "s", "codex",
+		"[experimental] Agent to use for summarization: codex, claude, gemini (env: ACR_SUMMARIZER_AGENT)")
 
 	if err := rootCmd.Execute(); err != nil {
+		// Check if this is an exit code wrapper (not a real error)
+		if exitErr, ok := err.(exitCodeError); ok {
+			return exitErr.code.Int()
+		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return domain.ExitError.Int()
 	}
@@ -102,12 +117,6 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	}
 
 	logger := terminal.NewLogger()
-
-	// Check dependencies
-	if _, err := exec.LookPath("codex"); err != nil {
-		logger.Log("'codex' not found in PATH", terminal.StyleError)
-		return exitCode(domain.ExitError)
-	}
 
 	// Set up context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
@@ -147,6 +156,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	// Load config file (unless --no-config)
 	// When using a worktree, load config from the worktree (branch-specific settings)
 	var cfg *config.Config
+	var configDir string
 	if !noConfig {
 		var result *config.LoadResult
 		var err error
@@ -160,6 +170,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 			return exitCode(domain.ExitError)
 		}
 		cfg = result.Config
+		configDir = result.ConfigDir
 		// Display warnings for unknown keys
 		for _, warning := range result.Warnings {
 			logger.Logf(terminal.StyleWarning, "Warning: %s", warning)
@@ -168,11 +179,15 @@ func runReview(cmd *cobra.Command, _ []string) error {
 
 	// Build flag state from cobra's Changed() method
 	flagState := config.FlagState{
-		ReviewersSet:   cmd.Flags().Changed("reviewers"),
-		ConcurrencySet: cmd.Flags().Changed("concurrency"),
-		BaseSet:        cmd.Flags().Changed("base"),
-		TimeoutSet:     cmd.Flags().Changed("timeout"),
-		RetriesSet:     cmd.Flags().Changed("retries"),
+		ReviewersSet:        cmd.Flags().Changed("reviewers"),
+		ConcurrencySet:      cmd.Flags().Changed("concurrency"),
+		BaseSet:             cmd.Flags().Changed("base"),
+		TimeoutSet:          cmd.Flags().Changed("timeout"),
+		RetriesSet:          cmd.Flags().Changed("retries"),
+		ReviewerAgentSet:    cmd.Flags().Changed("reviewer-agent"),
+		SummarizerAgentSet:  cmd.Flags().Changed("summarizer-agent"),
+		ReviewPromptSet:     cmd.Flags().Changed("prompt"),
+		ReviewPromptFileSet: cmd.Flags().Changed("prompt-file"),
 	}
 
 	// Load env var state
@@ -180,11 +195,15 @@ func runReview(cmd *cobra.Command, _ []string) error {
 
 	// Build flag values struct
 	flagValues := config.ResolvedConfig{
-		Reviewers:   reviewers,
-		Concurrency: concurrency,
-		Base:        baseRef,
-		Timeout:     timeout,
-		Retries:     retries,
+		Reviewers:        reviewers,
+		Concurrency:      concurrency,
+		Base:             baseRef,
+		Timeout:          timeout,
+		Retries:          retries,
+		ReviewerAgent:    agentName,
+		SummarizerAgent:  summarizerAgentName,
+		ReviewPrompt:     prompt,
+		ReviewPromptFile: promptFile,
 	}
 
 	// Resolve final configuration (precedence: flags > env vars > config file > defaults)
@@ -196,6 +215,8 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	baseRef = resolved.Base
 	timeout = resolved.Timeout
 	retries = resolved.Retries
+	agentName = resolved.ReviewerAgent
+	summarizerAgentName = resolved.SummarizerAgent
 
 	// Validate resolved config
 	if reviewers < 1 {
@@ -214,7 +235,14 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	// Merge exclude patterns (config patterns + CLI patterns)
 	allExcludePatterns := config.Merge(cfg, excludePatterns)
 
+	// Resolve custom prompt (precedence: flags > env vars > config file)
+	customPrompt, err := config.ResolvePrompt(cfg, envState, flagState, flagValues, configDir)
+	if err != nil {
+		logger.Logf(terminal.StyleError, "Failed to resolve prompt: %v", err)
+		return exitCode(domain.ExitError)
+	}
+
 	// Run the review
-	code := executeReview(ctx, workDir, allExcludePatterns, logger)
+	code := executeReview(ctx, workDir, allExcludePatterns, customPrompt, logger)
 	return exitCode(code)
 }

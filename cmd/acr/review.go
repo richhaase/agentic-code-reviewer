@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/filter"
 	"github.com/richhaase/agentic-code-reviewer/internal/runner"
@@ -11,7 +12,7 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
-func executeReview(ctx context.Context, workDir string, excludePatterns []string, logger *terminal.Logger) domain.ExitCode {
+func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, logger *terminal.Logger) domain.ExitCode {
 	if concurrency < reviewers {
 		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, %d concurrent, base=%s)%s",
 			terminal.Color(terminal.Dim), reviewers, concurrency, baseRef, terminal.Color(terminal.Reset))
@@ -20,21 +21,46 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 			terminal.Color(terminal.Dim), reviewers, baseRef, terminal.Color(terminal.Reset))
 	}
 
+	// Create agent based on --agent flag
+	reviewAgent, err := agent.NewAgent(agentName)
+	if err != nil {
+		logger.Logf(terminal.StyleError, "Invalid agent: %v", err)
+		return domain.ExitError
+	}
+
+	// Check if agent CLI is available
+	if err := reviewAgent.IsAvailable(); err != nil {
+		logger.Logf(terminal.StyleError, "%s CLI not found: %v", agentName, err)
+		return domain.ExitError
+	}
+
+	// Validate summarizer agent up front to fail fast if CLI is missing
+	summarizerAgent, err := agent.NewAgent(summarizerAgentName)
+	if err != nil {
+		logger.Logf(terminal.StyleError, "Invalid summarizer agent: %v", err)
+		return domain.ExitError
+	}
+	if err := summarizerAgent.IsAvailable(); err != nil {
+		logger.Logf(terminal.StyleError, "%s CLI not found (summarizer): %v", summarizerAgentName, err)
+		return domain.ExitError
+	}
+
 	if verbose {
-		logger.Logf(terminal.StyleDim, "%sCommand: codex exec --json --color never review --base %s%s",
-			terminal.Color(terminal.Dim), baseRef, terminal.Color(terminal.Reset))
+		logger.Logf(terminal.StyleDim, "%sUsing agent: %s%s",
+			terminal.Color(terminal.Dim), agentName, terminal.Color(terminal.Reset))
 	}
 
 	// Run reviewers
 	r := runner.New(runner.Config{
-		Reviewers:   reviewers,
-		Concurrency: concurrency,
-		BaseRef:     baseRef,
-		Timeout:     timeout,
-		Retries:     retries,
-		Verbose:     verbose,
-		WorkDir:     workDir,
-	}, logger)
+		Reviewers:    reviewers,
+		Concurrency:  concurrency,
+		BaseRef:      baseRef,
+		Timeout:      timeout,
+		Retries:      retries,
+		Verbose:      verbose,
+		WorkDir:      workDir,
+		CustomPrompt: customPrompt,
+	}, reviewAgent, logger)
 
 	results, wallClock, err := r.Run(ctx)
 	if err != nil {
@@ -67,7 +93,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		close(spinnerDone)
 	}()
 
-	summaryResult, err := summarizer.Summarize(ctx, aggregated)
+	summaryResult, err := summarizer.Summarize(ctx, summarizerAgentName, aggregated)
 	spinnerCancel()
 	<-spinnerDone
 

@@ -4,7 +4,7 @@ This file provides guidance for AI assistants working on the ACR codebase.
 
 ## Project Overview
 
-ACR (Agentic Code Reviewer) is a Go CLI that runs parallel code reviews using Codex CLI. It spawns N reviewers, collects their findings, deduplicates/clusters them via an LLM summarizer, and optionally posts results to GitHub PRs.
+ACR (Agentic Code Reviewer) is a Go CLI that runs parallel code reviews using LLM agents (Codex, Claude, or Gemini). It spawns N reviewers, collects their findings, deduplicates/clusters them via an LLM summarizer, and optionally posts results to GitHub PRs.
 
 ## Build & Test Commands
 
@@ -32,6 +32,16 @@ go install ./cmd/acr  # Install locally
 ```
 cmd/acr/main.go          # CLI entry point, flag parsing, orchestration
 internal/
+  agent/                 # LLM agent abstraction layer
+    agent.go             # Agent interface (ExecuteReview, ExecuteSummary)
+    codex.go             # Codex CLI agent implementation
+    claude.go            # Claude CLI agent implementation
+    gemini.go            # Gemini CLI agent implementation
+    factory.go           # Agent and parser factory functions
+    parser.go            # ReviewParser and SummaryParser interfaces
+    *_review_parser.go   # Agent-specific review output parsers
+    *_summary_parser.go  # Agent-specific summary output parsers
+    prompts.go           # Default review prompts per agent
   config/                # Configuration file support
     config.go            # Load/parse .acr.yaml, resolve precedence (flags > env > config > defaults)
   domain/                # Core types: Finding, AggregatedFinding, GroupedFindings
@@ -44,7 +54,7 @@ internal/
     runner.go            # Parallel reviewer orchestration
     report.go            # Report rendering (terminal + markdown)
   summarizer/            # LLM-based finding summarization
-    summarizer.go        # Calls codex exec with clustering prompt
+    summarizer.go        # Orchestrates agent execution and output parsing
   github/                # GitHub PR operations via gh CLI
     pr.go                # Post comments, approve PRs, check CI status
   git/                   # Git operations
@@ -58,17 +68,19 @@ internal/
 
 ## Key Design Decisions
 
-1. **External Dependencies**: Uses `codex` CLI for reviews and `gh` CLI for GitHub. Both are exec'd as subprocesses - no SDK dependencies.
+1. **Multi-Agent Support**: Supports multiple LLM backends (Codex, Claude, Gemini) via the `Agent` interface. Each agent handles its own CLI invocation and output parsing. Adding new agents requires implementing `Agent`, `ReviewParser`, and `SummaryParser`.
 
-2. **Parallel Execution**: Reviewers run concurrently via goroutines. Results collected via channels with context cancellation support.
+2. **External Dependencies**: Uses LLM CLIs (`codex`, `claude`, `gemini`) for reviews and `gh` CLI for GitHub. All are exec'd as subprocesses - no SDK dependencies.
 
-3. **Finding Aggregation**: Two-phase process:
+3. **Parallel Execution**: Reviewers run concurrently via goroutines. Results collected via channels with context cancellation support.
+
+4. **Finding Aggregation**: Two-phase process:
    - First: Exact-match deduplication in `domain.AggregateFindings()`
    - Then: Semantic clustering via LLM in `summarizer.Summarize()`
 
-4. **Exit Codes**: Semantic exit codes (0=clean, 1=findings, 2=error, 130=interrupted) for CI integration.
+5. **Exit Codes**: Semantic exit codes (0=clean, 1=findings, 2=error, 130=interrupted) for CI integration.
 
-5. **Terminal Detection**: Colors auto-disabled when stdout is not a TTY.
+6. **Terminal Detection**: Colors auto-disabled when stdout is not a TTY.
 
 ## Code Patterns
 

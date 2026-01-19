@@ -1,6 +1,6 @@
 # Agentic Code Reviewer development tasks
 
-.PHONY: help build test test-coverage fmt lint vet tidy clean find-deadcode staticcheck check
+.PHONY: help build test test-coverage fmt lint vet tidy clean find-deadcode staticcheck check eval eval-check-deps
 
 # Show available targets
 help:
@@ -16,6 +16,7 @@ help:
 	@echo "  find-deadcode - Run dead code analysis"
 	@echo "  staticcheck  - Run staticcheck"
 	@echo "  check        - Run all quality checks (fmt, lint, vet, staticcheck, tests)"
+	@echo "  eval         - Run eval tests (requires bats-core)"
 
 # Build the acr binary with version information
 build:
@@ -93,3 +94,16 @@ staticcheck:
 
 # Run all quality checks (format, lint, vet, staticcheck, tests)
 check: fmt lint vet staticcheck test
+
+# Check that bats-core is installed
+eval-check-deps:
+	@command -v bats >/dev/null 2>&1 || { \
+		echo "bats-core is required but not installed."; \
+		echo "Install with: brew install bats-core"; \
+		exit 1; \
+	}
+
+# Run eval tests
+eval: eval-check-deps build
+	@echo "Running eval tests..."
+	@bats bats/tests/

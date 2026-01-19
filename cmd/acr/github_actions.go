@@ -115,8 +115,8 @@ func handleLGTM(ctx context.Context, allFindings []domain.Finding, stats domain.
 func handleFindings(ctx context.Context, grouped domain.GroupedFindings, aggregated []domain.AggregatedFinding, stats domain.ReviewStats, logger *terminal.Logger) domain.ExitCode {
 	selectedFindings := grouped.Findings
 
-	// Interactive selection when in TTY and not auto-submitting
-	if !autoYes && !autoNo && terminal.IsStdoutTTY() {
+	// Interactive selection when in TTY and not auto-submitting (skip in local mode)
+	if !local && !autoYes && !autoNo && terminal.IsStdoutTTY() {
 		indices, canceled, err := terminal.RunSelector(grouped.Findings)
 		if err != nil {
 			logger.Logf(terminal.StyleError, "Selector error: %v", err)

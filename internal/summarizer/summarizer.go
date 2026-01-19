@@ -2,20 +2,18 @@
 package summarizer
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"os/exec"
+	"io"
 	"time"
 
+	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
-const groupPrompt = `# Codex Review Summarizer
+const groupPrompt = `# Code Review Summarizer
 
-You are grouping results from repeated Codex review runs.
+You are grouping results from repeated code review runs.
 
 Input: a JSON array of objects, each with "id" (input identifier), "text" (the finding),
 and "reviewers" (list of reviewer IDs that found it).
@@ -69,8 +67,16 @@ type Result struct {
 	Duration time.Duration
 }
 
+// inputItem represents a single finding for the summarizer input payload.
+type inputItem struct {
+	ID        int    `json:"id"`
+	Text      string `json:"text"`
+	Reviewers []int  `json:"reviewers"`
+}
+
 // Summarize summarizes the aggregated findings using an LLM.
-func Summarize(ctx context.Context, aggregated []domain.AggregatedFinding) (*Result, error) {
+// The agentName parameter specifies which agent to use for summarization.
+func Summarize(ctx context.Context, agentName string, aggregated []domain.AggregatedFinding) (*Result, error) {
 	start := time.Now()
 
 	if len(aggregated) == 0 {
@@ -80,13 +86,13 @@ func Summarize(ctx context.Context, aggregated []domain.AggregatedFinding) (*Res
 		}, nil
 	}
 
-	// Build input payload
-	type inputItem struct {
-		ID        int    `json:"id"`
-		Text      string `json:"text"`
-		Reviewers []int  `json:"reviewers"`
+	// Create agent
+	ag, err := agent.NewAgent(agentName)
+	if err != nil {
+		return nil, err
 	}
 
+	// Build input payload
 	items := make([]inputItem, len(aggregated))
 	for i, a := range aggregated {
 		items[i] = inputItem{
@@ -98,65 +104,105 @@ func Summarize(ctx context.Context, aggregated []domain.AggregatedFinding) (*Res
 
 	payload, err := json.Marshal(items)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal aggregated findings: %w", err)
+		return nil, err
 	}
 
-	fullPrompt := groupPrompt + "\n\nINPUT JSON:\n" + string(payload) + "\n"
+	// Check if context is already canceled
+	if ctx.Err() != nil {
+		return &Result{
+			ExitCode: -1,
+			Stderr:   "context canceled",
+			Duration: time.Since(start),
+		}, nil
+	}
 
-	cmd := exec.CommandContext(ctx, "codex", "exec", "--color", "never", "-")
-	cmd.Stdin = bytes.NewReader([]byte(fullPrompt))
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err = cmd.Run()
-	duration := time.Since(start)
-
-	exitCode := 0
+	// Execute summary via agent
+	reader, err := ag.ExecuteSummary(ctx, groupPrompt, payload)
 	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			exitCode = exitErr.ExitCode()
-		} else if ctx.Err() != nil {
+		// Handle context cancellation
+		if ctx.Err() != nil {
 			return &Result{
 				ExitCode: -1,
 				Stderr:   "context canceled",
-				Duration: duration,
+				Duration: time.Since(start),
 			}, nil
-		} else {
-			exitCode = 1
 		}
+		return nil, err
 	}
 
-	output := stdout.String()
-	stderrStr := stderr.String()
+	// Read all output
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		// Close reader before returning
+		if closer, ok := reader.(io.Closer); ok {
+			_ = closer.Close()
+		}
+		// Handle context cancellation
+		if ctx.Err() != nil {
+			return &Result{
+				ExitCode: -1,
+				Stderr:   "context canceled",
+				Duration: time.Since(start),
+			}, nil
+		}
+		return nil, err
+	}
 
-	if output == "" {
+	// Close reader and get exit code
+	// Exit code and stderr are only valid after Close() has been called
+	if closer, ok := reader.(io.Closer); ok {
+		_ = closer.Close()
+	}
+
+	duration := time.Since(start)
+
+	exitCode := 0
+	if exitCoder, ok := reader.(agent.ExitCoder); ok {
+		exitCode = exitCoder.ExitCode()
+	}
+
+	// Capture stderr for diagnostics (valid after Close)
+	var stderr string
+	if stderrProvider, ok := reader.(agent.StderrProvider); ok {
+		stderr = stderrProvider.Stderr()
+	}
+
+	if len(output) == 0 {
 		return &Result{
 			Grouped:  domain.GroupedFindings{},
 			ExitCode: exitCode,
-			Stderr:   stderrStr,
+			Stderr:   stderr,
 			Duration: duration,
 		}, nil
 	}
 
-	var grouped domain.GroupedFindings
-	if err := json.Unmarshal([]byte(output), &grouped); err != nil {
+	// Create parser for this agent's output format
+	parser, err := agent.NewSummaryParser(agentName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse the output
+	grouped, err := parser.Parse(output)
+	if err != nil {
+		parseErr := "failed to parse summarizer output: " + err.Error()
+		if stderr != "" {
+			parseErr = stderr + "\n" + parseErr
+		}
 		return &Result{
 			Grouped:  domain.GroupedFindings{},
 			ExitCode: 1,
-			Stderr:   "failed to parse summarizer JSON output",
-			RawOut:   output,
+			Stderr:   parseErr,
+			RawOut:   string(output),
 			Duration: duration,
 		}, nil
 	}
 
 	return &Result{
-		Grouped:  grouped,
+		Grouped:  *grouped,
 		ExitCode: exitCode,
-		Stderr:   stderrStr,
-		RawOut:   output,
+		Stderr:   stderr,
+		RawOut:   string(output),
 		Duration: duration,
 	}, nil
 }
