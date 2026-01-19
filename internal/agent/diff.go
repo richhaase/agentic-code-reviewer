@@ -11,8 +11,13 @@ import (
 // If workDir is empty, uses the current directory.
 // The context is used to support cancellation/timeout.
 func GetGitDiff(ctx context.Context, baseRef, workDir string) (string, error) {
-	// Use -- before baseRef to prevent flag injection if baseRef starts with -
-	args := []string{"diff", "--", baseRef}
+	// Validate baseRef to prevent flag injection (refs starting with - would be
+	// interpreted as git flags). The -- must come AFTER baseRef so git treats
+	// baseRef as a revision, not a pathspec.
+	if strings.HasPrefix(baseRef, "-") {
+		return "", fmt.Errorf("invalid base ref %q: must not start with -", baseRef)
+	}
+	args := []string{"diff", baseRef, "--"}
 	cmd := exec.CommandContext(ctx, "git", args...)
 
 	if workDir != "" {
