@@ -239,11 +239,6 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		}
 	}
 
-	// Check for scanner I/O errors
-	if scanner.Err() != nil {
-		result.ParseErrors++
-	}
-
 	result.Duration = time.Since(start)
 
 	// Capture parse errors tracked by the parser
