@@ -9,9 +9,13 @@ import (
 )
 
 // GeminiOutputParser parses JSON output from the gemini CLI.
+// Gemini outputs a single JSON object (often pretty-printed across multiple lines)
+// with a "response" field containing the review findings.
 type GeminiOutputParser struct {
 	reviewerID  int
 	parseErrors int
+	findings    []domain.Finding // buffered findings
+	parsed      bool             // whether we've parsed the input yet
 }
 
 // NewGeminiOutputParser creates a new parser for gemini output.
@@ -22,71 +26,98 @@ func NewGeminiOutputParser(reviewerID int) *GeminiOutputParser {
 }
 
 // ReadFinding reads and parses the next finding from the gemini output stream.
-// Gemini outputs JSON format. This parser handles several common formats:
-//   - {"response": "finding description", "stats": {...}}
-//   - {"text": "finding description"}
-//   - {"message": "finding description"}
-//   - {"content": "finding description"}
-//   - Plain text lines (treated as findings)
-//
+// On first call, reads and parses the entire JSON output, buffering all findings.
+// Subsequent calls return buffered findings one at a time.
 // Returns nil when no more findings are available.
 func (p *GeminiOutputParser) ReadFinding(scanner *bufio.Scanner) (*domain.Finding, error) {
-	for scanner.Scan() {
-		line := scanner.Text()
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
+	// Parse input on first call
+	if !p.parsed {
+		p.parsed = true
+		if err := p.parseFullOutput(scanner); err != nil {
+			return nil, err
 		}
-
-		// Try to parse as JSON first
-		var jsonObj map[string]any
-		if err := json.Unmarshal([]byte(line), &jsonObj); err == nil {
-			// Successfully parsed as JSON, extract text from common fields
-			var text string
-			for _, field := range []string{"response", "text", "message", "content", "finding"} {
-				if val, ok := jsonObj[field]; ok {
-					if str, ok := val.(string); ok && str != "" {
-						text = str
-						break
-					}
-				}
-			}
-
-			if text != "" {
-				return &domain.Finding{
-					Text:       text,
-					ReviewerID: p.reviewerID,
-				}, nil
-			}
-			// Skip JSON objects without recognized text fields
-			continue
-		}
-
-		// Not JSON, treat as plain text finding
-		// Skip common non-finding lines
-		if strings.HasPrefix(line, "#") ||
-			strings.Contains(strings.ToLower(line), "no issues") ||
-			strings.Contains(strings.ToLower(line), "looks good") {
-			continue
-		}
-
-		return &domain.Finding{
-			Text:       line,
-			ReviewerID: p.reviewerID,
-		}, nil
 	}
 
-	// Check for scanner error
-	if err := scanner.Err(); err != nil {
-		return nil, err
+	// Return next buffered finding
+	if len(p.findings) > 0 {
+		finding := p.findings[0]
+		p.findings = p.findings[1:]
+		return &finding, nil
 	}
 
-	// No more findings
 	return nil, nil
 }
 
+// parseFullOutput reads all scanner input, parses JSON, and extracts findings.
+func (p *GeminiOutputParser) parseFullOutput(scanner *bufio.Scanner) error {
+	// Read all input
+	var lines []string
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	fullOutput := strings.Join(lines, "\n")
+	if strings.TrimSpace(fullOutput) == "" {
+		return nil
+	}
+
+	// Try to parse as JSON
+	var jsonObj map[string]any
+	if err := json.Unmarshal([]byte(fullOutput), &jsonObj); err != nil {
+		// Not valid JSON - treat entire output as plain text finding
+		p.parseErrors++
+		text := strings.TrimSpace(fullOutput)
+		if text != "" && !p.isNonFinding(text) {
+			p.findings = append(p.findings, domain.Finding{
+				Text:       text,
+				ReviewerID: p.reviewerID,
+			})
+		}
+		return nil
+	}
+
+	// Extract response text from known fields
+	var responseText string
+	for _, field := range []string{"response", "text", "message", "content", "finding"} {
+		if val, ok := jsonObj[field]; ok {
+			if str, ok := val.(string); ok && str != "" {
+				responseText = str
+				break
+			}
+		}
+	}
+
+	if responseText == "" {
+		return nil
+	}
+
+	// The response may contain the full review as a single text block
+	// Return it as one finding (aggregation/summarization handles grouping)
+	responseText = strings.TrimSpace(responseText)
+	if responseText != "" && !p.isNonFinding(responseText) {
+		p.findings = append(p.findings, domain.Finding{
+			Text:       responseText,
+			ReviewerID: p.reviewerID,
+		})
+	}
+
+	return nil
+}
+
+// isNonFinding returns true if the text looks like a non-finding response.
+func (p *GeminiOutputParser) isNonFinding(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "no issues") ||
+		strings.Contains(lower, "no bugs") ||
+		strings.Contains(lower, "no problems") ||
+		strings.Contains(lower, "looks good") ||
+		strings.Contains(lower, "code looks correct")
+}
+
 // ParseErrors returns the number of recoverable parse errors encountered.
-// GeminiOutputParser treats non-JSON lines as plain text, so parse errors are rare.
 func (p *GeminiOutputParser) ParseErrors() int {
 	return p.parseErrors
 }
