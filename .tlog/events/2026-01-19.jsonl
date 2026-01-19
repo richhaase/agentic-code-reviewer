@@ -19,3 +19,9 @@
 {"id":"cc60f1ed","ts":"2026-01-19T17:55:28.817074Z","type":"status","status":"done","resolution":"completed","notes":"FALSE POSITIVE: Tested codex CLI - both custom prompt (codex exec -) and built-in review (codex exec review) emit agent_message type. No assistant_message type exists. Parser is correct."}
 {"id":"d8c2bba4","ts":"2026-01-19T18:10:40.194686Z","type":"status","status":"in_progress"}
 {"id":"d8c2bba4","ts":"2026-01-19T18:16:27.831934Z","type":"status","status":"done","resolution":"completed","commit":"84033e3"}
+{"id":"b6a802cd","ts":"2026-01-19T18:48:42.741182Z","type":"create","title":"Fix Gemini review parser for multi-line JSON output","status":"open","priority":1,"labels":["bug"],"description":"gemini -o json outputs multi-line pretty-printed JSON, but GeminiOutputParser reads line-by-line treating each line as JSON or plain text. This produces bogus findings. Fix by reading full output and parsing as single JSON object, or use json.Decoder."}
+{"id":"71cb919d","ts":"2026-01-19T18:48:44.472137Z","type":"create","title":"Validate Claude summary structured_output field exists","status":"open","priority":3,"labels":["bug"],"description":"ClaudeSummaryParser returns empty GroupedFindings when structured_output is missing instead of erroring. Add validation that the field exists and return error if absent to avoid silent failures."}
+{"id":"b6a802cd","ts":"2026-01-19T18:49:08.287833Z","type":"status","status":"in_progress"}
+{"id":"b6a802cd","ts":"2026-01-19T18:55:22.254481Z","type":"status","status":"done","resolution":"completed","commit":"ac6fa61"}
+{"id":"71cb919d","ts":"2026-01-19T18:57:07.748795Z","type":"status","status":"in_progress"}
+{"id":"71cb919d","ts":"2026-01-19T18:58:45.95831Z","type":"status","status":"done","resolution":"completed","commit":"16cd408"}
