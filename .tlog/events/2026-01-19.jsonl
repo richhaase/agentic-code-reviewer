@@ -25,3 +25,6 @@
 {"id":"b6a802cd","ts":"2026-01-19T18:55:22.254481Z","type":"status","status":"done","resolution":"completed","commit":"ac6fa61"}
 {"id":"71cb919d","ts":"2026-01-19T18:57:07.748795Z","type":"status","status":"in_progress"}
 {"id":"71cb919d","ts":"2026-01-19T18:58:45.95831Z","type":"status","status":"done","resolution":"completed","commit":"16cd408"}
+{"id":"81406c15","ts":"2026-01-19T19:43:22.696262Z","type":"create","title":"Validate baseRef is non-empty in GetGitDiff","status":"open","priority":3,"labels":["bug"],"description":"GetGitDiff validates that baseRef doesn't start with - but not that it's non-empty. An empty baseRef causes git diff '' -- which fails with obscure error. Add empty string validation."}
+{"id":"81406c15","ts":"2026-01-19T19:44:10.356648Z","type":"status","status":"in_progress"}
+{"id":"81406c15","ts":"2026-01-19T19:44:54.298588Z","type":"status","status":"done","resolution":"completed","commit":"651234e"}
