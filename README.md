@@ -1,6 +1,6 @@
 # ACR - Agentic Code Reviewer
 
-A CLI tool that runs parallel AI-powered code reviews using [Codex CLI](https://github.com/openai/codex-cli) and aggregates findings intelligently.
+A CLI tool that runs parallel AI-powered code reviews using [Codex CLI](https://github.com/openai/codex-cli), (Claude Code and Gemini cli, experimentally) and aggregates findings intelligently.
 
 ## How It Works
 
