@@ -12,7 +12,7 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
-func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, logger *terminal.Logger) domain.ExitCode {
+func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, reviewerAgentNames []string, logger *terminal.Logger) domain.ExitCode {
 	if concurrency < reviewers {
 		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, %d concurrent, base=%s)%s",
 			terminal.Color(terminal.Dim), reviewers, concurrency, baseRef, terminal.Color(terminal.Reset))
@@ -21,15 +21,14 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 			terminal.Color(terminal.Dim), reviewers, baseRef, terminal.Color(terminal.Reset))
 	}
 
-	// Parse and validate agent names
-	agentNames := agent.ParseAgentNames(agentName)
-	if err := agent.ValidateAgentNames(agentNames); err != nil {
+	// Validate agent names
+	if err := agent.ValidateAgentNames(reviewerAgentNames); err != nil {
 		logger.Logf(terminal.StyleError, "Invalid agent: %v", err)
 		return domain.ExitError
 	}
 
 	// Create agent instances (validates all CLIs upfront - fail fast)
-	reviewAgents, err := agent.CreateAgents(agentNames)
+	reviewAgents, err := agent.CreateAgents(reviewerAgentNames)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "%v", err)
 		return domain.ExitError
@@ -51,13 +50,13 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		distribution := agent.FormatDistribution(reviewAgents, reviewers)
 		logger.Logf(terminal.StyleInfo, "Agent distribution: %s%s%s",
 			terminal.Color(terminal.Dim), distribution, terminal.Color(terminal.Reset))
-	} else if verbose {
+	} else if verbose && len(reviewerAgentNames) > 0 {
 		logger.Logf(terminal.StyleDim, "%sUsing agent: %s%s",
-			terminal.Color(terminal.Dim), agentName, terminal.Color(terminal.Reset))
+			terminal.Color(terminal.Dim), reviewerAgentNames[0], terminal.Color(terminal.Reset))
 	}
 
 	// Run reviewers
-	r := runner.New(runner.Config{
+	r, err := runner.New(runner.Config{
 		Reviewers:    reviewers,
 		Concurrency:  concurrency,
 		BaseRef:      baseRef,
@@ -67,6 +66,10 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		WorkDir:      workDir,
 		CustomPrompt: customPrompt,
 	}, reviewAgents, logger)
+	if err != nil {
+		logger.Logf(terminal.StyleError, "Runner initialization failed: %v", err)
+		return domain.ExitError
+	}
 
 	results, wallClock, err := r.Run(ctx)
 	if err != nil {

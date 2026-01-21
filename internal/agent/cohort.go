@@ -114,9 +114,9 @@ func FormatDistribution(agents []Agent, totalReviewers int) string {
 }
 
 // AgentForReviewer returns the agent for a given reviewer ID using round-robin.
-// Reviewer IDs are 1-based.
+// Reviewer IDs are 1-based. Returns nil if agents slice is empty or reviewerID < 1.
 func AgentForReviewer(agents []Agent, reviewerID int) Agent {
-	if len(agents) == 0 {
+	if len(agents) == 0 || reviewerID < 1 {
 		return nil
 	}
 	return agents[(reviewerID-1)%len(agents)]

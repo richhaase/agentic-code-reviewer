@@ -4,6 +4,7 @@ package runner
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"strconv"
 	"sync/atomic"
@@ -35,13 +36,17 @@ type Runner struct {
 }
 
 // New creates a new runner with one or more agents for round-robin assignment.
-func New(config Config, agents []agent.Agent, logger *terminal.Logger) *Runner {
+// Returns an error if agents slice is empty.
+func New(config Config, agents []agent.Agent, logger *terminal.Logger) (*Runner, error) {
+	if len(agents) == 0 {
+		return nil, fmt.Errorf("at least one agent is required")
+	}
 	return &Runner{
 		config:    config,
 		agents:    agents,
 		logger:    logger,
 		completed: &atomic.Int32{},
-	}
+	}, nil
 }
 
 // Run executes the review process and returns the results.

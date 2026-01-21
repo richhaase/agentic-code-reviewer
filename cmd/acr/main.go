@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -217,7 +216,6 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	baseRef = resolved.Base
 	timeout = resolved.Timeout
 	retries = resolved.Retries
-	agentName = strings.Join(resolved.ReviewerAgents, ",")
 	summarizerAgentName = resolved.SummarizerAgent
 
 	// Validate resolved config
@@ -245,6 +243,6 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Run the review
-	code := executeReview(ctx, workDir, allExcludePatterns, customPrompt, logger)
+	code := executeReview(ctx, workDir, allExcludePatterns, customPrompt, resolved.ReviewerAgents, logger)
 	return exitCode(code)
 }
