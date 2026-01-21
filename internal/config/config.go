@@ -250,6 +250,8 @@ func levenshtein(a, b string) int {
 }
 
 // parseCommaSeparated splits a comma-separated string into a slice of trimmed strings.
+// Returns nil if no non-empty parts are found, so callers can distinguish
+// "not set" from "set but empty".
 func parseCommaSeparated(input string) []string {
 	parts := strings.Split(input, ",")
 	result := make([]string, 0, len(parts))
@@ -258,6 +260,9 @@ func parseCommaSeparated(input string) []string {
 		if trimmed != "" {
 			result = append(result, trimmed)
 		}
+	}
+	if len(result) == 0 {
+		return nil
 	}
 	return result
 }
@@ -394,8 +399,10 @@ func LoadEnvState() EnvState {
 		}
 	}
 	if v := os.Getenv("ACR_REVIEWER_AGENT"); v != "" {
-		state.ReviewerAgents = parseCommaSeparated(v)
-		state.ReviewerAgentsSet = true
+		if agents := parseCommaSeparated(v); agents != nil {
+			state.ReviewerAgents = agents
+			state.ReviewerAgentsSet = true
+		}
 	}
 	if v := os.Getenv("ACR_SUMMARIZER_AGENT"); v != "" {
 		state.SummarizerAgent = v

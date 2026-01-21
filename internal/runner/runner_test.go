@@ -1,9 +1,13 @@
 package runner
 
 import (
+	"context"
+	"io"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
@@ -172,4 +176,82 @@ func TestCollectFindings_PreservesReviewerIDs(t *testing.T) {
 	if !reviewerIDs[5] || !reviewerIDs[10] {
 		t.Errorf("reviewer IDs not preserved, found: %v", reviewerIDs)
 	}
+}
+
+func TestNew_EmptyAgentsReturnsError(t *testing.T) {
+	cfg := Config{Reviewers: 5, Timeout: time.Minute}
+
+	_, err := New(cfg, []agent.Agent{}, nil)
+
+	if err == nil {
+		t.Error("expected error for empty agents slice, got nil")
+	}
+	if !strings.Contains(err.Error(), "at least one agent") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestNew_NilAgentsReturnsError(t *testing.T) {
+	cfg := Config{Reviewers: 5, Timeout: time.Minute}
+
+	_, err := New(cfg, nil, nil)
+
+	if err == nil {
+		t.Error("expected error for nil agents slice, got nil")
+	}
+}
+
+func TestNew_ValidAgentsSucceeds(t *testing.T) {
+	cfg := Config{Reviewers: 5, Timeout: time.Minute}
+	agents := []agent.Agent{&mockAgent{name: "codex"}}
+
+	r, err := New(cfg, agents, nil)
+
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if r == nil {
+		t.Error("expected non-nil runner")
+	}
+}
+
+func TestBuildStats_TracksAgentNames(t *testing.T) {
+	results := []domain.ReviewerResult{
+		{ReviewerID: 1, AgentName: "codex", ExitCode: 0, Duration: time.Second},
+		{ReviewerID: 2, AgentName: "claude", ExitCode: 1, Duration: time.Second},
+		{ReviewerID: 3, AgentName: "gemini", ExitCode: 0, Duration: time.Second},
+	}
+
+	stats := BuildStats(results, 3, time.Second)
+
+	if stats.ReviewerAgentNames[1] != "codex" {
+		t.Errorf("expected agent name 'codex' for reviewer 1, got %q", stats.ReviewerAgentNames[1])
+	}
+	if stats.ReviewerAgentNames[2] != "claude" {
+		t.Errorf("expected agent name 'claude' for reviewer 2, got %q", stats.ReviewerAgentNames[2])
+	}
+	if stats.ReviewerAgentNames[3] != "gemini" {
+		t.Errorf("expected agent name 'gemini' for reviewer 3, got %q", stats.ReviewerAgentNames[3])
+	}
+}
+
+// mockAgent implements agent.Agent interface for testing
+type mockAgent struct {
+	name string
+}
+
+func (m *mockAgent) Name() string {
+	return m.name
+}
+
+func (m *mockAgent) IsAvailable() error {
+	return nil
+}
+
+func (m *mockAgent) ExecuteReview(_ context.Context, _ *agent.ReviewConfig) (io.Reader, error) {
+	return nil, nil
+}
+
+func (m *mockAgent) ExecuteSummary(_ context.Context, _ string, _ []byte) (io.Reader, error) {
+	return nil, nil
 }

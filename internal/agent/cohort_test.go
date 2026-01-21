@@ -160,6 +160,28 @@ func TestAgentForReviewer_EmptySlice(t *testing.T) {
 	}
 }
 
+func TestAgentForReviewer_InvalidReviewerID(t *testing.T) {
+	agents := []Agent{&mockAgent{name: "codex"}}
+
+	tests := []struct {
+		name       string
+		reviewerID int
+	}{
+		{"zero", 0},
+		{"negative", -1},
+		{"very negative", -100},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := AgentForReviewer(agents, tt.reviewerID)
+			if result != nil {
+				t.Errorf("expected nil for reviewerID=%d, got %v", tt.reviewerID, result)
+			}
+		})
+	}
+}
+
 func TestFormatDistribution(t *testing.T) {
 	tests := []struct {
 		name           string

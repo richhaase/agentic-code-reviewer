@@ -162,6 +162,15 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 
 	// Select agent via round-robin
 	selectedAgent := agent.AgentForReviewer(r.agents, reviewerID)
+	if selectedAgent == nil {
+		// Should never happen: New() validates non-empty agents, IDs start at 1
+		// Defensive check prevents panic if invariants change
+		return domain.ReviewerResult{
+			ReviewerID: reviewerID,
+			ExitCode:   -1,
+			Duration:   time.Since(start),
+		}
+	}
 
 	result := domain.ReviewerResult{
 		ReviewerID: reviewerID,
