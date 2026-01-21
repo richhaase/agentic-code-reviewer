@@ -122,7 +122,11 @@ func CreateWorktree(branch string) (*Worktree, error) {
 	cmd := exec.Command("git", "worktree", "add", worktreePath, branch)
 	cmd.Dir = repoRoot
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("failed to create worktree for branch '%s': %s", branch, strings.TrimSpace(string(out)))
+		output := strings.TrimSpace(string(out))
+		if output != "" {
+			return nil, fmt.Errorf("failed to create worktree for branch '%s' (%s): %w", branch, output, err)
+		}
+		return nil, fmt.Errorf("failed to create worktree for branch '%s': %w", branch, err)
 	}
 
 	return &Worktree{
