@@ -179,8 +179,8 @@ func confirmAndExecutePRAction(ctx context.Context, action prAction, logger *ter
 	fmt.Println(action.body)
 	fmt.Println(divider)
 
-	if !github.IsGHAvailable() {
-		return fmt.Errorf("gh not available")
+	if err := github.CheckGHAvailable(); err != nil {
+		return err
 	}
 
 	prNumber := github.GetCurrentPRNumber(ctx, worktreeBranch)

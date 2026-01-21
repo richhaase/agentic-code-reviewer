@@ -46,10 +46,10 @@ func PostPRComment(ctx context.Context, prNumber, body string) error {
 
 	if err := cmd.Run(); err != nil {
 		errMsg := strings.TrimSpace(stderr.String())
-		if errMsg == "" {
-			errMsg = "unknown error"
+		if errMsg != "" {
+			return fmt.Errorf("failed to post comment (%s): %w", errMsg, err)
 		}
-		return fmt.Errorf("failed to post comment: %s", errMsg)
+		return fmt.Errorf("failed to post comment: %w", err)
 	}
 	return nil
 }
@@ -64,10 +64,10 @@ func ApprovePR(ctx context.Context, prNumber, body string) error {
 
 	if err := cmd.Run(); err != nil {
 		errMsg := strings.TrimSpace(stderr.String())
-		if errMsg == "" {
-			errMsg = "unknown error"
+		if errMsg != "" {
+			return fmt.Errorf("failed to approve PR (%s): %w", errMsg, err)
 		}
-		return fmt.Errorf("failed to approve PR: %s", errMsg)
+		return fmt.Errorf("failed to approve PR: %w", err)
 	}
 	return nil
 }
@@ -135,6 +135,15 @@ func ParseCIChecks(data []byte) CIStatus {
 func IsGHAvailable() bool {
 	_, err := exec.LookPath("gh")
 	return err == nil
+}
+
+// CheckGHAvailable returns an error if the gh CLI is not available.
+func CheckGHAvailable() error {
+	_, err := exec.LookPath("gh")
+	if err != nil {
+		return fmt.Errorf("gh CLI not available: %w", err)
+	}
+	return nil
 }
 
 // GetCurrentUser returns the username of the authenticated gh user.
