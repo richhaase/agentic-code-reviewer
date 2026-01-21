@@ -356,6 +356,11 @@ func TestRenderReport_WithWarnings(t *testing.T) {
 			ParseErrors:       3,
 			FailedReviewers:   []int{2, 4},
 			TimedOutReviewers: []int{5},
+			ReviewerAgentNames: map[int]string{
+				2: "codex",
+				4: "claude",
+				5: "gemini",
+			},
 		}
 
 		result := RenderReport(grouped, summaryResult, stats)
@@ -366,11 +371,11 @@ func TestRenderReport_WithWarnings(t *testing.T) {
 		if !strings.Contains(result, "JSONL parse errors: 3") {
 			t.Error("expected parse error count")
 		}
-		if !strings.Contains(result, "Failed reviewers: 2, 4") {
-			t.Error("expected failed reviewers")
+		if !strings.Contains(result, "Failed reviewers: #2 (codex), #4 (claude)") {
+			t.Error("expected failed reviewers with agent names")
 		}
-		if !strings.Contains(result, "Timed out reviewers: 5") {
-			t.Error("expected timed out reviewers")
+		if !strings.Contains(result, "Timed out reviewers: #5 (gemini)") {
+			t.Error("expected timed out reviewers with agent names")
 		}
 	})
 }

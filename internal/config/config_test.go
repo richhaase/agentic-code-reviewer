@@ -946,33 +946,33 @@ func TestValidate_ReviewerAgent(t *testing.T) {
 	}
 }
 
-func TestResolve_ReviewerAgent_FlagOverridesAll(t *testing.T) {
+func TestResolve_ReviewerAgents_FlagOverridesAll(t *testing.T) {
 	cfg := &Config{ReviewerAgent: strPtr("gemini")}
-	envState := EnvState{ReviewerAgent: "claude", ReviewerAgentSet: true}
-	flagState := FlagState{ReviewerAgentSet: true}
-	flagValues := ResolvedConfig{ReviewerAgent: "codex"}
+	envState := EnvState{ReviewerAgents: []string{"claude"}, ReviewerAgentsSet: true}
+	flagState := FlagState{ReviewerAgentsSet: true}
+	flagValues := ResolvedConfig{ReviewerAgents: []string{"codex"}}
 
 	result := Resolve(cfg, envState, flagState, flagValues)
 
-	if result.ReviewerAgent != "codex" {
-		t.Errorf("expected flag value 'codex', got %q", result.ReviewerAgent)
+	if len(result.ReviewerAgents) != 1 || result.ReviewerAgents[0] != "codex" {
+		t.Errorf("expected flag value ['codex'], got %v", result.ReviewerAgents)
 	}
 }
 
-func TestResolve_ReviewerAgent_EnvOverridesConfig(t *testing.T) {
+func TestResolve_ReviewerAgents_EnvOverridesConfig(t *testing.T) {
 	cfg := &Config{ReviewerAgent: strPtr("gemini")}
-	envState := EnvState{ReviewerAgent: "claude", ReviewerAgentSet: true}
+	envState := EnvState{ReviewerAgents: []string{"claude"}, ReviewerAgentsSet: true}
 	flagState := FlagState{} // no flags set
 	flagValues := ResolvedConfig{}
 
 	result := Resolve(cfg, envState, flagState, flagValues)
 
-	if result.ReviewerAgent != "claude" {
-		t.Errorf("expected env value 'claude', got %q", result.ReviewerAgent)
+	if len(result.ReviewerAgents) != 1 || result.ReviewerAgents[0] != "claude" {
+		t.Errorf("expected env value ['claude'], got %v", result.ReviewerAgents)
 	}
 }
 
-func TestResolve_ReviewerAgent_ConfigOverridesDefault(t *testing.T) {
+func TestResolve_ReviewerAgents_ConfigOverridesDefault(t *testing.T) {
 	cfg := &Config{ReviewerAgent: strPtr("gemini")}
 	envState := EnvState{}   // no env vars set
 	flagState := FlagState{} // no flags set
@@ -980,12 +980,12 @@ func TestResolve_ReviewerAgent_ConfigOverridesDefault(t *testing.T) {
 
 	result := Resolve(cfg, envState, flagState, flagValues)
 
-	if result.ReviewerAgent != "gemini" {
-		t.Errorf("expected config value 'gemini', got %q", result.ReviewerAgent)
+	if len(result.ReviewerAgents) != 1 || result.ReviewerAgents[0] != "gemini" {
+		t.Errorf("expected config value ['gemini'], got %v", result.ReviewerAgents)
 	}
 }
 
-func TestResolve_ReviewerAgent_DefaultsToCodex(t *testing.T) {
+func TestResolve_ReviewerAgents_DefaultsToCodex(t *testing.T) {
 	cfg := &Config{} // empty config
 	envState := EnvState{}
 	flagState := FlagState{}
@@ -993,12 +993,12 @@ func TestResolve_ReviewerAgent_DefaultsToCodex(t *testing.T) {
 
 	result := Resolve(cfg, envState, flagState, flagValues)
 
-	if result.ReviewerAgent != "codex" {
-		t.Errorf("expected default reviewer_agent 'codex', got %q", result.ReviewerAgent)
+	if len(result.ReviewerAgents) != 1 || result.ReviewerAgents[0] != "codex" {
+		t.Errorf("expected default reviewer_agents ['codex'], got %v", result.ReviewerAgents)
 	}
 }
 
-func TestLoadEnvState_ReviewerAgent(t *testing.T) {
+func TestLoadEnvState_ReviewerAgents(t *testing.T) {
 	// Save and restore original env
 	original := os.Getenv("ACR_REVIEWER_AGENT")
 	defer func() {
@@ -1012,15 +1012,15 @@ func TestLoadEnvState_ReviewerAgent(t *testing.T) {
 	os.Setenv("ACR_REVIEWER_AGENT", "claude")
 	state := LoadEnvState()
 
-	if !state.ReviewerAgentSet {
-		t.Error("expected ReviewerAgentSet to be true")
+	if !state.ReviewerAgentsSet {
+		t.Error("expected ReviewerAgentsSet to be true")
 	}
-	if state.ReviewerAgent != "claude" {
-		t.Errorf("expected reviewer_agent='claude', got %q", state.ReviewerAgent)
+	if len(state.ReviewerAgents) != 1 || state.ReviewerAgents[0] != "claude" {
+		t.Errorf("expected reviewer_agents=['claude'], got %v", state.ReviewerAgents)
 	}
 }
 
-func TestLoadEnvState_ReviewerAgent_NotSet(t *testing.T) {
+func TestLoadEnvState_ReviewerAgents_NotSet(t *testing.T) {
 	// Save and restore original env
 	original := os.Getenv("ACR_REVIEWER_AGENT")
 	defer func() {
@@ -1034,11 +1034,11 @@ func TestLoadEnvState_ReviewerAgent_NotSet(t *testing.T) {
 	os.Unsetenv("ACR_REVIEWER_AGENT")
 	state := LoadEnvState()
 
-	if state.ReviewerAgentSet {
-		t.Error("expected ReviewerAgentSet to be false")
+	if state.ReviewerAgentsSet {
+		t.Error("expected ReviewerAgentsSet to be false")
 	}
-	if state.ReviewerAgent != "" {
-		t.Errorf("expected empty reviewer_agent, got %q", state.ReviewerAgent)
+	if len(state.ReviewerAgents) != 0 {
+		t.Errorf("expected empty reviewer_agents, got %v", state.ReviewerAgents)
 	}
 }
 

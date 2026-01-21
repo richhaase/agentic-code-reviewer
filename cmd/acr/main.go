@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/config"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/git"
@@ -94,7 +95,7 @@ Exit codes:
 	rootCmd.Flags().BoolVar(&noConfig, "no-config", false,
 		"Skip loading .acr.yaml config file")
 	rootCmd.Flags().StringVarP(&agentName, "reviewer-agent", "a", "codex",
-		"[experimental] Agent to use for reviews: codex, claude, gemini (env: ACR_REVIEWER_AGENT)")
+		"[experimental] Agent(s) for reviews (comma-separated): codex, claude, gemini (env: ACR_REVIEWER_AGENT)")
 	rootCmd.Flags().StringVarP(&summarizerAgentName, "summarizer-agent", "s", "codex",
 		"[experimental] Agent to use for summarization: codex, claude, gemini (env: ACR_SUMMARIZER_AGENT)")
 
@@ -184,7 +185,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		BaseSet:             cmd.Flags().Changed("base"),
 		TimeoutSet:          cmd.Flags().Changed("timeout"),
 		RetriesSet:          cmd.Flags().Changed("retries"),
-		ReviewerAgentSet:    cmd.Flags().Changed("reviewer-agent"),
+		ReviewerAgentsSet:   cmd.Flags().Changed("reviewer-agent"),
 		SummarizerAgentSet:  cmd.Flags().Changed("summarizer-agent"),
 		ReviewPromptSet:     cmd.Flags().Changed("prompt"),
 		ReviewPromptFileSet: cmd.Flags().Changed("prompt-file"),
@@ -200,7 +201,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		Base:             baseRef,
 		Timeout:          timeout,
 		Retries:          retries,
-		ReviewerAgent:    agentName,
+		ReviewerAgents:   agent.ParseAgentNames(agentName),
 		SummarizerAgent:  summarizerAgentName,
 		ReviewPrompt:     prompt,
 		ReviewPromptFile: promptFile,
@@ -215,7 +216,6 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	baseRef = resolved.Base
 	timeout = resolved.Timeout
 	retries = resolved.Retries
-	agentName = resolved.ReviewerAgent
 	summarizerAgentName = resolved.SummarizerAgent
 
 	// Validate resolved config
@@ -243,6 +243,6 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Run the review
-	code := executeReview(ctx, workDir, allExcludePatterns, customPrompt, logger)
+	code := executeReview(ctx, workDir, allExcludePatterns, customPrompt, resolved.ReviewerAgents, logger)
 	return exitCode(code)
 }
