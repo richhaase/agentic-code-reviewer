@@ -51,10 +51,10 @@ func RenderReport(
 		warnings = append(warnings, fmt.Sprintf("JSONL parse errors: %d", stats.ParseErrors))
 	}
 	if len(stats.FailedReviewers) > 0 {
-		warnings = append(warnings, fmt.Sprintf("Failed reviewers: %s", joinInts(stats.FailedReviewers)))
+		warnings = append(warnings, fmt.Sprintf("Failed reviewers: %s", formatReviewersWithAgents(stats.FailedReviewers, stats.ReviewerAgentNames)))
 	}
 	if len(stats.TimedOutReviewers) > 0 {
-		warnings = append(warnings, fmt.Sprintf("Timed out reviewers: %s", joinInts(stats.TimedOutReviewers)))
+		warnings = append(warnings, fmt.Sprintf("Timed out reviewers: %s", formatReviewersWithAgents(stats.TimedOutReviewers, stats.ReviewerAgentNames)))
 	}
 
 	if len(warnings) > 0 {
@@ -291,6 +291,20 @@ func joinInts(nums []int) string {
 	strs := make([]string, len(nums))
 	for i, n := range nums {
 		strs[i] = strconv.Itoa(n)
+	}
+	return strings.Join(strs, ", ")
+}
+
+// formatReviewersWithAgents formats reviewer IDs with their agent names.
+// Example: "#1 (codex), #3 (claude)"
+func formatReviewersWithAgents(reviewerIDs []int, agentNames map[int]string) string {
+	strs := make([]string, len(reviewerIDs))
+	for i, id := range reviewerIDs {
+		if name, ok := agentNames[id]; ok && name != "" {
+			strs[i] = fmt.Sprintf("#%d (%s)", id, name)
+		} else {
+			strs[i] = fmt.Sprintf("#%d", id)
+		}
 	}
 	return strings.Join(strs, ", ")
 }

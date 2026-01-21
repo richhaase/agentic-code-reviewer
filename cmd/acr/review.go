@@ -21,16 +21,17 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 			terminal.Color(terminal.Dim), reviewers, baseRef, terminal.Color(terminal.Reset))
 	}
 
-	// Create agent based on --agent flag
-	reviewAgent, err := agent.NewAgent(agentName)
-	if err != nil {
+	// Parse and validate agent names
+	agentNames := agent.ParseAgentNames(agentName)
+	if err := agent.ValidateAgentNames(agentNames); err != nil {
 		logger.Logf(terminal.StyleError, "Invalid agent: %v", err)
 		return domain.ExitError
 	}
 
-	// Check if agent CLI is available
-	if err := reviewAgent.IsAvailable(); err != nil {
-		logger.Logf(terminal.StyleError, "%s CLI not found: %v", agentName, err)
+	// Create agent instances (validates all CLIs upfront - fail fast)
+	reviewAgents, err := agent.CreateAgents(agentNames)
+	if err != nil {
+		logger.Logf(terminal.StyleError, "%v", err)
 		return domain.ExitError
 	}
 
@@ -45,7 +46,12 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		return domain.ExitError
 	}
 
-	if verbose {
+	// Show agent distribution if multiple agents
+	if len(reviewAgents) > 1 {
+		distribution := agent.FormatDistribution(reviewAgents, reviewers)
+		logger.Logf(terminal.StyleInfo, "Agent distribution: %s%s%s",
+			terminal.Color(terminal.Dim), distribution, terminal.Color(terminal.Reset))
+	} else if verbose {
 		logger.Logf(terminal.StyleDim, "%sUsing agent: %s%s",
 			terminal.Color(terminal.Dim), agentName, terminal.Color(terminal.Reset))
 	}
@@ -60,7 +66,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		Verbose:      verbose,
 		WorkDir:      workDir,
 		CustomPrompt: customPrompt,
-	}, reviewAgent, logger)
+	}, reviewAgents, logger)
 
 	results, wallClock, err := r.Run(ctx)
 	if err != nil {

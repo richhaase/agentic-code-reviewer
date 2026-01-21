@@ -29,16 +29,16 @@ type Config struct {
 // Runner executes parallel code reviews.
 type Runner struct {
 	config    Config
-	agent     agent.Agent
+	agents    []agent.Agent
 	logger    *terminal.Logger
 	completed *atomic.Int32
 }
 
-// New creates a new runner.
-func New(config Config, agent agent.Agent, logger *terminal.Logger) *Runner {
+// New creates a new runner with one or more agents for round-robin assignment.
+func New(config Config, agents []agent.Agent, logger *terminal.Logger) *Runner {
 	return &Runner{
 		config:    config,
-		agent:     agent,
+		agents:    agents,
 		logger:    logger,
 		completed: &atomic.Int32{},
 	}
@@ -154,8 +154,13 @@ func (r *Runner) runReviewerWithRetry(ctx context.Context, reviewerID int) domai
 
 func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.ReviewerResult {
 	start := time.Now()
+
+	// Select agent via round-robin
+	selectedAgent := agent.AgentForReviewer(r.agents, reviewerID)
+
 	result := domain.ReviewerResult{
 		ReviewerID: reviewerID,
+		AgentName:  selectedAgent.Name(),
 	}
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, r.config.Timeout)
@@ -172,7 +177,7 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	}
 
 	// Execute the review
-	reader, err := r.agent.ExecuteReview(timeoutCtx, reviewConfig)
+	reader, err := selectedAgent.ExecuteReview(timeoutCtx, reviewConfig)
 	if err != nil {
 		result.ExitCode = -1
 		result.Duration = time.Since(start)
@@ -191,7 +196,7 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	}
 
 	// Create parser for this agent's output
-	parser, err := agent.NewReviewParser(r.agent.Name(), reviewerID)
+	parser, err := agent.NewReviewParser(selectedAgent.Name(), reviewerID)
 	if err != nil {
 		closeReader()
 		result.ExitCode = -1
@@ -268,13 +273,15 @@ func (r *Runner) verbose() bool {
 // BuildStats builds review statistics from results.
 func BuildStats(results []domain.ReviewerResult, totalReviewers int, wallClock time.Duration) domain.ReviewStats {
 	stats := domain.ReviewStats{
-		TotalReviewers:    totalReviewers,
-		ReviewerDurations: make(map[int]time.Duration),
-		WallClockDuration: wallClock,
+		TotalReviewers:     totalReviewers,
+		ReviewerDurations:  make(map[int]time.Duration),
+		ReviewerAgentNames: make(map[int]string),
+		WallClockDuration:  wallClock,
 	}
 
 	for _, r := range results {
 		stats.ReviewerDurations[r.ReviewerID] = r.Duration
+		stats.ReviewerAgentNames[r.ReviewerID] = r.AgentName
 		stats.ParseErrors += r.ParseErrors
 
 		if r.TimedOut {
