@@ -76,7 +76,7 @@ acr --verbose
 | `--reviewers`       | `-r`  | 5       | Number of parallel reviewers             |
 | `--concurrency`     | `-c`  | -r      | Max concurrent reviewers (see below)     |
 | `--base`            | `-b`  | main    | Base ref for diff comparison             |
-| `--timeout`         | `-t`  | 5m      | Timeout per reviewer                     |
+| `--timeout`         | `-t`  | 10m     | Timeout per reviewer                     |
 | `--retries`         | `-R`  | 1       | Retry failed reviewers N times           |
 | `--verbose`         | `-v`  | false   | Print agent messages in real-time        |
 | `--local`           | `-l`  | false   | Skip posting to GitHub PR                |
@@ -85,7 +85,7 @@ acr --verbose
 | `--no`              | `-n`  | false   | Skip submitting review                   |
 | `--exclude-pattern` |       |         | Exclude findings matching regex (repeat) |
 | `--no-config`       |       | false   | Skip loading .acr.yaml config file       |
-| `--reviewer-agent`  | `-a`  | codex   | [experimental] Agent for reviews (codex, claude, gemini) |
+| `--reviewer-agent`  | `-a`  | codex   | [experimental] Agent(s) for reviews, comma-separated (codex, claude, gemini) |
 | `--summarizer-agent`| `-s`  | codex   | [experimental] Agent for summarization (codex, claude, gemini) |
 | `--prompt`          |       |         | [experimental] Custom review prompt (inline) |
 | `--prompt-file`     |       |         | [experimental] Path to file containing review prompt |
@@ -123,9 +123,12 @@ acr -a gemini
 
 # Use different agents for review and summarization
 acr --reviewer-agent gemini --summarizer-agent claude
+
+# Use multiple agents in round-robin (reviewers alternate between agents)
+acr -r 6 --reviewer-agent codex,claude,gemini
 ```
 
-Different agents may find different issues. The appropriate CLI must be installed and authenticated for the selected agent.
+Different agents may find different issues. When multiple agents are specified (comma-separated), reviewers are assigned to agents in round-robin order. The appropriate CLI must be installed and authenticated for all selected agents.
 
 ### Custom Prompts (Experimental)
 
@@ -155,7 +158,7 @@ The git diff is automatically appended to your prompt.
 | `ACR_BASE_REF`            | Default base ref                         |
 | `ACR_TIMEOUT`             | Default timeout (e.g., "5m" or "300")    |
 | `ACR_RETRIES`             | Default retry count                      |
-| `ACR_REVIEWER_AGENT`      | [experimental] Default reviewer agent    |
+| `ACR_REVIEWER_AGENT`      | [experimental] Default reviewer agent(s), comma-separated |
 | `ACR_SUMMARIZER_AGENT`    | [experimental] Default summarizer agent  |
 | `ACR_REVIEW_PROMPT`       | [experimental] Default review prompt     |
 | `ACR_REVIEW_PROMPT_FILE`  | [experimental] Path to default review prompt file |
@@ -169,11 +172,15 @@ Create `.acr.yaml` in your repository root to configure persistent settings:
 reviewers: 5              # Number of parallel reviewers
 concurrency: 5            # Max concurrent reviewers (defaults to reviewers)
 base: main                # Base ref for diff comparison
-timeout: 5m               # Timeout per reviewer (supports "5m", "300s", or 300)
+timeout: 10m              # Timeout per reviewer (supports "5m", "300s", or 300)
 retries: 1                # Retry failed reviewers N times
 
 # Experimental: Agent selection
-# reviewer_agent: codex   # Agent for reviews (codex, claude, gemini)
+# reviewer_agent: codex   # Single agent for reviews (codex, claude, gemini)
+# reviewer_agents:        # Multiple agents for round-robin assignment
+#   - codex
+#   - claude
+#   - gemini
 # summarizer_agent: codex # Agent for summarization (codex, claude, gemini)
 
 # Experimental: Custom review prompt (inline or file)
