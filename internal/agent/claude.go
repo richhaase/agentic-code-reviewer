@@ -80,9 +80,15 @@ func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 			return nil, fmt.Errorf("failed to write diff to temp file: %w", err)
 		}
 
-		// Use ref-file prompt with absolute path
 		absPath, _ := filepath.Abs(diffFilePath)
-		prompt = fmt.Sprintf(DefaultClaudeRefFilePrompt, absPath)
+
+		// Use custom prompt if provided, otherwise default ref-file prompt
+		if config.CustomPrompt != "" {
+			// Append ref-file instructions to custom prompt
+			prompt = fmt.Sprintf("%s\n\nThe diff to review is in file: %s\nUse the Read tool to examine it.", config.CustomPrompt, absPath)
+		} else {
+			prompt = fmt.Sprintf(DefaultClaudeRefFilePrompt, absPath)
+		}
 	} else {
 		// Use standard prompt with embedded diff
 		prompt = config.CustomPrompt
