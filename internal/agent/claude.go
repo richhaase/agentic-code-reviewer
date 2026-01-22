@@ -41,6 +41,7 @@ func (c *ClaudeAgent) IsAvailable() error {
 // Uses 'claude --print -' with the prompt piped via stdin.
 // If config.CustomPrompt is empty, uses DefaultClaudePrompt.
 // The git diff is automatically appended to the prompt.
+// If config.DiffOverride is set, it is used instead of fetching from git.
 func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (io.Reader, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
@@ -52,10 +53,16 @@ func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 		prompt = DefaultClaudePrompt
 	}
 
-	// Get git diff and append to prompt
-	diff, err := GetGitDiff(ctx, config.BaseRef, config.WorkDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get diff for review: %w", err)
+	// Use DiffOverride if provided, otherwise fetch from git
+	var diff string
+	var err error
+	if config.DiffOverride != "" {
+		diff = config.DiffOverride
+	} else {
+		diff, err = GetGitDiff(ctx, config.BaseRef, config.WorkDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get diff for review: %w", err)
+		}
 	}
 	prompt = BuildPromptWithDiff(prompt, diff)
 

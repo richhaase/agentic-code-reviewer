@@ -121,3 +121,29 @@ func AgentForReviewer(agents []Agent, reviewerID int) Agent {
 	}
 	return agents[(reviewerID-1)%len(agents)]
 }
+
+// NeedsDiffInPrompt returns true if the agent requires the diff to be passed
+// in the prompt (as opposed to handling it internally like Codex's built-in review).
+// When customPrompt is set, all agents need diff in prompt.
+// When customPrompt is empty, only Claude and Gemini need diff in prompt.
+func NeedsDiffInPrompt(agent Agent, customPrompt string) bool {
+	if customPrompt != "" {
+		// All agents need diff in prompt when using custom prompts
+		return true
+	}
+	// Without custom prompt, Codex uses built-in review --base which handles diff internally
+	// Claude and Gemini always need diff in prompt
+	return agent.Name() != "codex"
+}
+
+// AllAgentsNeedDiffInPrompt returns true if all agents in the cohort need
+// the diff passed in the prompt. This determines whether diff distribution
+// across reviewers is possible.
+func AllAgentsNeedDiffInPrompt(agents []Agent, customPrompt string) bool {
+	for _, agent := range agents {
+		if !NeedsDiffInPrompt(agent, customPrompt) {
+			return false
+		}
+	}
+	return len(agents) > 0
+}

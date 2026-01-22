@@ -37,6 +37,7 @@ func (g *GeminiAgent) IsAvailable() error {
 // Uses 'gemini -o json -' with the prompt piped to stdin.
 // If config.CustomPrompt is empty, uses DefaultGeminiPrompt.
 // The git diff is automatically appended to the prompt.
+// If config.DiffOverride is set, it is used instead of fetching from git.
 func (g *GeminiAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (io.Reader, error) {
 	if err := g.IsAvailable(); err != nil {
 		return nil, err
@@ -48,10 +49,16 @@ func (g *GeminiAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 		prompt = DefaultGeminiPrompt
 	}
 
-	// Get git diff and append to prompt
-	diff, err := GetGitDiff(ctx, config.BaseRef, config.WorkDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get diff for review: %w", err)
+	// Use DiffOverride if provided, otherwise fetch from git
+	var diff string
+	var err error
+	if config.DiffOverride != "" {
+		diff = config.DiffOverride
+	} else {
+		diff, err = GetGitDiff(ctx, config.BaseRef, config.WorkDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get diff for review: %w", err)
+		}
 	}
 	prompt = BuildPromptWithDiff(prompt, diff)
 

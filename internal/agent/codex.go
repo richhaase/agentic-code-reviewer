@@ -36,6 +36,8 @@ func (c *CodexAgent) IsAvailable() error {
 //
 // If config.CustomPrompt is provided, uses 'codex exec -' with the prompt on stdin.
 // Otherwise, uses 'codex exec review --base X' for the built-in review behavior.
+// If config.DiffOverride is set and CustomPrompt is provided, DiffOverride is used
+// instead of fetching from git.
 func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (io.Reader, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
@@ -46,9 +48,16 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (i
 
 	if config.CustomPrompt != "" {
 		// Custom prompt mode: pipe prompt + diff to 'codex exec -'
-		diff, err := GetGitDiff(ctx, config.BaseRef, config.WorkDir)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get diff for review: %w", err)
+		// Use DiffOverride if provided, otherwise fetch from git
+		var diff string
+		var err error
+		if config.DiffOverride != "" {
+			diff = config.DiffOverride
+		} else {
+			diff, err = GetGitDiff(ctx, config.BaseRef, config.WorkDir)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get diff for review: %w", err)
+			}
 		}
 		prompt := BuildPromptWithDiff(config.CustomPrompt, diff)
 

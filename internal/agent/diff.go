@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -89,4 +90,102 @@ func BuildPromptWithDiff(prompt, diff string) string {
 	truncatedDiff, _ := TruncateDiff(diff, MaxDiffSize)
 
 	return prompt + "\n\n```diff\n" + truncatedDiff + "\n```"
+}
+
+// FileDiff represents a single file's diff extracted from a unified diff.
+type FileDiff struct {
+	Filename string // The filename (e.g., "internal/agent/diff.go")
+	Content  string // The full diff content for this file including the header
+	Size     int    // Size of the content in bytes
+}
+
+// diffHeaderRegex matches the "diff --git a/path b/path" header line.
+var diffHeaderRegex = regexp.MustCompile(`^diff --git a/(.+?) b/(.+)$`)
+
+// ParseDiffIntoFiles splits a unified diff into per-file chunks.
+// Each returned FileDiff contains the complete diff for a single file,
+// including its "diff --git" header line.
+func ParseDiffIntoFiles(diff string) []FileDiff {
+	if diff == "" {
+		return nil
+	}
+
+	var files []FileDiff
+	lines := strings.Split(diff, "\n")
+
+	var currentFile *FileDiff
+	var currentLines []string
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "diff --git ") {
+			// Save the previous file if we have one
+			if currentFile != nil {
+				content := strings.Join(currentLines, "\n")
+				currentFile.Content = content
+				currentFile.Size = len(content)
+				files = append(files, *currentFile)
+			}
+
+			// Start a new file
+			currentFile = &FileDiff{}
+			currentLines = []string{line}
+
+			// Extract filename from "diff --git a/path b/path"
+			if matches := diffHeaderRegex.FindStringSubmatch(line); len(matches) >= 3 {
+				currentFile.Filename = matches[2] // Use the "b/" path (destination)
+			}
+		} else if currentFile != nil {
+			currentLines = append(currentLines, line)
+		}
+	}
+
+	// Don't forget the last file
+	if currentFile != nil {
+		content := strings.Join(currentLines, "\n")
+		currentFile.Content = content
+		currentFile.Size = len(content)
+		files = append(files, *currentFile)
+	}
+
+	return files
+}
+
+// DistributeFiles distributes files across N reviewers using round-robin assignment.
+// Returns a slice of N diff strings, one per reviewer. Each diff string contains
+// the concatenated diffs of all files assigned to that reviewer.
+//
+// If a single file exceeds MaxDiffSize, it will be truncated to fit.
+// If numReviewers is 0 or negative, returns nil.
+// If files is empty, returns a slice of empty strings.
+func DistributeFiles(files []FileDiff, numReviewers int) []string {
+	if numReviewers <= 0 {
+		return nil
+	}
+
+	// Initialize chunks for each reviewer
+	chunks := make([][]string, numReviewers)
+	for i := range chunks {
+		chunks[i] = make([]string, 0)
+	}
+
+	// Round-robin distribute files to reviewers
+	for i, file := range files {
+		reviewerIdx := i % numReviewers
+		content := file.Content
+
+		// Truncate individual files that are too large
+		if len(content) > MaxDiffSize {
+			content, _ = TruncateDiff(content, MaxDiffSize)
+		}
+
+		chunks[reviewerIdx] = append(chunks[reviewerIdx], content)
+	}
+
+	// Join each reviewer's files into a single diff string
+	result := make([]string, numReviewers)
+	for i, chunk := range chunks {
+		result[i] = strings.Join(chunk, "\n")
+	}
+
+	return result
 }

@@ -63,6 +63,14 @@ func (r *Runner) Run(ctx context.Context) ([]domain.ReviewerResult, time.Duratio
 
 	start := time.Now()
 
+	// Prepare diff chunks for distribution (if applicable)
+	diffChunks, err := r.prepareDiffChunks(ctx)
+	if err != nil {
+		spinnerCancel()
+		<-spinnerDone
+		return nil, time.Since(start), err
+	}
+
 	// Create result channel
 	resultCh := make(chan domain.ReviewerResult, r.config.Reviewers)
 
@@ -77,7 +85,13 @@ func (r *Runner) Run(ctx context.Context) ([]domain.ReviewerResult, time.Duratio
 
 	// Launch reviewers
 	for i := 1; i <= r.config.Reviewers; i++ {
-		go func(id int) {
+		// Get diff chunk for this reviewer (empty string if no distribution)
+		diffOverride := ""
+		if diffChunks != nil && i-1 < len(diffChunks) {
+			diffOverride = diffChunks[i-1]
+		}
+
+		go func(id int, diffChunk string) {
 			// Acquire semaphore
 			select {
 			case sem <- struct{}{}:
@@ -89,14 +103,14 @@ func (r *Runner) Run(ctx context.Context) ([]domain.ReviewerResult, time.Duratio
 				return
 			}
 
-			result := r.runReviewerWithRetry(ctx, id)
+			result := r.runReviewerWithRetry(ctx, id, diffChunk)
 
 			// Release semaphore
 			<-sem
 
 			r.completed.Add(1)
 			resultCh <- result
-		}(i)
+		}(i, diffOverride)
 	}
 
 	// Collect results
@@ -118,7 +132,42 @@ func (r *Runner) Run(ctx context.Context) ([]domain.ReviewerResult, time.Duratio
 	return results, time.Since(start), nil
 }
 
-func (r *Runner) runReviewerWithRetry(ctx context.Context, reviewerID int) domain.ReviewerResult {
+// prepareDiffChunks checks if diff distribution is needed and prepares chunks.
+// Returns nil if distribution is not needed (small diff or agents don't need it).
+// Returns a slice of diff strings, one per reviewer, if distribution is needed.
+func (r *Runner) prepareDiffChunks(ctx context.Context) ([]string, error) {
+	// Only distribute if all agents need diff in prompt
+	if !agent.AllAgentsNeedDiffInPrompt(r.agents, r.config.CustomPrompt) {
+		return nil, nil
+	}
+
+	// Fetch the diff once
+	diff, err := agent.GetGitDiff(ctx, r.config.BaseRef, r.config.WorkDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get diff: %w", err)
+	}
+
+	// Only distribute if diff exceeds MaxDiffSize
+	if len(diff) <= agent.MaxDiffSize {
+		return nil, nil
+	}
+
+	// Parse diff into files
+	files := agent.ParseDiffIntoFiles(diff)
+	if len(files) == 0 {
+		return nil, nil
+	}
+
+	// Distribute files across reviewers
+	chunks := agent.DistributeFiles(files, r.config.Reviewers)
+
+	r.logger.Logf(terminal.StyleInfo, "Large diff (%d bytes, %d files) distributed across %d reviewers",
+		len(diff), len(files), r.config.Reviewers)
+
+	return chunks, nil
+}
+
+func (r *Runner) runReviewerWithRetry(ctx context.Context, reviewerID int, diffOverride string) domain.ReviewerResult {
 	var result domain.ReviewerResult
 
 	for attempt := 0; attempt <= r.config.Retries; attempt++ {
@@ -131,7 +180,7 @@ func (r *Runner) runReviewerWithRetry(ctx context.Context, reviewerID int) domai
 		default:
 		}
 
-		result = r.runReviewer(ctx, reviewerID)
+		result = r.runReviewer(ctx, reviewerID, diffOverride)
 
 		if result.ExitCode == 0 {
 			return result
@@ -157,7 +206,7 @@ func (r *Runner) runReviewerWithRetry(ctx context.Context, reviewerID int) domai
 	return result
 }
 
-func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.ReviewerResult {
+func (r *Runner) runReviewer(ctx context.Context, reviewerID int, diffOverride string) domain.ReviewerResult {
 	start := time.Now()
 
 	// Select agent via round-robin
@@ -188,6 +237,7 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		Verbose:      r.config.Verbose,
 		CustomPrompt: r.config.CustomPrompt,
 		ReviewerID:   strconv.Itoa(reviewerID),
+		DiffOverride: diffOverride,
 	}
 
 	// Execute the review

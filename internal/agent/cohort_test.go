@@ -242,6 +242,104 @@ func TestFormatDistribution(t *testing.T) {
 	}
 }
 
+func TestNeedsDiffInPrompt(t *testing.T) {
+	tests := []struct {
+		name         string
+		agent        Agent
+		customPrompt string
+		expected     bool
+	}{
+		{
+			name:         "claude without custom prompt needs diff",
+			agent:        &mockAgent{name: "claude"},
+			customPrompt: "",
+			expected:     true,
+		},
+		{
+			name:         "gemini without custom prompt needs diff",
+			agent:        &mockAgent{name: "gemini"},
+			customPrompt: "",
+			expected:     true,
+		},
+		{
+			name:         "codex without custom prompt does NOT need diff",
+			agent:        &mockAgent{name: "codex"},
+			customPrompt: "",
+			expected:     false,
+		},
+		{
+			name:         "codex with custom prompt needs diff",
+			agent:        &mockAgent{name: "codex"},
+			customPrompt: "custom review prompt",
+			expected:     true,
+		},
+		{
+			name:         "claude with custom prompt needs diff",
+			agent:        &mockAgent{name: "claude"},
+			customPrompt: "custom review prompt",
+			expected:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := NeedsDiffInPrompt(tt.agent, tt.customPrompt)
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestAllAgentsNeedDiffInPrompt(t *testing.T) {
+	tests := []struct {
+		name         string
+		agents       []Agent
+		customPrompt string
+		expected     bool
+	}{
+		{
+			name:         "all claude agents without custom prompt",
+			agents:       []Agent{&mockAgent{name: "claude"}, &mockAgent{name: "claude"}},
+			customPrompt: "",
+			expected:     true,
+		},
+		{
+			name:         "mixed claude and gemini without custom prompt",
+			agents:       []Agent{&mockAgent{name: "claude"}, &mockAgent{name: "gemini"}},
+			customPrompt: "",
+			expected:     true,
+		},
+		{
+			name:         "codex without custom prompt prevents distribution",
+			agents:       []Agent{&mockAgent{name: "claude"}, &mockAgent{name: "codex"}},
+			customPrompt: "",
+			expected:     false,
+		},
+		{
+			name:         "all agents with custom prompt enables distribution",
+			agents:       []Agent{&mockAgent{name: "codex"}, &mockAgent{name: "claude"}},
+			customPrompt: "custom prompt",
+			expected:     true,
+		},
+		{
+			name:         "empty agents returns false",
+			agents:       []Agent{},
+			customPrompt: "",
+			expected:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := AllAgentsNeedDiffInPrompt(tt.agents, tt.customPrompt)
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
 // mockAgent implements Agent interface for testing
 type mockAgent struct {
 	name string

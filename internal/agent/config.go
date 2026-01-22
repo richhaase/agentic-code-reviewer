@@ -22,4 +22,9 @@ type ReviewConfig struct {
 
 	// ReviewerID is a unique identifier for this reviewer instance (e.g., "reviewer-1").
 	ReviewerID string
+
+	// DiffOverride, if non-empty, is used instead of fetching the diff from git.
+	// This allows the runner to distribute different portions of a large diff
+	// to different reviewers for parallel processing.
+	DiffOverride string
 }
