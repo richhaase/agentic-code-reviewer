@@ -22,4 +22,9 @@ type ReviewConfig struct {
 
 	// ReviewerID is a unique identifier for this reviewer instance (e.g., "reviewer-1").
 	ReviewerID string
+
+	// UseRefFile writes the diff to a temp file and instructs the agent to read it,
+	// instead of embedding the diff in the prompt. This avoids "prompt too long" errors.
+	// When false (default), ref-file mode is still used automatically if diff exceeds RefFileSizeThreshold.
+	UseRefFile bool
 }

@@ -12,7 +12,7 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
-func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, reviewerAgentNames []string, logger *terminal.Logger) domain.ExitCode {
+func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, reviewerAgentNames []string, useRefFile bool, logger *terminal.Logger) domain.ExitCode {
 	if concurrency < reviewers {
 		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, %d concurrent, base=%s)%s",
 			terminal.Color(terminal.Dim), reviewers, concurrency, baseRef, terminal.Color(terminal.Reset))
@@ -65,6 +65,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		Verbose:      verbose,
 		WorkDir:      workDir,
 		CustomPrompt: customPrompt,
+		UseRefFile:   useRefFile,
 	}, reviewAgents, logger)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Runner initialization failed: %v", err)

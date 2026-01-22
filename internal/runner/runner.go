@@ -25,6 +25,7 @@ type Config struct {
 	Verbose      bool
 	WorkDir      string
 	CustomPrompt string
+	UseRefFile   bool
 }
 
 // Runner executes parallel code reviews.
@@ -188,6 +189,7 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		Verbose:      r.config.Verbose,
 		CustomPrompt: r.config.CustomPrompt,
 		ReviewerID:   strconv.Itoa(reviewerID),
+		UseRefFile:   r.config.UseRefFile,
 	}
 
 	// Execute the review

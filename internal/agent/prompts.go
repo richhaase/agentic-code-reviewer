@@ -44,3 +44,26 @@ Example findings:
 - "utils/parser.go:67: Potential panic - missing nil check before dereferencing pointer"
 
 Review the changes now and output your findings.`
+
+// DefaultClaudeRefFilePrompt is the review prompt used when the diff is passed via
+// a reference file instead of being embedded in the prompt. This avoids "prompt too long"
+// errors for large diffs by having Claude read the diff using its file tools.
+const DefaultClaudeRefFilePrompt = `Review this git diff for bugs.
+
+The diff to review is in file: %s
+Use the Read tool to examine it.
+
+Look for:
+- Logic errors, wrong behavior, crashes
+- Security issues (injection, auth bypass, exposure)
+- Silent failures, swallowed errors
+- Wrong type conversions
+- Missing operations (data not passed, steps skipped)
+
+Skip:
+- Style/formatting
+- Performance unless severe
+- Test files
+- Suggestions
+
+Output format: file:line: description`
