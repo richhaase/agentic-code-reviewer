@@ -24,6 +24,10 @@ func NewClaudeOutputParser(reviewerID int) *ClaudeOutputParser {
 // Claude outputs plain text findings, one per line.
 // Lines are filtered to exclude common non-finding content.
 //
+// When Claude runs in agent mode with tools, output includes exploration
+// commentary and tool invocations. These are filtered to extract only
+// actual findings in the format: file:line: description
+//
 // Returns nil when no more findings are available.
 func (p *ClaudeOutputParser) ReadFinding(scanner *bufio.Scanner) (*domain.Finding, error) {
 	for scanner.Scan() {
@@ -44,6 +48,39 @@ func (p *ClaudeOutputParser) ReadFinding(scanner *bufio.Scanner) (*domain.Findin
 			strings.Contains(lower, "code looks clean") ||
 			strings.Contains(lower, "no problems") ||
 			strings.Contains(lower, "review complete") {
+			continue
+		}
+
+		// Skip agent exploration commentary (tool-use mode)
+		// These are lines Claude outputs while exploring but aren't findings
+		if strings.HasPrefix(line, "I'll ") ||
+			strings.HasPrefix(line, "I will ") ||
+			strings.HasPrefix(line, "Let me ") ||
+			strings.HasPrefix(line, "Now ") ||
+			strings.HasPrefix(line, "First") ||
+			strings.HasPrefix(line, "Next") ||
+			strings.HasPrefix(line, "Looking at") ||
+			strings.HasPrefix(line, "Examining") ||
+			strings.HasPrefix(line, "Checking") ||
+			strings.HasPrefix(line, "Reading") ||
+			strings.HasPrefix(line, "Running") ||
+			strings.HasPrefix(line, "The ") ||
+			strings.HasPrefix(line, "This ") ||
+			strings.HasPrefix(line, "Here") ||
+			strings.HasPrefix(line, "Based on") ||
+			strings.HasPrefix(line, "After") ||
+			strings.HasPrefix(line, "**") ||
+			strings.HasPrefix(line, "- ") && !strings.Contains(line, ".go:") && !strings.Contains(line, ".py:") {
+			continue
+		}
+
+		// Skip tool output markers and content
+		if strings.Contains(lower, "$ git") ||
+			strings.Contains(lower, "$ cd") ||
+			strings.Contains(line, "diff --git") ||
+			strings.HasPrefix(line, "+") && !strings.Contains(line, ":") ||
+			strings.HasPrefix(line, "-") && !strings.Contains(line, ":") ||
+			strings.HasPrefix(line, "@@") {
 			continue
 		}
 

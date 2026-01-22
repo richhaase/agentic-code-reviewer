@@ -35,34 +35,33 @@ func (c *ClaudeAgent) IsAvailable() error {
 	return nil
 }
 
-// ExecuteReview runs a code review using the claude CLI.
+// ExecuteReview runs a code review using the claude CLI in agent mode.
 // Returns an io.Reader for streaming the output.
 //
-// Uses 'claude --print -' with the prompt piped via stdin.
-// If config.CustomPrompt is empty, uses DefaultClaudePrompt.
-// The git diff is automatically appended to the prompt.
+// Uses 'claude --print --allowedTools "Bash,Read,Grep" -' to enable Claude
+// to explore the codebase using tools rather than receiving the diff directly.
+// This enables smarter reviews that can follow imports, check tests, and
+// understand context.
+//
+// If config.CustomPrompt is provided, it is used as-is.
+// Otherwise, DefaultClaudeExplorePrompt is used with baseRef substituted.
 func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (io.Reader, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
 	}
 
-	// Use custom prompt if provided, otherwise use default
+	// Use custom prompt if provided, otherwise use exploration prompt
 	prompt := config.CustomPrompt
 	if prompt == "" {
-		prompt = DefaultClaudePrompt
+		// Format exploration prompt with baseRef (used twice in the template)
+		prompt = fmt.Sprintf(DefaultClaudeExplorePrompt, config.BaseRef, config.BaseRef)
 	}
 
-	// Get git diff and append to prompt
-	diff, err := GetGitDiff(ctx, config.BaseRef, config.WorkDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get diff for review: %w", err)
-	}
-	prompt = BuildPromptWithDiff(prompt, diff)
-
-	// Build command: claude --print -
+	// Build command: claude --print --allowedTools "Bash,Read,Grep" -
 	// --print: Output response only (non-interactive)
-	// -: Read prompt from stdin (avoids ARG_MAX limits on large diffs)
-	args := []string{"--print", "-"}
+	// --allowedTools: Enable tools for code exploration
+	// -: Read prompt from stdin
+	args := []string{"--print", "--allowedTools", "Bash,Read,Grep", "-"}
 	cmd := exec.CommandContext(ctx, "claude", args...)
 
 	// Pipe prompt via stdin
