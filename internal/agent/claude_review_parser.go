@@ -33,7 +33,7 @@ func (p *ClaudeOutputParser) ReadFinding(scanner *bufio.Scanner) (*domain.Findin
 			continue
 		}
 
-		// Skip common non-finding lines
+		// Skip common non-finding lines (but preserve SKILLS_USED)
 		lower := strings.ToLower(line)
 		if strings.HasPrefix(line, "#") ||
 			strings.HasPrefix(line, "---") ||
@@ -45,6 +45,14 @@ func (p *ClaudeOutputParser) ReadFinding(scanner *bufio.Scanner) (*domain.Findin
 			strings.Contains(lower, "no problems") ||
 			strings.Contains(lower, "review complete") {
 			continue
+		}
+
+		// Pass through SKILLS_USED line as a special marker
+		if strings.HasPrefix(line, "SKILLS_USED:") {
+			return &domain.Finding{
+				Text:       line,
+				ReviewerID: p.reviewerID,
+			}, nil
 		}
 
 		return &domain.Finding{

@@ -123,6 +123,14 @@ func RenderReport(
 	lines = append(lines, "")
 	lines = append(lines, terminal.Ruler(width, "━"))
 
+	// Skills used
+	if len(stats.SkillsUsed) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, fmt.Sprintf("%sSkills used:%s %s",
+			terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
+			strings.Join(stats.SkillsUsed, ", ")))
+	}
+
 	// Timing stats
 	if stats.WallClockDuration > 0 || len(stats.ReviewerDurations) > 0 || summaryResult.Duration > 0 {
 		lines = append(lines, "")

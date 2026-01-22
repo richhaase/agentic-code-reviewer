@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -295,6 +296,17 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int, diffOverride s
 			break
 		}
 
+		// Extract SKILLS_USED line separately (don't treat as a finding)
+		// Handle both plain and markdown-formatted versions
+		text := finding.Text
+		text = strings.TrimPrefix(text, "**")  // Remove leading bold
+		text = strings.TrimSuffix(text, "**")  // Remove trailing bold
+		if strings.HasPrefix(text, "SKILLS_USED:") {
+			result.SkillsUsed = strings.TrimPrefix(text, "SKILLS_USED:")
+			result.SkillsUsed = strings.TrimSpace(result.SkillsUsed)
+			continue
+		}
+
 		result.Findings = append(result.Findings, *finding)
 
 		if r.verbose() {
@@ -343,10 +355,21 @@ func BuildStats(results []domain.ReviewerResult, totalReviewers int, wallClock t
 		WallClockDuration:  wallClock,
 	}
 
+	skillsSet := make(map[string]bool)
 	for _, r := range results {
 		stats.ReviewerDurations[r.ReviewerID] = r.Duration
 		stats.ReviewerAgentNames[r.ReviewerID] = r.AgentName
 		stats.ParseErrors += r.ParseErrors
+
+		// Collect unique skills used
+		if r.SkillsUsed != "" && r.SkillsUsed != "none" {
+			for _, skill := range strings.Split(r.SkillsUsed, ",") {
+				skill = strings.TrimSpace(skill)
+				if skill != "" && skill != "none" {
+					skillsSet[skill] = true
+				}
+			}
+		}
 
 		if r.TimedOut {
 			stats.TimedOutReviewers = append(stats.TimedOutReviewers, r.ReviewerID)
@@ -355,6 +378,11 @@ func BuildStats(results []domain.ReviewerResult, totalReviewers int, wallClock t
 		} else {
 			stats.SuccessfulReviewers++
 		}
+	}
+
+	// Convert skills set to slice
+	for skill := range skillsSet {
+		stats.SkillsUsed = append(stats.SkillsUsed, skill)
 	}
 
 	return stats

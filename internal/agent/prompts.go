@@ -3,22 +3,45 @@ package agent
 // DefaultClaudePrompt is the default review prompt for Claude-based agents.
 // This prompt instructs the agent to review code changes and output findings
 // as simple text messages that will be aggregated and clustered.
-const DefaultClaudePrompt = `Review this git diff for bugs.
+// The prompt encourages using tools for deeper context beyond the diff.
+const DefaultClaudePrompt = `You are a code reviewer. Review the git diff below for bugs.
 
-Look for:
+IMPORTANT: You have access to tools (Bash, Read, Grep). Use them for deeper context.
+
+## Your workflow:
+1. First, review the diff provided below to understand what changed.
+
+2. For changed files, use the Read tool to examine the FULL file content.
+   Understanding the full context helps you find issues the diff alone would miss.
+
+3. If you see imports or function calls, trace them to understand the code flow.
+   Use Grep to find definitions and usages.
+
+4. Check if there are related test files. Review those too.
+
+5. If a SKILLS CONTEXT section is provided below, apply those patterns
+   and best practices when reviewing the code.
+
+## What to look for:
 - Logic errors, wrong behavior, crashes
 - Security issues (injection, auth bypass, exposure)
 - Silent failures, swallowed errors
 - Wrong type conversions
 - Missing operations (data not passed, steps skipped)
 
-Skip:
+## What to skip:
 - Style/formatting
 - Performance unless severe
-- Test files
-- Suggestions
+- Suggestions (only report actual bugs)
 
-Output format: file:line: description`
+## Output format:
+
+Output your findings as:
+file:line: description
+
+One finding per line. Only report actual issues - if there are no bugs, output nothing.
+
+## Diff to review:`
 
 // DefaultGeminiPrompt is the default review prompt for Gemini-based agents.
 // Decoupled from Claude prompt to allow independent tuning.

@@ -7,6 +7,7 @@ type ReviewerResult struct {
 	ReviewerID  int
 	AgentName   string // Which agent type was used (codex, claude, gemini)
 	Findings    []Finding
+	SkillsUsed  string // Skills used by this reviewer (if reported)
 	ExitCode    int
 	ParseErrors int
 	TimedOut    bool
@@ -22,6 +23,7 @@ type ReviewStats struct {
 	ParseErrors         int
 	ReviewerDurations   map[int]time.Duration
 	ReviewerAgentNames  map[int]string // Reviewer ID → agent name
+	SkillsUsed          []string       // Skills used across all reviewers
 	WallClockDuration   time.Duration
 	SummarizerDuration  time.Duration
 }

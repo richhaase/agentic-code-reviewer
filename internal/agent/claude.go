@@ -64,12 +64,22 @@ func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 			return nil, fmt.Errorf("failed to get diff for review: %w", err)
 		}
 	}
+
+	// Discover and inject relevant skills
+	changedFiles := GetFilesFromDiff(diff)
+	skillPaths, _ := DiscoverSkills(config.WorkDir, changedFiles)
+	skillContent, _ := LoadSkillContent(skillPaths)
+	if skillContent != "" {
+		prompt = prompt + skillContent
+	}
+
 	prompt = BuildPromptWithDiff(prompt, diff)
 
-	// Build command: claude --print -
+	// Build command: claude --print --allowedTools "Bash,Read,Grep" -
 	// --print: Output response only (non-interactive)
+	// --allowedTools: Enable tools for deeper code exploration
 	// -: Read prompt from stdin (avoids ARG_MAX limits on large diffs)
-	args := []string{"--print", "-"}
+	args := []string{"--print", "--allowedTools", "Bash,Read,Grep", "-"}
 	cmd := exec.CommandContext(ctx, "claude", args...)
 
 	// Pipe prompt via stdin
