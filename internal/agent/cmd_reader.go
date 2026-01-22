@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 	"syscall"
@@ -16,11 +17,12 @@ import (
 // subprocess lifecycle.
 type cmdReader struct {
 	io.Reader
-	cmd       *exec.Cmd
-	ctx       context.Context
-	stderr    *bytes.Buffer
-	exitCode  int
-	closeOnce sync.Once
+	cmd          *exec.Cmd
+	ctx          context.Context
+	stderr       *bytes.Buffer
+	exitCode     int
+	closeOnce    sync.Once
+	diffFilePath string // temp file to clean up on Close (used by ref-file pattern)
 }
 
 // Close implements io.Closer and waits for the command to complete.
@@ -51,6 +53,11 @@ func (r *cmdReader) Close() error {
 					r.exitCode = -1
 				}
 			}
+		}
+
+		// Clean up temp diff file if one was created (ref-file pattern)
+		if r.diffFilePath != "" {
+			os.Remove(r.diffFilePath)
 		}
 	})
 

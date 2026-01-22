@@ -35,6 +35,7 @@ var (
 	noConfig            bool
 	agentName           string
 	summarizerAgentName string
+	refFile             bool
 )
 
 func main() {
@@ -98,6 +99,8 @@ Exit codes:
 		"[experimental] Agent(s) for reviews (comma-separated): codex, claude, gemini (env: ACR_REVIEWER_AGENT)")
 	rootCmd.Flags().StringVarP(&summarizerAgentName, "summarizer-agent", "s", "codex",
 		"[experimental] Agent to use for summarization: codex, claude, gemini (env: ACR_SUMMARIZER_AGENT)")
+	rootCmd.Flags().BoolVar(&refFile, "ref-file", false,
+		"Write diff to a temp file instead of embedding in prompt (auto-enabled for large diffs)")
 
 	if err := rootCmd.Execute(); err != nil {
 		// Check if this is an exit code wrapper (not a real error)
@@ -243,6 +246,6 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Run the review
-	code := executeReview(ctx, workDir, allExcludePatterns, customPrompt, resolved.ReviewerAgents, logger)
+	code := executeReview(ctx, workDir, allExcludePatterns, customPrompt, resolved.ReviewerAgents, refFile, logger)
 	return exitCode(code)
 }
