@@ -76,7 +76,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 	// Note: We don't pre-fetch the diff here to avoid duplicate GetGitDiff calls.
 	// Each agent will fetch the diff and decide on ref-file mode based on size.
 	if verbose && useRefFile {
-		logger.Logf(terminal.StyleDim, "Ref-file mode enabled (Claude only)")
+		logger.Logf(terminal.StyleDim, "Ref-file mode enabled")
 	}
 
 	results, wallClock, err := r.Run(ctx)

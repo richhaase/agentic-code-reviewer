@@ -11,8 +11,8 @@ import (
 
 // RefFileSizeThreshold is the diff size (in bytes) above which ref-file mode
 // is automatically used to avoid "prompt too long" errors.
-// Note: Ref-file mode only works with Claude, which has file-reading capability.
-// For Codex and Gemini, large diffs are embedded in the prompt (which may hit limits).
+// All supported agents (Claude, Codex, Gemini) have file system access and can
+// read files from the working directory when instructed via the prompt.
 const RefFileSizeThreshold = 100 * 1024 // 100KB
 
 // GetWorkDir returns the working directory to use for temp files.
@@ -46,7 +46,9 @@ func WriteDiffToTempFile(workDir, diff string) (string, error) {
 	absPath, err := filepath.Abs(tempPath)
 	if err != nil {
 		// Clean up the temp file since we can't return a valid path
-		os.Remove(tempPath)
+		if rmErr := os.Remove(tempPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			log.Printf("Warning: failed to clean up temp file %s during error handling: %v", tempPath, rmErr)
+		}
 		return "", fmt.Errorf("failed to get absolute path for temp file: %w", err)
 	}
 
@@ -70,7 +72,9 @@ func WriteInputToTempFile(workDir string, input []byte, suffix string) (string, 
 	absPath, err := filepath.Abs(tempPath)
 	if err != nil {
 		// Clean up the temp file since we can't return a valid path
-		os.Remove(tempPath)
+		if rmErr := os.Remove(tempPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			log.Printf("Warning: failed to clean up temp file %s during error handling: %v", tempPath, rmErr)
+		}
 		return "", fmt.Errorf("failed to get absolute path for temp file: %w", err)
 	}
 
