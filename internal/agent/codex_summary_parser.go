@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
@@ -53,10 +52,11 @@ func (p *CodexSummaryParser) Parse(data []byte) (*domain.GroupedFindings, error)
 			break
 		}
 
-		// Extract text from agent_message items.
-		// We use the last message because codex may emit multiple agent_message events
-		// during streaming, with the final one containing the complete response.
-		if event.Item.Type == "agent_message" && event.Item.Text != "" {
+		// Extract text from completed agent_message items.
+		// We check both event.Type and item.Type to ensure we only process final
+		// messages, not partial/streaming events. We use the last message because
+		// codex may emit multiple during streaming.
+		if event.Type == "item.completed" && event.Item.Type == "agent_message" && event.Item.Text != "" {
 			messageText = event.Item.Text
 		}
 	}
@@ -83,11 +83,14 @@ func (p *CodexSummaryParser) Parse(data []byte) (*domain.GroupedFindings, error)
 }
 
 // truncate returns the first n runes of s, or s if shorter.
-// Uses rune counting to avoid splitting multi-byte UTF-8 characters.
+// Iterates runes incrementally to avoid O(N) allocation for long strings.
 func truncate(s string, n int) string {
-	if utf8.RuneCountInString(s) <= n {
-		return s
+	count := 0
+	for i := range s {
+		if count >= n {
+			return s[:i] + "..."
+		}
+		count++
 	}
-	runes := []rune(s)
-	return string(runes[:n]) + "..."
+	return s
 }

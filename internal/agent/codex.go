@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"syscall"
 )
 
@@ -97,12 +98,15 @@ func (c *CodexAgent) ExecuteSummary(ctx context.Context, prompt string, input []
 		return nil, err
 	}
 
-	// Combine prompt and input
-	fullPrompt := prompt + "\n\nINPUT JSON:\n" + string(input) + "\n"
-
 	args := []string{"exec", "--json", "--color", "never", "-"}
 	cmd := exec.CommandContext(ctx, "codex", args...)
-	cmd.Stdin = bytes.NewReader([]byte(fullPrompt))
+	// Use MultiReader to avoid copying large input byte slice
+	cmd.Stdin = io.MultiReader(
+		strings.NewReader(prompt),
+		strings.NewReader("\n\nINPUT JSON:\n"),
+		bytes.NewReader(input),
+		strings.NewReader("\n"),
+	)
 
 	// Set process group for proper signal handling
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
