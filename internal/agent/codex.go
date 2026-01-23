@@ -5,10 +5,24 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
+
+	"github.com/google/uuid"
 )
+
+// BuildCodexRefFilePrompt constructs the review prompt for ref-file mode.
+// If customPrompt is provided, it appends ref-file instructions to it.
+// Otherwise, it uses DefaultCodexRefFilePrompt.
+func BuildCodexRefFilePrompt(customPrompt, diffPath string) string {
+	if customPrompt != "" {
+		return fmt.Sprintf("%s\n\nThe diff to review is in file: %s\nRead the file contents to examine the changes.", customPrompt, diffPath)
+	}
+	return fmt.Sprintf(DefaultCodexRefFilePrompt, diffPath)
+}
 
 // CodexAgent implements the Agent interface for the Codex CLI backend.
 type CodexAgent struct{}
@@ -36,6 +50,8 @@ func (c *CodexAgent) IsAvailable() error {
 // Returns an io.Reader for streaming the JSONL output.
 //
 // If config.CustomPrompt is provided, uses 'codex exec -' with the prompt on stdin.
+// The git diff is either appended to the prompt (default) or written to a
+// reference file when the diff is large or UseRefFile is set.
 // Otherwise, uses 'codex exec review --base X' for the built-in review behavior.
 func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (io.Reader, error) {
 	if err := c.IsAvailable(); err != nil {
@@ -44,6 +60,7 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (i
 
 	var cmd *exec.Cmd
 	var args []string
+	var diffFilePath string
 
 	if config.CustomPrompt != "" {
 		// Custom prompt mode: pipe prompt + diff to 'codex exec -'
@@ -51,13 +68,35 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (i
 		if err != nil {
 			return nil, fmt.Errorf("failed to get diff for review: %w", err)
 		}
-		prompt := BuildPromptWithDiff(config.CustomPrompt, diff)
+
+		// Determine if we should use ref-file mode
+		useRefFile := config.UseRefFile || len(diff) > RefFileSizeThreshold
+
+		var prompt string
+		if useRefFile && diff != "" {
+			// Write diff to a temp file in the working directory
+			workDir := config.WorkDir
+			if workDir == "" {
+				workDir, _ = os.Getwd()
+			}
+
+			diffFilePath = filepath.Join(workDir, fmt.Sprintf(".acr-diff-%s.patch", uuid.New().String()))
+			if err := os.WriteFile(diffFilePath, []byte(diff), 0600); err != nil {
+				return nil, fmt.Errorf("failed to write diff to temp file: %w", err)
+			}
+
+			absPath, _ := filepath.Abs(diffFilePath)
+			prompt = BuildCodexRefFilePrompt(config.CustomPrompt, absPath)
+		} else {
+			prompt = BuildPromptWithDiff(config.CustomPrompt, diff)
+		}
 
 		args = []string{"exec", "--json", "--color", "never", "-"}
 		cmd = exec.CommandContext(ctx, "codex", args...)
 		cmd.Stdin = bytes.NewReader([]byte(prompt))
 	} else {
 		// Default mode: use built-in 'codex exec review'
+		// This mode handles diffs internally
 		args = []string{"exec", "--json", "--color", "never", "review", "--base", config.BaseRef}
 		cmd = exec.CommandContext(ctx, "codex", args...)
 	}
@@ -75,19 +114,29 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (i
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		// Clean up diff file if we created one
+		if diffFilePath != "" {
+			os.Remove(diffFilePath)
+		}
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
+		// Clean up diff file if we created one
+		if diffFilePath != "" {
+			os.Remove(diffFilePath)
+		}
 		return nil, fmt.Errorf("failed to start codex: %w", err)
 	}
 
 	// Return a reader that will also wait for the command to complete
+	// and clean up the diff file when done
 	return &cmdReader{
-		Reader: stdout,
-		cmd:    cmd,
-		ctx:    ctx,
-		stderr: stderr,
+		Reader:       stdout,
+		cmd:          cmd,
+		ctx:          ctx,
+		stderr:       stderr,
+		diffFilePath: diffFilePath,
 	}, nil
 }
 
