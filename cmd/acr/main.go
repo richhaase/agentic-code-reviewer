@@ -123,14 +123,19 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Handle signals
+	// Handle signals - goroutine exits cleanly when context is done or signal received
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		<-sigCh
-		fmt.Fprintln(os.Stderr)
-		logger.Log("Interrupted, shutting down...", terminal.StyleWarning)
-		cancel()
+		select {
+		case <-sigCh:
+			fmt.Fprintln(os.Stderr)
+			logger.Log("Interrupted, shutting down...", terminal.StyleWarning)
+			cancel()
+		case <-ctx.Done():
+			// Context cancelled normally, exit goroutine
+		}
+		signal.Stop(sigCh)
 	}()
 
 	// Handle worktree-based review
