@@ -91,6 +91,10 @@ func (g *GeminiAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 
 // ExecuteSummary runs a summarization task using the gemini CLI.
 // Uses 'gemini -o json -' with the prompt and input piped to stdin.
+//
+// Note: For summarization, we embed input directly in the prompt rather than
+// using ref-file mode, since summary inputs are typically smaller than raw diffs.
+// Very large inputs (>100KB) may hit prompt length limits.
 func (g *GeminiAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (io.Reader, error) {
 	if err := g.IsAvailable(); err != nil {
 		return nil, err

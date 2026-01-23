@@ -57,6 +57,8 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (i
 		cmd.Stdin = bytes.NewReader([]byte(prompt))
 	} else {
 		// Default mode: use built-in 'codex exec review'
+		// This mode handles diffs internally, so UseRefFile/RefFileSizeThreshold
+		// don't apply here - they're only relevant for custom prompt mode.
 		args = []string{"exec", "--json", "--color", "never", "review", "--base", config.BaseRef}
 		cmd = exec.CommandContext(ctx, "codex", args...)
 	}
@@ -92,6 +94,10 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (i
 
 // ExecuteSummary runs a summarization task using the codex CLI.
 // Uses 'codex exec --color never -' with the prompt and input piped to stdin.
+//
+// Note: For summarization, we embed input directly in the prompt rather than
+// using ref-file mode, since summary inputs are typically smaller than raw diffs.
+// Very large inputs (>100KB) may hit prompt length limits.
 func (c *CodexAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (io.Reader, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
