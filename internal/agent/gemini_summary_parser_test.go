@@ -200,9 +200,9 @@ func TestStripMarkdownCodeFence(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := stripMarkdownCodeFence(tt.input)
+			got := StripMarkdownCodeFence(tt.input)
 			if got != tt.want {
-				t.Errorf("stripMarkdownCodeFence() = %q, want %q", got, tt.want)
+				t.Errorf("StripMarkdownCodeFence() = %q, want %q", got, tt.want)
 			}
 		})
 	}

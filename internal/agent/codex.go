@@ -100,7 +100,7 @@ func (c *CodexAgent) ExecuteSummary(ctx context.Context, prompt string, input []
 	// Combine prompt and input
 	fullPrompt := prompt + "\n\nINPUT JSON:\n" + string(input) + "\n"
 
-	args := []string{"exec", "--color", "never", "-"}
+	args := []string{"exec", "--json", "--color", "never", "-"}
 	cmd := exec.CommandContext(ctx, "codex", args...)
 	cmd.Stdin = bytes.NewReader([]byte(fullPrompt))
 
