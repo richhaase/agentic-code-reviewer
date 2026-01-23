@@ -152,13 +152,31 @@ func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 // ExecuteSummary runs a summarization task using the claude CLI.
 // Uses 'claude --print --output-format json --json-schema <schema> -'
 // with the prompt piped via stdin.
+// For large inputs (>100KB), writes input to a temp file and instructs Claude
+// to read it using the Read tool to avoid prompt length errors.
 func (c *ClaudeAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (io.Reader, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
 	}
 
-	// Combine prompt and input
-	fullPrompt := prompt + "\n\nINPUT JSON:\n" + string(input) + "\n"
+	var fullPrompt string
+	var inputFilePath string
+
+	// Check if input is large enough to warrant ref-file mode
+	if len(input) > RefFileSizeThreshold {
+		// Write input to a temp file
+		workDir, _ := os.Getwd()
+		inputFilePath = filepath.Join(workDir, fmt.Sprintf(".acr-summary-input-%s.json", uuid.New().String()))
+		if err := os.WriteFile(inputFilePath, input, 0600); err != nil {
+			return nil, fmt.Errorf("failed to write input to temp file: %w", err)
+		}
+
+		absPath, _ := filepath.Abs(inputFilePath)
+		fullPrompt = fmt.Sprintf("%s\n\nThe input JSON is in file: %s\nUse the Read tool to examine it.", prompt, absPath)
+	} else {
+		// Standard mode: embed input in prompt
+		fullPrompt = prompt + "\n\nINPUT JSON:\n" + string(input) + "\n"
+	}
 
 	// Build command with JSON schema for structured output
 	// -: Read prompt from stdin (avoids ARG_MAX limits on large inputs)
@@ -177,17 +195,26 @@ func (c *ClaudeAgent) ExecuteSummary(ctx context.Context, prompt string, input [
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		// Clean up input file if we created one
+		if inputFilePath != "" {
+			os.Remove(inputFilePath)
+		}
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
+		// Clean up input file if we created one
+		if inputFilePath != "" {
+			os.Remove(inputFilePath)
+		}
 		return nil, fmt.Errorf("failed to start claude: %w", err)
 	}
 
 	return &cmdReader{
-		Reader: stdout,
-		cmd:    cmd,
-		ctx:    ctx,
-		stderr: stderr,
+		Reader:       stdout,
+		cmd:          cmd,
+		ctx:          ctx,
+		stderr:       stderr,
+		diffFilePath: inputFilePath, // reuse diffFilePath field for cleanup
 	}, nil
 }
