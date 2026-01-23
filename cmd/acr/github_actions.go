@@ -24,7 +24,7 @@ func handleLGTM(ctx context.Context, allFindings []domain.Finding, stats domain.
 
 	lgtmBody := runner.RenderLGTMMarkdown(stats.TotalReviewers, stats.SuccessfulReviewers, reviewerComments)
 
-	// Check for self-review (always when not local - needed for correct path even in autoNo mode)
+	// Check for self-review (always when not local)
 	isSelfReview := false
 	var prNumber string
 	if !local && github.IsGHAvailable() {
@@ -34,8 +34,8 @@ func handleLGTM(ctx context.Context, allFindings []domain.Finding, stats domain.
 		}
 	}
 
-	// Check CI status before approving (skip in autoNo mode since we won't approve anyway)
-	if !local && !autoNo && prNumber != "" {
+	// Check CI status before approving
+	if !local && prNumber != "" {
 		ciStatus := github.CheckCIStatus(ctx, prNumber)
 
 		if ciStatus.Error != "" {
@@ -84,7 +84,7 @@ func handleFindings(ctx context.Context, grouped domain.GroupedFindings, aggrega
 	selectedFindings := grouped.Findings
 
 	// Interactive selection when in TTY and not auto-submitting (skip in local mode)
-	if !local && !autoYes && !autoNo && terminal.IsStdoutTTY() {
+	if !local && !autoYes && terminal.IsStdoutTTY() {
 		indices, canceled, err := terminal.RunSelector(grouped.Findings)
 		if err != nil {
 			logger.Logf(terminal.StyleError, "Selector error: %v", err)
@@ -120,11 +120,6 @@ func handleFindings(ctx context.Context, grouped domain.GroupedFindings, aggrega
 func confirmAndSubmitReview(ctx context.Context, body string, logger *terminal.Logger) error {
 	if local {
 		logger.Log("Local mode enabled; skipping PR review.", terminal.StyleDim)
-		return nil
-	}
-
-	if autoNo {
-		logger.Log("Skipped posting review.", terminal.StyleDim)
 		return nil
 	}
 
@@ -198,11 +193,6 @@ func confirmAndSubmitReview(ctx context.Context, body string, logger *terminal.L
 func confirmAndSubmitLGTM(ctx context.Context, body string, isSelfReview bool, logger *terminal.Logger) error {
 	if local {
 		logger.Log("Local mode enabled; skipping PR approval.", terminal.StyleDim)
-		return nil
-	}
-
-	if autoNo {
-		logger.Log("Skipped posting LGTM.", terminal.StyleDim)
 		return nil
 	}
 
