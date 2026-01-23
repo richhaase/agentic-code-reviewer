@@ -269,7 +269,11 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, logger
 
 	// Check CI status before approving
 	if action == actionApprove {
-		action = checkCIAndMaybeDowngrade(ctx, pr.number, action, logger)
+		var err error
+		action, err = checkCIAndMaybeDowngrade(ctx, pr.number, action, logger)
+		if err != nil {
+			return err
+		}
 		if action == actionSkip {
 			return nil
 		}
@@ -324,16 +328,17 @@ func logCIChecks(logger *terminal.Logger, checks []string) {
 }
 
 // checkCIAndMaybeDowngrade checks CI status and downgrades to comment if CI is not green.
-func checkCIAndMaybeDowngrade(ctx context.Context, prNumber string, action lgtmAction, logger *terminal.Logger) lgtmAction {
+// Returns error if CI status check fails (network/auth issues).
+func checkCIAndMaybeDowngrade(ctx context.Context, prNumber string, action lgtmAction, logger *terminal.Logger) (lgtmAction, error) {
 	ciStatus := github.CheckCIStatus(ctx, prNumber)
 
 	if ciStatus.Error != "" {
 		logger.Logf(terminal.StyleError, "Failed to check CI status: %s", ciStatus.Error)
-		return actionSkip
+		return actionSkip, fmt.Errorf("CI check failed: %s", ciStatus.Error)
 	}
 
 	if ciStatus.AllPassed {
-		return action
+		return action, nil
 	}
 
 	if len(ciStatus.Failed) > 0 {
@@ -347,12 +352,12 @@ func checkCIAndMaybeDowngrade(ctx context.Context, prNumber string, action lgtmA
 
 	if autoYes {
 		logger.Log("CI not green; posting as comment instead of approval.", terminal.StyleDim)
-		return actionComment
+		return actionComment, nil
 	}
 
 	if !terminal.IsStdoutTTY() {
 		logger.Log("CI not green and non-interactive; skipping LGTM.", terminal.StyleDim)
-		return actionSkip
+		return actionSkip, nil
 	}
 
 	fmt.Print(formatPrompt("Post as comment instead?", "[C]omment / [S]kip:"))
@@ -360,10 +365,10 @@ func checkCIAndMaybeDowngrade(ctx context.Context, prNumber string, action lgtmA
 
 	switch response {
 	case "", "c", "y", "yes":
-		return actionComment
+		return actionComment, nil
 	default:
 		logger.Log("Skipped posting LGTM.", terminal.StyleDim)
-		return actionSkip
+		return actionSkip, nil
 	}
 }
 
