@@ -35,6 +35,7 @@ var (
 	noConfig            bool
 	agentName           string
 	summarizerAgentName string
+	refFile             bool
 )
 
 func main() {
@@ -98,6 +99,8 @@ Exit codes:
 		"[experimental] Agent(s) for reviews (comma-separated): codex, claude, gemini (env: ACR_REVIEWER_AGENT)")
 	rootCmd.Flags().StringVarP(&summarizerAgentName, "summarizer-agent", "s", "codex",
 		"[experimental] Agent to use for summarization: codex, claude, gemini (env: ACR_SUMMARIZER_AGENT)")
+	rootCmd.Flags().BoolVar(&refFile, "ref-file", false,
+		"Enable ref-file mode (env: ACR_REF_FILE)")
 
 	if err := rootCmd.Execute(); err != nil {
 		// Check if this is an exit code wrapper (not a real error)
@@ -189,6 +192,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		SummarizerAgentSet:  cmd.Flags().Changed("summarizer-agent"),
 		ReviewPromptSet:     cmd.Flags().Changed("prompt"),
 		ReviewPromptFileSet: cmd.Flags().Changed("prompt-file"),
+		RefFileSet:          cmd.Flags().Changed("ref-file"),
 	}
 
 	// Load env var state
@@ -205,6 +209,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		SummarizerAgent:  summarizerAgentName,
 		ReviewPrompt:     prompt,
 		ReviewPromptFile: promptFile,
+		RefFile:          refFile,
 	}
 
 	// Resolve final configuration (precedence: flags > env vars > config file > defaults)
