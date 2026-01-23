@@ -127,6 +127,12 @@ func confirmAndSubmitReview(ctx context.Context, body, prNumber string, isSelfRe
 	// For self-review: can only comment (GitHub doesn't allow requesting changes on own PR)
 	requestChanges := !isSelfReview // default: request changes for others, comment for self
 	if !autoYes {
+		// Require TTY for interactive prompts
+		if !terminal.IsStdoutTTY() {
+			logger.Log("Non-interactive mode without --yes flag; skipping PR review.", terminal.StyleDim)
+			return nil
+		}
+
 		fmt.Println()
 		if isSelfReview {
 			// Self-review: can only comment or skip
@@ -143,7 +149,11 @@ func confirmAndSubmitReview(ctx context.Context, body, prNumber string, isSelfRe
 		}
 
 		reader := bufio.NewReader(os.Stdin)
-		response, _ := reader.ReadString('\n')
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			logger.Log("Input error; skipping PR review.", terminal.StyleDim)
+			return nil
+		}
 		response = strings.ToLower(strings.TrimSpace(response))
 
 		if isSelfReview {
@@ -236,6 +246,12 @@ func confirmAndSubmitLGTM(ctx context.Context, body, prNumber string, isSelfRevi
 	}
 
 	if !autoYes {
+		// Require TTY for interactive prompts
+		if !terminal.IsStdoutTTY() {
+			logger.Log("Non-interactive mode without --yes flag; skipping LGTM.", terminal.StyleDim)
+			return nil
+		}
+
 		fmt.Println()
 		if isSelfReview {
 			// Self-review: can only comment or skip
@@ -252,7 +268,11 @@ func confirmAndSubmitLGTM(ctx context.Context, body, prNumber string, isSelfRevi
 		}
 
 		reader := bufio.NewReader(os.Stdin)
-		response, _ := reader.ReadString('\n')
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			logger.Log("Input error; skipping LGTM.", terminal.StyleDim)
+			return nil
+		}
 		response = strings.ToLower(strings.TrimSpace(response))
 
 		if isSelfReview {
@@ -310,8 +330,27 @@ func confirmAndSubmitLGTM(ctx context.Context, body, prNumber string, isSelfRevi
 					logger.Logf(terminal.StyleDim, "  • %s", check)
 				}
 			}
-			logger.Log("Skipped approval due to CI status. Use [C]omment to post without approving.", terminal.StyleDim)
-			return nil
+
+			// Offer fallback to comment or skip
+			fmt.Printf("%s?%s Post as comment instead? %s[C]omment / [S]kip:%s ",
+				terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
+				terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
+
+			reader := bufio.NewReader(os.Stdin)
+			response, err := reader.ReadString('\n')
+			if err != nil {
+				logger.Log("Input error; skipping LGTM.", terminal.StyleDim)
+				return nil
+			}
+			response = strings.ToLower(strings.TrimSpace(response))
+
+			switch response {
+			case "", "c", "y", "yes":
+				action = actionComment
+			default:
+				logger.Log("Skipped posting LGTM.", terminal.StyleDim)
+				return nil
+			}
 		}
 	}
 
