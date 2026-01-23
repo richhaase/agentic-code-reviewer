@@ -82,15 +82,17 @@ func handleLGTM(ctx context.Context, allFindings []domain.Finding, stats domain.
 		}
 	}
 
-	// Handle self-review: offer to post as comment instead of approving
+	// Handle self-review: offer to post as review comment instead of approving
 	if isSelfReview {
 		if err := confirmAndExecutePRAction(ctx, prAction{
 			body:            lgtmBody,
-			previewLabel:    "LGTM comment preview (self-review)",
-			promptTemplate:  "You cannot approve your own PR. Post LGTM as a comment to PR #%s?",
-			successTemplate: "Posted LGTM comment to PR #%s.",
-			skipMessage:     "Skipped posting LGTM comment.",
-			execute:         github.PostPRComment,
+			previewLabel:    "LGTM review preview (self-review)",
+			promptTemplate:  "You cannot approve your own PR. Post LGTM as a review to PR #%s?",
+			successTemplate: "Posted LGTM review to PR #%s.",
+			skipMessage:     "Skipped posting LGTM review.",
+			execute: func(ctx context.Context, prNumber, body string) error {
+				return github.SubmitPRReview(ctx, prNumber, body, false)
+			},
 		}, logger); err != nil {
 			return domain.ExitError
 		}
@@ -140,20 +142,91 @@ func handleFindings(ctx context.Context, grouped domain.GroupedFindings, aggrega
 		Info:     grouped.Info,
 	}
 
-	commentBody := runner.RenderCommentMarkdown(filteredGrouped, stats.TotalReviewers, aggregated)
+	reviewBody := runner.RenderCommentMarkdown(filteredGrouped, stats.TotalReviewers, aggregated)
 
-	if err := confirmAndExecutePRAction(ctx, prAction{
-		body:            commentBody,
-		previewLabel:    "PR comment preview",
-		promptTemplate:  "Post findings to PR #%s?",
-		successTemplate: "Posted findings to PR #%s.",
-		skipMessage:     "Skipped posting findings.",
-		execute:         github.PostPRComment,
-	}, logger); err != nil {
+	if err := confirmAndSubmitReview(ctx, reviewBody, logger); err != nil {
 		return domain.ExitError
 	}
 
 	return domain.ExitFindings
+}
+
+func confirmAndSubmitReview(ctx context.Context, body string, logger *terminal.Logger) error {
+	if local {
+		logger.Log("Local mode enabled; skipping PR review.", terminal.StyleDim)
+		return nil
+	}
+
+	if autoNo {
+		logger.Log("Skipped posting review.", terminal.StyleDim)
+		return nil
+	}
+
+	// Preview
+	fmt.Println()
+	logger.Logf(terminal.StylePhase, "%sPR review preview%s",
+		terminal.Color(terminal.Bold), terminal.Color(terminal.Reset))
+	fmt.Println()
+
+	width := terminal.ReportWidth()
+	divider := terminal.Ruler(width, "━")
+	fmt.Println(divider)
+	fmt.Println(body)
+	fmt.Println(divider)
+
+	if err := github.CheckGHAvailable(); err != nil {
+		return err
+	}
+
+	prNumber := github.GetCurrentPRNumber(ctx, worktreeBranch)
+	if prNumber == "" {
+		branchDesc := "current branch"
+		if worktreeBranch != "" {
+			branchDesc = fmt.Sprintf("branch '%s'", worktreeBranch)
+		}
+		logger.Logf(terminal.StyleWarning, "No open PR found for %s.", branchDesc)
+		return nil
+	}
+
+	// Determine review type
+	requestChanges := true // default
+	if !autoYes {
+		fmt.Println()
+		fmt.Printf("%s?%s Post review to PR %s#%s%s? %s[R]equest changes / [C]omment / [S]kip:%s ",
+			terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
+			terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset),
+			terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
+
+		reader := bufio.NewReader(os.Stdin)
+		response, _ := reader.ReadString('\n')
+		response = strings.ToLower(strings.TrimSpace(response))
+
+		switch response {
+		case "", "r":
+			requestChanges = true
+		case "c":
+			requestChanges = false
+		case "s", "n":
+			logger.Log("Skipped posting review.", terminal.StyleDim)
+			return nil
+		default:
+			logger.Log("Skipped posting review.", terminal.StyleDim)
+			return nil
+		}
+	}
+
+	// Execute
+	if err := github.SubmitPRReview(ctx, prNumber, body, requestChanges); err != nil {
+		logger.Logf(terminal.StyleError, "Failed: %v", err)
+		return err
+	}
+
+	reviewType := "request changes"
+	if !requestChanges {
+		reviewType = "comment"
+	}
+	logger.Logf(terminal.StyleSuccess, "Posted %s review to PR #%s.", reviewType, prNumber)
+	return nil
 }
 
 func confirmAndExecutePRAction(ctx context.Context, action prAction, logger *terminal.Logger) error {

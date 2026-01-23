@@ -36,24 +36,6 @@ func GetCurrentPRNumber(ctx context.Context, branch string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// PostPRComment posts a comment to a PR.
-func PostPRComment(ctx context.Context, prNumber, body string) error {
-	cmd := exec.CommandContext(ctx, "gh", "pr", "comment", prNumber, "--body-file", "-")
-	cmd.Stdin = strings.NewReader(body)
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		errMsg := strings.TrimSpace(stderr.String())
-		if errMsg != "" {
-			return fmt.Errorf("failed to post comment (%s): %w", errMsg, err)
-		}
-		return fmt.Errorf("failed to post comment: %w", err)
-	}
-	return nil
-}
-
 // ApprovePR approves a PR with the given body.
 func ApprovePR(ctx context.Context, prNumber, body string) error {
 	cmd := exec.CommandContext(ctx, "gh", "pr", "review", prNumber, "--approve", "--body-file", "-")
@@ -68,6 +50,30 @@ func ApprovePR(ctx context.Context, prNumber, body string) error {
 			return fmt.Errorf("failed to approve PR (%s): %w", errMsg, err)
 		}
 		return fmt.Errorf("failed to approve PR: %w", err)
+	}
+	return nil
+}
+
+// SubmitPRReview submits a PR review with the given body.
+// If requestChanges is true, uses --request-changes; otherwise uses --comment.
+func SubmitPRReview(ctx context.Context, prNumber, body string, requestChanges bool) error {
+	flag := "--comment"
+	if requestChanges {
+		flag = "--request-changes"
+	}
+
+	cmd := exec.CommandContext(ctx, "gh", "pr", "review", prNumber, flag, "--body-file", "-")
+	cmd.Stdin = strings.NewReader(body)
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		errMsg := strings.TrimSpace(stderr.String())
+		if errMsg != "" {
+			return fmt.Errorf("failed to submit PR review (%s): %w", errMsg, err)
+		}
+		return fmt.Errorf("failed to submit PR review: %w", err)
 	}
 	return nil
 }
