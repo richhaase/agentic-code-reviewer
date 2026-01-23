@@ -34,46 +34,7 @@ func handleLGTM(ctx context.Context, allFindings []domain.Finding, stats domain.
 		}
 	}
 
-	// Check CI status before approving
-	if !local && prNumber != "" {
-		ciStatus := github.CheckCIStatus(ctx, prNumber)
-
-		if ciStatus.Error != "" {
-			logger.Logf(terminal.StyleError, "Failed to check CI status: %s", ciStatus.Error)
-			return domain.ExitError
-		}
-
-		if !ciStatus.AllPassed {
-			logger.Logf(terminal.StyleSuccess, "%s%sLGTM%s - No issues found by reviewers.",
-				terminal.Color(terminal.Green), terminal.Color(terminal.Bold), terminal.Color(terminal.Reset))
-			fmt.Println()
-
-			if len(ciStatus.Failed) > 0 {
-				logger.Logf(terminal.StyleError, "Cannot approve PR: %d CI check(s) failed", len(ciStatus.Failed))
-				for i, check := range ciStatus.Failed {
-					if i >= maxDisplayedCIChecks {
-						logger.Logf(terminal.StyleDim, "  ... and %d more", len(ciStatus.Failed)-maxDisplayedCIChecks)
-						break
-					}
-					logger.Logf(terminal.StyleDim, "  • %s", check)
-				}
-			}
-			if len(ciStatus.Pending) > 0 {
-				logger.Logf(terminal.StyleWarning, "Cannot approve PR: %d CI check(s) pending", len(ciStatus.Pending))
-				for i, check := range ciStatus.Pending {
-					if i >= maxDisplayedCIChecks {
-						logger.Logf(terminal.StyleDim, "  ... and %d more", len(ciStatus.Pending)-maxDisplayedCIChecks)
-						break
-					}
-					logger.Logf(terminal.StyleDim, "  • %s", check)
-				}
-			}
-
-			return domain.ExitNoFindings
-		}
-	}
-
-	if err := confirmAndSubmitLGTM(ctx, lgtmBody, isSelfReview, logger); err != nil {
+	if err := confirmAndSubmitLGTM(ctx, lgtmBody, prNumber, isSelfReview, logger); err != nil {
 		return domain.ExitError
 	}
 
@@ -104,8 +65,9 @@ func handleFindings(ctx context.Context, grouped domain.GroupedFindings, aggrega
 
 	// Check for self-review (can't request changes on own PR)
 	isSelfReview := false
+	var prNumber string
 	if !local && github.IsGHAvailable() {
-		prNumber := github.GetCurrentPRNumber(ctx, worktreeBranch)
+		prNumber = github.GetCurrentPRNumber(ctx, worktreeBranch)
 		if prNumber != "" {
 			isSelfReview = github.IsSelfReview(ctx, prNumber)
 		}
@@ -119,14 +81,14 @@ func handleFindings(ctx context.Context, grouped domain.GroupedFindings, aggrega
 
 	reviewBody := runner.RenderCommentMarkdown(filteredGrouped, stats.TotalReviewers, aggregated)
 
-	if err := confirmAndSubmitReview(ctx, reviewBody, isSelfReview, logger); err != nil {
+	if err := confirmAndSubmitReview(ctx, reviewBody, prNumber, isSelfReview, logger); err != nil {
 		return domain.ExitError
 	}
 
 	return domain.ExitFindings
 }
 
-func confirmAndSubmitReview(ctx context.Context, body string, isSelfReview bool, logger *terminal.Logger) error {
+func confirmAndSubmitReview(ctx context.Context, body, prNumber string, isSelfReview bool, logger *terminal.Logger) error {
 	if local {
 		logger.Log("Local mode enabled; skipping PR review.", terminal.StyleDim)
 		return nil
@@ -152,7 +114,6 @@ func confirmAndSubmitReview(ctx context.Context, body string, isSelfReview bool,
 		return err
 	}
 
-	prNumber := github.GetCurrentPRNumber(ctx, worktreeBranch)
 	if prNumber == "" {
 		branchDesc := "current branch"
 		if worktreeBranch != "" {
@@ -226,7 +187,7 @@ func confirmAndSubmitReview(ctx context.Context, body string, isSelfReview bool,
 	return nil
 }
 
-func confirmAndSubmitLGTM(ctx context.Context, body string, isSelfReview bool, logger *terminal.Logger) error {
+func confirmAndSubmitLGTM(ctx context.Context, body, prNumber string, isSelfReview bool, logger *terminal.Logger) error {
 	if local {
 		logger.Log("Local mode enabled; skipping PR approval.", terminal.StyleDim)
 		return nil
@@ -252,7 +213,6 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, isSelfReview bool, l
 		return err
 	}
 
-	prNumber := github.GetCurrentPRNumber(ctx, worktreeBranch)
 	if prNumber == "" {
 		branchDesc := "current branch"
 		if worktreeBranch != "" {
@@ -317,6 +277,41 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, isSelfReview bool, l
 				// Treat unknown input as default (approve)
 				action = actionApprove
 			}
+		}
+	}
+
+	// Check CI status before approving (only for approve action)
+	if action == actionApprove {
+		ciStatus := github.CheckCIStatus(ctx, prNumber)
+
+		if ciStatus.Error != "" {
+			logger.Logf(terminal.StyleError, "Failed to check CI status: %s", ciStatus.Error)
+			return fmt.Errorf("CI check failed: %s", ciStatus.Error)
+		}
+
+		if !ciStatus.AllPassed {
+			if len(ciStatus.Failed) > 0 {
+				logger.Logf(terminal.StyleError, "Cannot approve PR: %d CI check(s) failed", len(ciStatus.Failed))
+				for i, check := range ciStatus.Failed {
+					if i >= maxDisplayedCIChecks {
+						logger.Logf(terminal.StyleDim, "  ... and %d more", len(ciStatus.Failed)-maxDisplayedCIChecks)
+						break
+					}
+					logger.Logf(terminal.StyleDim, "  • %s", check)
+				}
+			}
+			if len(ciStatus.Pending) > 0 {
+				logger.Logf(terminal.StyleWarning, "Cannot approve PR: %d CI check(s) pending", len(ciStatus.Pending))
+				for i, check := range ciStatus.Pending {
+					if i >= maxDisplayedCIChecks {
+						logger.Logf(terminal.StyleDim, "  ... and %d more", len(ciStatus.Pending)-maxDisplayedCIChecks)
+						break
+					}
+					logger.Logf(terminal.StyleDim, "  • %s", check)
+				}
+			}
+			logger.Log("Skipped approval due to CI status. Use [C]omment to post without approving.", terminal.StyleDim)
+			return nil
 		}
 	}
 
