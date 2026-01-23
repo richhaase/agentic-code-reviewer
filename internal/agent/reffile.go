@@ -2,7 +2,6 @@ package agent
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 
@@ -47,7 +46,7 @@ func WriteDiffToTempFile(workDir, diff string) (string, error) {
 	if err != nil {
 		// Clean up the temp file since we can't return a valid path
 		if rmErr := os.Remove(tempPath); rmErr != nil && !os.IsNotExist(rmErr) {
-			log.Printf("Warning: failed to clean up temp file %s during error handling: %v", tempPath, rmErr)
+			fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s during error handling: %v", tempPath, rmErr)
 		}
 		return "", fmt.Errorf("failed to get absolute path for temp file: %w", err)
 	}
@@ -73,7 +72,7 @@ func WriteInputToTempFile(workDir string, input []byte, suffix string) (string, 
 	if err != nil {
 		// Clean up the temp file since we can't return a valid path
 		if rmErr := os.Remove(tempPath); rmErr != nil && !os.IsNotExist(rmErr) {
-			log.Printf("Warning: failed to clean up temp file %s during error handling: %v", tempPath, rmErr)
+			fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s during error handling: %v", tempPath, rmErr)
 		}
 		return "", fmt.Errorf("failed to get absolute path for temp file: %w", err)
 	}
@@ -88,6 +87,6 @@ func CleanupTempFile(path string) {
 		return
 	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		log.Printf("Warning: failed to clean up temp file %s: %v", path, err)
+		fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s: %v", path, err)
 	}
 }

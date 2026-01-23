@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"syscall"
@@ -89,7 +89,7 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (i
 		// Default mode: use built-in 'codex exec review'
 		// This mode handles diffs internally
 		if config.UseRefFile {
-			log.Printf("Note: --ref-file flag has no effect in Codex default mode (requires custom prompt)")
+			fmt.Fprintln(os.Stderr, "Note: --ref-file flag has no effect in Codex default mode (requires custom prompt)")
 		}
 		args = []string{"exec", "--json", "--color", "never", "review", "--base", config.BaseRef}
 		cmd = exec.CommandContext(ctx, "codex", args...)

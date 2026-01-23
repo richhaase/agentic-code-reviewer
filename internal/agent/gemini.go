@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"syscall"
 )
 
@@ -132,14 +133,17 @@ func (g *GeminiAgent) ExecuteSummary(ctx context.Context, prompt string, input [
 		return nil, err
 	}
 
-	// Combine prompt and input
-	fullPrompt := prompt + "\n\nINPUT JSON:\n" + string(input) + "\n"
-
 	// Build command: gemini -o json -
 	// -: Explicitly read prompt from stdin
 	args := []string{"-o", "json", "-"}
 	cmd := exec.CommandContext(ctx, "gemini", args...)
-	cmd.Stdin = bytes.NewReader([]byte(fullPrompt))
+	// Use MultiReader to avoid copying large input byte slice
+	cmd.Stdin = io.MultiReader(
+		strings.NewReader(prompt),
+		strings.NewReader("\n\nINPUT JSON:\n"),
+		bytes.NewReader(input),
+		strings.NewReader("\n"),
+	)
 
 	// Set process group for proper signal handling
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
