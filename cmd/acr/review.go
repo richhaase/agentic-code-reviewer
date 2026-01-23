@@ -72,15 +72,11 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		return domain.ExitError
 	}
 
-	// Log ref-file mode decision if verbose
-	if verbose {
-		diff, err := agent.GetGitDiff(ctx, baseRef, workDir)
-		if err == nil {
-			logger.Logf(terminal.StyleDim, "Diff size = %d KB", len(diff)/1024)
-			if useRefFile || len(diff) > agent.RefFileSizeThreshold {
-				logger.Logf(terminal.StyleDim, "Using ref-file mode")
-			}
-		}
+	// Log ref-file mode if explicitly requested (verbose)
+	// Note: We don't pre-fetch the diff here to avoid duplicate GetGitDiff calls.
+	// Each agent will fetch the diff and decide on ref-file mode based on size.
+	if verbose && useRefFile {
+		logger.Logf(terminal.StyleDim, "Ref-file mode enabled (Claude only)")
 	}
 
 	results, wallClock, err := r.Run(ctx)
