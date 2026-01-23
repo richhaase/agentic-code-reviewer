@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
@@ -39,6 +40,7 @@ func (p *CodexSummaryParser) Parse(data []byte) (*domain.GroupedFindings, error)
 	// Use json.Decoder to handle both newline-separated and concatenated JSON
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	var messageText string
+	var decodeErr error
 
 	for {
 		var event codexEvent
@@ -47,7 +49,8 @@ func (p *CodexSummaryParser) Parse(data []byte) (*domain.GroupedFindings, error)
 			break
 		}
 		if err != nil {
-			// Stop on decode errors - can't recover position
+			// Capture decode error but continue - we may have already found a valid message
+			decodeErr = err
 			break
 		}
 
@@ -58,6 +61,9 @@ func (p *CodexSummaryParser) Parse(data []byte) (*domain.GroupedFindings, error)
 	}
 
 	if messageText == "" {
+		if decodeErr != nil {
+			return nil, fmt.Errorf("no agent_message found in codex output (decode error: %w)", decodeErr)
+		}
 		return nil, fmt.Errorf("no agent_message found in codex output")
 	}
 
@@ -73,10 +79,12 @@ func (p *CodexSummaryParser) Parse(data []byte) (*domain.GroupedFindings, error)
 	return &grouped, nil
 }
 
-// truncate returns the first n characters of s, or s if shorter.
+// truncate returns the first n runes of s, or s if shorter.
+// Uses rune counting to avoid splitting multi-byte UTF-8 characters.
 func truncate(s string, n int) string {
-	if len(s) <= n {
+	if utf8.RuneCountInString(s) <= n {
 		return s
 	}
-	return s[:n] + "..."
+	runes := []rune(s)
+	return string(runes[:n]) + "..."
 }

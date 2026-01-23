@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
@@ -148,4 +149,70 @@ func TestCodexSummaryParser_Parse(t *testing.T) {
 
 func TestCodexSummaryParser_SummaryParserInterface(t *testing.T) {
 	var _ SummaryParser = (*CodexSummaryParser)(nil)
+}
+
+func TestCodexSummaryParser_DecodeErrorIncluded(t *testing.T) {
+	parser := NewCodexSummaryParser()
+
+	// Malformed JSON that will cause a decode error
+	input := []byte(`{"type":"thread.started"}{invalid json here}`)
+
+	_, err := parser.Parse(input)
+	if err == nil {
+		t.Fatal("expected error for malformed JSON")
+	}
+
+	// Error should mention "decode error" since no agent_message was found
+	if !strings.Contains(err.Error(), "decode error") {
+		t.Errorf("error should include decode error details, got: %v", err)
+	}
+}
+
+func TestCodexSummaryParser_TruncateUTF8(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		n     int
+		want  string
+	}{
+		{
+			name:  "ASCII within limit",
+			input: "hello",
+			n:     10,
+			want:  "hello",
+		},
+		{
+			name:  "ASCII truncated",
+			input: "hello world",
+			n:     5,
+			want:  "hello...",
+		},
+		{
+			name:  "UTF-8 multibyte preserved",
+			input: "héllo wörld",
+			n:     5,
+			want:  "héllo...",
+		},
+		{
+			name:  "CJK characters",
+			input: "你好世界",
+			n:     2,
+			want:  "你好...",
+		},
+		{
+			name:  "emoji preserved",
+			input: "hello 🌍🌎🌏",
+			n:     7,
+			want:  "hello 🌍...",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := truncate(tt.input, tt.n)
+			if got != tt.want {
+				t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.n, got, tt.want)
+			}
+		})
+	}
 }
