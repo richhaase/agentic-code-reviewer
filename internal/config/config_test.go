@@ -1140,3 +1140,109 @@ func TestResolvePrompt_ConfigFileAbsolutePath(t *testing.T) {
 		t.Errorf("ResolvePrompt() = %q, want %q", got, promptContent)
 	}
 }
+
+func TestRefFile_ConfigParsing(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	content := `ref_file: true
+reviewers: 3
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := LoadFromPathWithWarnings(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	cfg := result.Config
+
+	if cfg.RefFile == nil {
+		t.Fatal("expected ref_file to be set, got nil")
+	}
+	if *cfg.RefFile != true {
+		t.Errorf("expected ref_file=true, got %v", *cfg.RefFile)
+	}
+}
+
+func TestRefFile_EnvVar(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue string
+		expected bool
+	}{
+		{"true string", "true", true},
+		{"1 string", "1", true},
+		{"false string", "false", false},
+		{"0 string", "0", false},
+		{"empty", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.envValue != "" {
+				os.Setenv("ACR_REF_FILE", tt.envValue)
+				defer os.Unsetenv("ACR_REF_FILE")
+			} else {
+				os.Unsetenv("ACR_REF_FILE")
+			}
+
+			state := LoadEnvState()
+			if tt.envValue != "" {
+				if !state.RefFileSet {
+					t.Error("expected RefFileSet=true")
+				}
+				if state.RefFile != tt.expected {
+					t.Errorf("expected RefFile=%v, got %v", tt.expected, state.RefFile)
+				}
+			} else {
+				if state.RefFileSet {
+					t.Error("expected RefFileSet=false for empty env")
+				}
+			}
+		})
+	}
+}
+
+func TestRefFile_Resolution(t *testing.T) {
+	trueVal := true
+	falseVal := false
+
+	tests := []struct {
+		name       string
+		cfg        *Config
+		envRefFile bool
+		envSet     bool
+		flagSet    bool
+		flagVal    bool
+		expected   bool
+	}{
+		{"default is false", nil, false, false, false, false, false},
+		{"config true", &Config{RefFile: &trueVal}, false, false, false, false, true},
+		{"config false", &Config{RefFile: &falseVal}, false, false, false, false, false},
+		{"env overrides config", &Config{RefFile: &falseVal}, true, true, false, false, true},
+		{"flag overrides env", &Config{RefFile: &falseVal}, true, true, true, false, false},
+		{"flag true", nil, false, false, true, true, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			envState := EnvState{
+				RefFile:    tt.envRefFile,
+				RefFileSet: tt.envSet,
+			}
+			flagState := FlagState{
+				RefFileSet: tt.flagSet,
+			}
+			flagValues := ResolvedConfig{
+				RefFile: tt.flagVal,
+			}
+
+			resolved := Resolve(tt.cfg, envState, flagState, flagValues)
+			if resolved.RefFile != tt.expected {
+				t.Errorf("expected RefFile=%v, got %v", tt.expected, resolved.RefFile)
+			}
+		})
+	}
+}

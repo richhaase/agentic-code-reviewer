@@ -24,6 +24,7 @@ var (
 	baseRef             string
 	timeout             time.Duration
 	retries             int
+	refFile             bool
 	prompt              string
 	promptFile          string
 	verbose             bool
@@ -71,6 +72,8 @@ Exit codes:
 		"Timeout per reviewer (default: 10m, env: ACR_TIMEOUT)")
 	rootCmd.Flags().IntVarP(&retries, "retries", "R", 0,
 		"Retry failed reviewers N times (default: 1, env: ACR_RETRIES)")
+	rootCmd.Flags().BoolVar(&refFile, "ref-file", false,
+		"Enable ref-file mode (env: ACR_REF_FILE)")
 	rootCmd.Flags().StringVar(&prompt, "prompt", "",
 		"[experimental] Custom review prompt (env: ACR_REVIEW_PROMPT)")
 	rootCmd.Flags().StringVar(&promptFile, "prompt-file", "",
@@ -185,6 +188,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		BaseSet:             cmd.Flags().Changed("base"),
 		TimeoutSet:          cmd.Flags().Changed("timeout"),
 		RetriesSet:          cmd.Flags().Changed("retries"),
+		RefFileSet:          cmd.Flags().Changed("ref-file"),
 		ReviewerAgentsSet:   cmd.Flags().Changed("reviewer-agent"),
 		SummarizerAgentSet:  cmd.Flags().Changed("summarizer-agent"),
 		ReviewPromptSet:     cmd.Flags().Changed("prompt"),
@@ -201,6 +205,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		Base:             baseRef,
 		Timeout:          timeout,
 		Retries:          retries,
+		RefFile:          refFile,
 		ReviewerAgents:   agent.ParseAgentNames(agentName),
 		SummarizerAgent:  summarizerAgentName,
 		ReviewPrompt:     prompt,

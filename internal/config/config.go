@@ -60,6 +60,7 @@ type Config struct {
 	Base             *string      `yaml:"base"`
 	Timeout          *Duration    `yaml:"timeout"`
 	Retries          *int         `yaml:"retries"`
+	RefFile          *bool        `yaml:"ref_file"`
 	ReviewerAgent    *string      `yaml:"reviewer_agent"`  // Single agent (backward compat)
 	ReviewerAgents   []string     `yaml:"reviewer_agents"` // Multiple agents (round-robin)
 	SummarizerAgent  *string      `yaml:"summarizer_agent"`
@@ -146,7 +147,7 @@ func (c *Config) validatePatterns() error {
 }
 
 // knownTopLevelKeys are the valid top-level keys in the config file.
-var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "reviewer_agent", "reviewer_agents", "summarizer_agent", "review_prompt", "review_prompt_file", "filters"}
+var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "ref_file", "reviewer_agent", "reviewer_agents", "summarizer_agent", "review_prompt", "review_prompt_file", "filters"}
 
 // knownFilterKeys are the valid keys under the "filters" section.
 var knownFilterKeys = []string{"exclude_patterns"}
@@ -311,6 +312,7 @@ var Defaults = ResolvedConfig{
 	Base:            "main",
 	Timeout:         10 * time.Minute,
 	Retries:         1,
+	RefFile:         false,
 	ReviewerAgents:  []string{agent.DefaultAgent},
 	SummarizerAgent: agent.DefaultSummarizerAgent,
 }
@@ -322,6 +324,7 @@ type ResolvedConfig struct {
 	Base             string
 	Timeout          time.Duration
 	Retries          int
+	RefFile          bool
 	ReviewerAgents   []string // Agent(s) for reviewers (round-robin if multiple)
 	SummarizerAgent  string
 	ReviewPrompt     string
@@ -335,6 +338,7 @@ type FlagState struct {
 	BaseSet             bool
 	TimeoutSet          bool
 	RetriesSet          bool
+	RefFileSet          bool
 	ReviewerAgentsSet   bool
 	SummarizerAgentSet  bool
 	ReviewPromptSet     bool
@@ -353,6 +357,8 @@ type EnvState struct {
 	TimeoutSet          bool
 	Retries             int
 	RetriesSet          bool
+	RefFile             bool
+	RefFileSet          bool
 	ReviewerAgents      []string
 	ReviewerAgentsSet   bool
 	SummarizerAgent     string
@@ -398,6 +404,10 @@ func LoadEnvState() EnvState {
 			state.RetriesSet = true
 		}
 	}
+	if v := os.Getenv("ACR_REF_FILE"); v != "" {
+		state.RefFile = v == "true" || v == "1"
+		state.RefFileSet = true
+	}
 	if v := os.Getenv("ACR_REVIEWER_AGENT"); v != "" {
 		if agents := parseCommaSeparated(v); agents != nil {
 			state.ReviewerAgents = agents
@@ -442,6 +452,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 		if cfg.Retries != nil {
 			result.Retries = *cfg.Retries
 		}
+		if cfg.RefFile != nil {
+			result.RefFile = *cfg.RefFile
+		}
 		// reviewer_agents array takes precedence over reviewer_agent scalar
 		if len(cfg.ReviewerAgents) > 0 {
 			result.ReviewerAgents = cfg.ReviewerAgents
@@ -475,6 +488,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	if envState.RetriesSet {
 		result.Retries = envState.Retries
 	}
+	if envState.RefFileSet {
+		result.RefFile = envState.RefFile
+	}
 	if envState.ReviewerAgentsSet {
 		result.ReviewerAgents = envState.ReviewerAgents
 	}
@@ -503,6 +519,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	}
 	if flagState.RetriesSet {
 		result.Retries = flagValues.Retries
+	}
+	if flagState.RefFileSet {
+		result.RefFile = flagValues.RefFile
 	}
 	if flagState.ReviewerAgentsSet {
 		result.ReviewerAgents = flagValues.ReviewerAgents
