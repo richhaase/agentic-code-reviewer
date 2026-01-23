@@ -5,6 +5,10 @@ import (
 	"io"
 )
 
+// RefFileSizeThreshold is the diff size (in bytes) above which ref-file mode
+// is automatically used to avoid "prompt too long" errors.
+const RefFileSizeThreshold = 100 * 1024 // 100KB
+
 // Agent represents a backend that can execute code reviews and summarizations.
 // Implementations include CodexAgent, ClaudeAgent, GeminiAgent.
 type Agent interface {

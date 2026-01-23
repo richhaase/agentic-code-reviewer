@@ -30,6 +30,10 @@ go.work.sum
 # binary
 bin/acr
 
+# ACR temp files (ref-file mode)
+.acr-diff-*.patch
+.acr-summary-input-*.json
+
 # Editor/IDE
 # .idea/
 # .vscode/
