@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"os"
 	"os/exec"
 	"sync"
 	"syscall"
@@ -22,7 +21,7 @@ type cmdReader struct {
 	stderr       *bytes.Buffer
 	exitCode     int
 	closeOnce    sync.Once
-	diffFilePath string // temp file to clean up on Close (used by ref-file pattern)
+	tempFilePath string // temp file to clean up on Close (used by ref-file pattern)
 }
 
 // Close implements io.Closer and waits for the command to complete.
@@ -55,10 +54,8 @@ func (r *cmdReader) Close() error {
 			}
 		}
 
-		// Clean up temp diff file if one was created (ref-file pattern)
-		if r.diffFilePath != "" {
-			os.Remove(r.diffFilePath)
-		}
+		// Clean up temp file if one was created (ref-file pattern)
+		CleanupTempFile(r.tempFilePath)
 	})
 
 	return nil

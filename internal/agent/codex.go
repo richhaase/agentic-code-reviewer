@@ -5,12 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"syscall"
-
-	"github.com/google/uuid"
 )
 
 // BuildCodexRefFilePrompt constructs the review prompt for ref-file mode.
@@ -59,7 +55,7 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (i
 
 	var cmd *exec.Cmd
 	var args []string
-	var diffFilePath string
+	var tempFilePath string
 
 	if config.CustomPrompt != "" {
 		// Custom prompt mode: pipe prompt + diff to 'codex exec -'
@@ -74,17 +70,11 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (i
 		var prompt string
 		if useRefFile && diff != "" {
 			// Write diff to a temp file in the working directory
-			workDir := config.WorkDir
-			if workDir == "" {
-				workDir, _ = os.Getwd()
+			absPath, err := WriteDiffToTempFile(config.WorkDir, diff)
+			if err != nil {
+				return nil, err
 			}
-
-			diffFilePath = filepath.Join(workDir, fmt.Sprintf(".acr-diff-%s.patch", uuid.New().String()))
-			if err := os.WriteFile(diffFilePath, []byte(diff), 0600); err != nil {
-				return nil, fmt.Errorf("failed to write diff to temp file: %w", err)
-			}
-
-			absPath, _ := filepath.Abs(diffFilePath)
+			tempFilePath = absPath
 			prompt = BuildCodexRefFilePrompt(config.CustomPrompt, absPath)
 		} else {
 			prompt = BuildPromptWithDiff(config.CustomPrompt, diff)
@@ -113,29 +103,23 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (i
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		// Clean up diff file if we created one
-		if diffFilePath != "" {
-			os.Remove(diffFilePath)
-		}
+		CleanupTempFile(tempFilePath)
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
-		// Clean up diff file if we created one
-		if diffFilePath != "" {
-			os.Remove(diffFilePath)
-		}
+		CleanupTempFile(tempFilePath)
 		return nil, fmt.Errorf("failed to start codex: %w", err)
 	}
 
 	// Return a reader that will also wait for the command to complete
-	// and clean up the diff file when done
+	// and clean up the temp file when done
 	return &cmdReader{
 		Reader:       stdout,
 		cmd:          cmd,
 		ctx:          ctx,
 		stderr:       stderr,
-		diffFilePath: diffFilePath,
+		tempFilePath: tempFilePath,
 	}, nil
 }
 
