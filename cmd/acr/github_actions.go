@@ -102,6 +102,15 @@ func handleFindings(ctx context.Context, grouped domain.GroupedFindings, aggrega
 		}
 	}
 
+	// Check for self-review (can't request changes on own PR)
+	isSelfReview := false
+	if !local && github.IsGHAvailable() {
+		prNumber := github.GetCurrentPRNumber(ctx, worktreeBranch)
+		if prNumber != "" {
+			isSelfReview = github.IsSelfReview(ctx, prNumber)
+		}
+	}
+
 	// Create filtered GroupedFindings for rendering
 	filteredGrouped := domain.GroupedFindings{
 		Findings: selectedFindings,
@@ -110,14 +119,14 @@ func handleFindings(ctx context.Context, grouped domain.GroupedFindings, aggrega
 
 	reviewBody := runner.RenderCommentMarkdown(filteredGrouped, stats.TotalReviewers, aggregated)
 
-	if err := confirmAndSubmitReview(ctx, reviewBody, logger); err != nil {
+	if err := confirmAndSubmitReview(ctx, reviewBody, isSelfReview, logger); err != nil {
 		return domain.ExitError
 	}
 
 	return domain.ExitFindings
 }
 
-func confirmAndSubmitReview(ctx context.Context, body string, logger *terminal.Logger) error {
+func confirmAndSubmitReview(ctx context.Context, body string, isSelfReview bool, logger *terminal.Logger) error {
 	if local {
 		logger.Log("Local mode enabled; skipping PR review.", terminal.StyleDim)
 		return nil
@@ -125,8 +134,12 @@ func confirmAndSubmitReview(ctx context.Context, body string, logger *terminal.L
 
 	// Preview
 	fmt.Println()
-	logger.Logf(terminal.StylePhase, "%sPR review preview%s",
-		terminal.Color(terminal.Bold), terminal.Color(terminal.Reset))
+	previewLabel := "PR review preview"
+	if isSelfReview {
+		previewLabel = "PR review preview (self-review)"
+	}
+	logger.Logf(terminal.StylePhase, "%s%s%s",
+		terminal.Color(terminal.Bold), previewLabel, terminal.Color(terminal.Reset))
 	fmt.Println()
 
 	width := terminal.ReportWidth()
@@ -150,29 +163,52 @@ func confirmAndSubmitReview(ctx context.Context, body string, logger *terminal.L
 	}
 
 	// Determine review type
-	requestChanges := true // default
+	// For self-review: can only comment (GitHub doesn't allow requesting changes on own PR)
+	requestChanges := !isSelfReview // default: request changes for others, comment for self
 	if !autoYes {
 		fmt.Println()
-		fmt.Printf("%s?%s Post review to PR %s#%s%s? %s[R]equest changes / [C]omment / [S]kip:%s ",
-			terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
-			terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset),
-			terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
+		if isSelfReview {
+			// Self-review: can only comment or skip
+			fmt.Printf("%s?%s You cannot request changes on your own PR. Post review to PR %s#%s%s? %s[C]omment / [S]kip:%s ",
+				terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
+				terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset),
+				terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
+		} else {
+			// Non-self-review: request changes, comment, or skip
+			fmt.Printf("%s?%s Post review to PR %s#%s%s? %s[R]equest changes / [C]omment / [S]kip:%s ",
+				terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
+				terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset),
+				terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
+		}
 
 		reader := bufio.NewReader(os.Stdin)
 		response, _ := reader.ReadString('\n')
 		response = strings.ToLower(strings.TrimSpace(response))
 
-		switch response {
-		case "", "r":
-			requestChanges = true
-		case "c":
-			requestChanges = false
-		case "s", "n":
-			logger.Log("Skipped posting review.", terminal.StyleDim)
-			return nil
-		default:
-			logger.Log("Skipped posting review.", terminal.StyleDim)
-			return nil
+		if isSelfReview {
+			switch response {
+			case "", "c", "y", "yes":
+				requestChanges = false
+			case "s", "n", "no":
+				logger.Log("Skipped posting review.", terminal.StyleDim)
+				return nil
+			default:
+				// Treat unknown input as default (comment for self-review)
+				requestChanges = false
+			}
+		} else {
+			switch response {
+			case "", "r", "y", "yes":
+				requestChanges = true
+			case "c":
+				requestChanges = false
+			case "s", "n", "no":
+				logger.Log("Skipped posting review.", terminal.StyleDim)
+				return nil
+			default:
+				// Treat unknown input as default (request changes)
+				requestChanges = true
+			}
 		}
 	}
 
@@ -261,23 +297,25 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, isSelfReview bool, l
 
 		if isSelfReview {
 			switch response {
-			case "", "c":
+			case "", "c", "y", "yes":
 				action = actionComment
-			case "s", "n":
+			case "s", "n", "no":
 				action = actionSkip
 			default:
-				action = actionSkip
+				// Treat unknown input as default (comment for self-review)
+				action = actionComment
 			}
 		} else {
 			switch response {
-			case "", "a":
+			case "", "a", "y", "yes":
 				action = actionApprove
 			case "c":
 				action = actionComment
-			case "s", "n":
+			case "s", "n", "no":
 				action = actionSkip
 			default:
-				action = actionSkip
+				// Treat unknown input as default (approve)
+				action = actionApprove
 			}
 		}
 	}
