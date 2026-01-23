@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
@@ -21,29 +23,32 @@ func NewCodexSummaryParser() *CodexSummaryParser {
 	return &CodexSummaryParser{}
 }
 
+// codexEvent represents a JSONL event from codex --json output.
+type codexEvent struct {
+	Type string `json:"type"`
+	Item struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	} `json:"item"`
+}
+
 // Parse parses the summary output and returns grouped findings.
 // Handles JSONL event stream format from codex --json output.
+// Events may be newline-separated or concatenated without separators.
 func (p *CodexSummaryParser) Parse(data []byte) (*domain.GroupedFindings, error) {
-	// Parse JSONL and extract agent_message text
-	lines := strings.Split(string(data), "\n")
+	// Use json.Decoder to handle both newline-separated and concatenated JSON
+	decoder := json.NewDecoder(bytes.NewReader(data))
 	var messageText string
 
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
+	for {
+		var event codexEvent
+		err := decoder.Decode(&event)
+		if err == io.EOF {
+			break
 		}
-
-		var event struct {
-			Item struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"item"`
-		}
-
-		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			// Skip lines that don't match the expected format
-			continue
+		if err != nil {
+			// Stop on decode errors - can't recover position
+			break
 		}
 
 		// Extract text from agent_message items
@@ -59,9 +64,19 @@ func (p *CodexSummaryParser) Parse(data []byte) (*domain.GroupedFindings, error)
 	// Strip markdown code fences if present
 	cleaned := StripMarkdownCodeFence(messageText)
 
+	// Use Decoder to parse only the first JSON value, ignoring trailing content
+	decoder = json.NewDecoder(strings.NewReader(cleaned))
 	var grouped domain.GroupedFindings
-	if err := json.Unmarshal([]byte(cleaned), &grouped); err != nil {
-		return nil, err
+	if err := decoder.Decode(&grouped); err != nil {
+		return nil, fmt.Errorf("failed to parse grouped findings: %w (first 200 chars: %s)", err, truncate(cleaned, 200))
 	}
 	return &grouped, nil
+}
+
+// truncate returns the first n characters of s, or s if shorter.
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
