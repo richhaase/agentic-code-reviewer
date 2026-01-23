@@ -73,22 +73,14 @@ func TestSummarize_WithMockCodex(t *testing.T) {
 	// Create a temporary directory for our mock codex
 	tmpDir := t.TempDir()
 
-	// Create a mock codex script that returns valid JSON
+	// Create a mock codex script that returns valid JSONL (codex --json format)
 	mockCodex := filepath.Join(tmpDir, "codex")
 	mockScript := `#!/bin/sh
 cat << 'EOF'
-{
-  "findings": [
-    {
-      "title": "Test Issue",
-      "summary": "A test issue summary.",
-      "messages": ["test message"],
-      "reviewer_count": 1,
-      "sources": [0]
-    }
-  ],
-  "info": []
-}
+{"type":"thread.started","thread_id":"test"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"type":"agent_message","text":"{\"findings\": [{\"title\": \"Test Issue\", \"summary\": \"A test issue summary.\", \"messages\": [\"test message\"], \"reviewer_count\": 1, \"sources\": [0]}], \"info\": []}"}}
+{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":50}}
 EOF
 `
 	if err := os.WriteFile(mockCodex, []byte(mockScript), 0755); err != nil {
@@ -250,33 +242,10 @@ func TestSummarize_MultipleFindings(t *testing.T) {
 	mockCodex := filepath.Join(tmpDir, "codex")
 	mockScript := `#!/bin/sh
 cat << 'EOF'
-{
-  "findings": [
-    {
-      "title": "Issue 1",
-      "summary": "First issue.",
-      "messages": ["msg1"],
-      "reviewer_count": 2,
-      "sources": [0, 1]
-    },
-    {
-      "title": "Issue 2",
-      "summary": "Second issue.",
-      "messages": ["msg2"],
-      "reviewer_count": 1,
-      "sources": [2]
-    }
-  ],
-  "info": [
-    {
-      "title": "Info 1",
-      "summary": "Some info.",
-      "messages": ["info msg"],
-      "reviewer_count": 1,
-      "sources": [3]
-    }
-  ]
-}
+{"type":"thread.started","thread_id":"test"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"type":"agent_message","text":"{\"findings\": [{\"title\": \"Issue 1\", \"summary\": \"First issue.\", \"messages\": [\"msg1\"], \"reviewer_count\": 2, \"sources\": [0, 1]}, {\"title\": \"Issue 2\", \"summary\": \"Second issue.\", \"messages\": [\"msg2\"], \"reviewer_count\": 1, \"sources\": [2]}], \"info\": [{\"title\": \"Info 1\", \"summary\": \"Some info.\", \"messages\": [\"info msg\"], \"reviewer_count\": 1, \"sources\": [3]}]}"}}
+{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":50}}
 EOF
 `
 	if err := os.WriteFile(mockCodex, []byte(mockScript), 0755); err != nil {
