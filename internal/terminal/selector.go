@@ -33,18 +33,6 @@ var (
 	selectorSummaryStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("7")).
 				PaddingLeft(6)
-
-	selectorConfirmStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("11"))
-)
-
-// selectorState represents the current state of the selector UI.
-type selectorState int
-
-const (
-	stateNormal selectorState = iota
-	stateConfirmQuit
 )
 
 // SelectorModel is the bubbletea model for the interactive finding selector.
@@ -53,7 +41,6 @@ type SelectorModel struct {
 	selected  map[int]bool // selection state (kept out of domain types)
 	expanded  map[int]bool // which items show full details
 	cursor    int
-	state     selectorState
 	confirmed bool
 	quitted   bool
 }
@@ -69,7 +56,6 @@ func NewSelector(findings []domain.FindingGroup) SelectorModel {
 		selected: selected,
 		expanded: make(map[int]bool),
 		cursor:   0,
-		state:    stateNormal,
 	}
 }
 
@@ -80,10 +66,6 @@ func (m SelectorModel) Init() tea.Cmd {
 
 // Update implements tea.Model.
 func (m SelectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if m.state == stateConfirmQuit {
-		return m.updateConfirmQuit(msg)
-	}
-
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -111,23 +93,8 @@ func (m SelectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.confirmed = true
 			return m, tea.Quit
 		case "q", "esc":
-			m.state = stateConfirmQuit
-		}
-	}
-	return m, nil
-}
-
-// updateConfirmQuit handles input in the quit confirmation state.
-func (m SelectorModel) updateConfirmQuit(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "y", "Y":
 			m.quitted = true
 			return m, tea.Quit
-		default:
-			// Any other key returns to normal state
-			m.state = stateNormal
 		}
 	}
 	return m, nil
@@ -144,12 +111,6 @@ func (m SelectorModel) View() string {
 	// Header
 	b.WriteString(selectorTitleStyle.Render("Select findings to post"))
 	b.WriteString("\n\n")
-
-	// Quit confirmation overlay
-	if m.state == stateConfirmQuit {
-		b.WriteString(selectorConfirmStyle.Render("Skip posting findings? [y/N] "))
-		return b.String()
-	}
 
 	// Findings list
 	for i, finding := range m.findings {

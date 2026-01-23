@@ -267,83 +267,37 @@ func TestUpdate_EnterConfirms(t *testing.T) {
 	}
 }
 
-func TestUpdate_QuitTriggersConfirmation(t *testing.T) {
+func TestUpdate_QuitQuitsImmediately(t *testing.T) {
 	findings := []domain.FindingGroup{
 		{Title: "Finding 1"},
 	}
 	m := NewSelector(findings)
 
-	newModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
-	m = newModel.(SelectorModel)
-
-	if m.state != stateConfirmQuit {
-		t.Error("expected state=stateConfirmQuit after 'q'")
-	}
-}
-
-func TestUpdate_EscTriggersConfirmation(t *testing.T) {
-	findings := []domain.FindingGroup{
-		{Title: "Finding 1"},
-	}
-	m := NewSelector(findings)
-
-	newModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	m = newModel.(SelectorModel)
-
-	if m.state != stateConfirmQuit {
-		t.Error("expected state=stateConfirmQuit after esc")
-	}
-}
-
-func TestUpdate_ConfirmQuit_YesQuits(t *testing.T) {
-	findings := []domain.FindingGroup{
-		{Title: "Finding 1"},
-	}
-	m := NewSelector(findings)
-	m.state = stateConfirmQuit
-
-	newModel, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	newModel, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	m = newModel.(SelectorModel)
 
 	if !m.quitted {
-		t.Error("expected quitted=true after 'y' in confirm state")
+		t.Error("expected quitted=true after 'q'")
 	}
 	if cmd == nil {
-		t.Error("expected quit command after 'y' in confirm state")
+		t.Error("expected quit command after 'q'")
 	}
 }
 
-func TestUpdate_ConfirmQuit_NoReturnsToNormal(t *testing.T) {
+func TestUpdate_EscQuitsImmediately(t *testing.T) {
 	findings := []domain.FindingGroup{
 		{Title: "Finding 1"},
 	}
 	m := NewSelector(findings)
-	m.state = stateConfirmQuit
 
-	newModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	newModel, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	m = newModel.(SelectorModel)
 
-	if m.state != stateNormal {
-		t.Error("expected state=stateNormal after 'n' in confirm state")
+	if !m.quitted {
+		t.Error("expected quitted=true after esc")
 	}
-	if m.quitted {
-		t.Error("expected quitted=false after 'n' in confirm state")
-	}
-}
-
-func TestUpdate_ConfirmQuit_AnyKeyReturnsToNormal(t *testing.T) {
-	findings := []domain.FindingGroup{
-		{Title: "Finding 1"},
-	}
-	m := NewSelector(findings)
-	m.state = stateConfirmQuit
-
-	// Any key other than y/Y should return to normal
-	newModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	m = newModel.(SelectorModel)
-
-	if m.state != stateNormal {
-		t.Error("expected state=stateNormal after esc in confirm state")
+	if cmd == nil {
+		t.Error("expected quit command after esc")
 	}
 }
 
@@ -415,19 +369,6 @@ func TestView_CollapsedHidesSummary(t *testing.T) {
 
 	if containsString(view, "detailed summary") {
 		t.Error("expected collapsed view to not contain summary")
-	}
-}
-
-func TestView_ConfirmQuitPrompt(t *testing.T) {
-	findings := []domain.FindingGroup{
-		{Title: "Finding"},
-	}
-	m := NewSelector(findings)
-	m.state = stateConfirmQuit
-	view := m.View()
-
-	if !containsString(view, "Skip posting findings?") {
-		t.Error("expected confirm quit prompt in view")
 	}
 }
 
