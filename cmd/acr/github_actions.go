@@ -15,15 +15,6 @@ import (
 
 const maxDisplayedCIChecks = 5
 
-type prAction struct {
-	body            string
-	previewLabel    string
-	promptTemplate  string
-	successTemplate string
-	skipMessage     string
-	execute         func(context.Context, string, string) error
-}
-
 func handleLGTM(ctx context.Context, allFindings []domain.Finding, stats domain.ReviewStats, logger *terminal.Logger) domain.ExitCode {
 	// Build reviewer comments
 	reviewerComments := make(map[int]string)
@@ -82,32 +73,7 @@ func handleLGTM(ctx context.Context, allFindings []domain.Finding, stats domain.
 		}
 	}
 
-	// Handle self-review: offer to post as review comment instead of approving
-	if isSelfReview {
-		if err := confirmAndExecutePRAction(ctx, prAction{
-			body:            lgtmBody,
-			previewLabel:    "LGTM review preview (self-review)",
-			promptTemplate:  "You cannot approve your own PR. Post LGTM as a review to PR #%s?",
-			successTemplate: "Posted LGTM review to PR #%s.",
-			skipMessage:     "Skipped posting LGTM review.",
-			execute: func(ctx context.Context, prNumber, body string) error {
-				return github.SubmitPRReview(ctx, prNumber, body, false)
-			},
-		}, logger); err != nil {
-			return domain.ExitError
-		}
-		return domain.ExitNoFindings
-	}
-
-	// Preview and confirm approval (non-self-review)
-	if err := confirmAndExecutePRAction(ctx, prAction{
-		body:            lgtmBody,
-		previewLabel:    "Approval comment preview",
-		promptTemplate:  "Approve PR #%s?",
-		successTemplate: "Approved PR #%s.",
-		skipMessage:     "Skipped approving PR.",
-		execute:         github.ApprovePR,
-	}, logger); err != nil {
+	if err := confirmAndSubmitLGTM(ctx, lgtmBody, isSelfReview, logger); err != nil {
 		return domain.ExitError
 	}
 
@@ -229,27 +195,31 @@ func confirmAndSubmitReview(ctx context.Context, body string, logger *terminal.L
 	return nil
 }
 
-func confirmAndExecutePRAction(ctx context.Context, action prAction, logger *terminal.Logger) error {
+func confirmAndSubmitLGTM(ctx context.Context, body string, isSelfReview bool, logger *terminal.Logger) error {
 	if local {
-		logger.Log("Local mode enabled; skipping PR action.", terminal.StyleDim)
+		logger.Log("Local mode enabled; skipping PR approval.", terminal.StyleDim)
 		return nil
 	}
 
 	if autoNo {
-		logger.Log(action.skipMessage, terminal.StyleDim)
+		logger.Log("Skipped posting LGTM.", terminal.StyleDim)
 		return nil
 	}
 
 	// Preview
 	fmt.Println()
+	previewLabel := "LGTM approval preview"
+	if isSelfReview {
+		previewLabel = "LGTM review preview (self-review)"
+	}
 	logger.Logf(terminal.StylePhase, "%s%s%s",
-		terminal.Color(terminal.Bold), action.previewLabel, terminal.Color(terminal.Reset))
+		terminal.Color(terminal.Bold), previewLabel, terminal.Color(terminal.Reset))
 	fmt.Println()
 
 	width := terminal.ReportWidth()
 	divider := terminal.Ruler(width, "━")
 	fmt.Println(divider)
-	fmt.Println(action.body)
+	fmt.Println(body)
 	fmt.Println(divider)
 
 	if err := github.CheckGHAvailable(); err != nil {
@@ -266,34 +236,80 @@ func confirmAndExecutePRAction(ctx context.Context, action prAction, logger *ter
 		return nil
 	}
 
-	// Confirm
-	confirmed := autoYes
+	// Determine action type
+	type lgtmAction int
+	const (
+		actionApprove lgtmAction = iota
+		actionComment
+		actionSkip
+	)
+
+	action := actionApprove // default for non-self-review
+	if isSelfReview {
+		action = actionComment // default for self-review (can't approve own PR)
+	}
+
 	if !autoYes {
 		fmt.Println()
-		prompt := fmt.Sprintf(action.promptTemplate,
-			fmt.Sprintf("%s%s%s", terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset)))
-		fmt.Printf("%s?%s %s %s[Y/n]:%s ",
-			terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
-			prompt,
-			terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
+		if isSelfReview {
+			// Self-review: can only comment or skip
+			fmt.Printf("%s?%s You cannot approve your own PR. Post LGTM review to PR %s#%s%s? %s[C]omment / [S]kip:%s ",
+				terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
+				terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset),
+				terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
+		} else {
+			// Non-self-review: approve, comment, or skip
+			fmt.Printf("%s?%s Post LGTM to PR %s#%s%s? %s[A]pprove / [C]omment / [S]kip:%s ",
+				terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
+				terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset),
+				terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
+		}
 
 		reader := bufio.NewReader(os.Stdin)
 		response, _ := reader.ReadString('\n')
 		response = strings.ToLower(strings.TrimSpace(response))
-		confirmed = response == "" || response == "y" || response == "yes"
-	}
 
-	if !confirmed {
-		logger.Log(action.skipMessage, terminal.StyleDim)
-		return nil
+		if isSelfReview {
+			switch response {
+			case "", "c":
+				action = actionComment
+			case "s", "n":
+				action = actionSkip
+			default:
+				action = actionSkip
+			}
+		} else {
+			switch response {
+			case "", "a":
+				action = actionApprove
+			case "c":
+				action = actionComment
+			case "s", "n":
+				action = actionSkip
+			default:
+				action = actionSkip
+			}
+		}
 	}
 
 	// Execute
-	if err := action.execute(ctx, prNumber, action.body); err != nil {
-		logger.Logf(terminal.StyleError, "Failed: %v", err)
-		return err
+	switch action {
+	case actionSkip:
+		logger.Log("Skipped posting LGTM.", terminal.StyleDim)
+		return nil
+	case actionApprove:
+		if err := github.ApprovePR(ctx, prNumber, body); err != nil {
+			logger.Logf(terminal.StyleError, "Failed: %v", err)
+			return err
+		}
+		logger.Logf(terminal.StyleSuccess, "Approved PR #%s.", prNumber)
+	case actionComment:
+		if err := github.SubmitPRReview(ctx, prNumber, body, false); err != nil {
+			logger.Logf(terminal.StyleError, "Failed: %v", err)
+			return err
+		}
+		logger.Logf(terminal.StyleSuccess, "Posted LGTM review to PR #%s.", prNumber)
 	}
 
-	logger.Log(fmt.Sprintf(action.successTemplate, prNumber), terminal.StyleSuccess)
 	return nil
 }
