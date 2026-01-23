@@ -53,7 +53,9 @@ func (p *CodexSummaryParser) Parse(data []byte) (*domain.GroupedFindings, error)
 			break
 		}
 
-		// Extract text from agent_message items
+		// Extract text from agent_message items.
+		// We use the last message because codex may emit multiple agent_message events
+		// during streaming, with the final one containing the complete response.
 		if event.Item.Type == "agent_message" && event.Item.Text != "" {
 			messageText = event.Item.Text
 		}
@@ -71,11 +73,11 @@ func (p *CodexSummaryParser) Parse(data []byte) (*domain.GroupedFindings, error)
 	// Strip markdown code fences if present
 	cleaned := StripMarkdownCodeFence(messageText)
 
-	// Use Decoder to parse only the first JSON value, ignoring trailing content
+	// Parse the JSON from the agent_message text field
 	decoder = json.NewDecoder(strings.NewReader(cleaned))
 	var grouped domain.GroupedFindings
 	if err := decoder.Decode(&grouped); err != nil {
-		return nil, fmt.Errorf("failed to parse grouped findings: %w (first 200 chars: %s)", err, truncate(cleaned, 200))
+		return nil, fmt.Errorf("failed to parse JSON in agent_message: %w (content: %s)", err, truncate(cleaned, 200))
 	}
 	return &grouped, nil
 }
