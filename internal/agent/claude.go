@@ -21,6 +21,16 @@ const RefFileSizeThreshold = 100 * 1024 // 100KB
 // This ensures Claude returns properly formatted JSON without markdown wrapping.
 const claudeSummarySchema = `{"type":"object","properties":{"findings":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"summary":{"type":"string"},"messages":{"type":"array","items":{"type":"string"}},"reviewer_count":{"type":"integer"},"sources":{"type":"array","items":{"type":"integer"}}},"required":["title","summary","messages","reviewer_count","sources"]}},"info":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"summary":{"type":"string"},"messages":{"type":"array","items":{"type":"string"}},"reviewer_count":{"type":"integer"},"sources":{"type":"array","items":{"type":"integer"}}},"required":["title","summary","messages","reviewer_count","sources"]}}},"required":["findings","info"]}`
 
+// BuildRefFilePrompt constructs the review prompt for ref-file mode.
+// If customPrompt is provided, it appends ref-file instructions to it.
+// Otherwise, it uses DefaultClaudeRefFilePrompt.
+func BuildRefFilePrompt(customPrompt, diffPath string) string {
+	if customPrompt != "" {
+		return fmt.Sprintf("%s\n\nThe diff to review is in file: %s\nUse the Read tool to examine it.", customPrompt, diffPath)
+	}
+	return fmt.Sprintf(DefaultClaudeRefFilePrompt, diffPath)
+}
+
 // ClaudeAgent implements the Agent interface for the Claude CLI backend.
 type ClaudeAgent struct{}
 
@@ -81,14 +91,7 @@ func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 		}
 
 		absPath, _ := filepath.Abs(diffFilePath)
-
-		// Use custom prompt if provided, otherwise default ref-file prompt
-		if config.CustomPrompt != "" {
-			// Append ref-file instructions to custom prompt
-			prompt = fmt.Sprintf("%s\n\nThe diff to review is in file: %s\nUse the Read tool to examine it.", config.CustomPrompt, absPath)
-		} else {
-			prompt = fmt.Sprintf(DefaultClaudeRefFilePrompt, absPath)
-		}
+		prompt = BuildRefFilePrompt(config.CustomPrompt, absPath)
 	} else {
 		// Use standard prompt with embedded diff
 		prompt = config.CustomPrompt
