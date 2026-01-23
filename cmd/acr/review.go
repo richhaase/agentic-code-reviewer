@@ -72,6 +72,17 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		return domain.ExitError
 	}
 
+	// Log ref-file mode decision if verbose
+	if verbose {
+		diff, err := agent.GetGitDiff(ctx, baseRef, workDir)
+		if err == nil {
+			logger.Logf(terminal.StyleDim, "Diff size = %d KB", len(diff)/1024)
+			if useRefFile || len(diff) > agent.RefFileSizeThreshold {
+				logger.Logf(terminal.StyleDim, "Using ref-file mode")
+			}
+		}
+	}
+
 	results, wallClock, err := r.Run(ctx)
 	if err != nil {
 		if ctx.Err() != nil {
