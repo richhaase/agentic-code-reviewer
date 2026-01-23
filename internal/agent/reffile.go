@@ -56,14 +56,13 @@ func WriteDiffToTempFile(workDir, diff string) (string, error) {
 
 // WriteInputToTempFile writes input content (e.g., summary input JSON) to a temporary file.
 // Returns the absolute path to the temp file.
-// If workDir is empty, uses the system temp directory.
+// If workDir is empty, uses the current working directory (same as WriteDiffToTempFile).
+// This ensures the file is accessible by sandboxed agent tools (e.g., Claude's Read tool).
 // The caller is responsible for cleaning up the file (use CleanupTempFile).
 func WriteInputToTempFile(workDir string, input []byte, suffix string) (string, error) {
-	var wd string
-	if workDir != "" {
-		wd = workDir
-	} else {
-		wd = os.TempDir()
+	wd, err := GetWorkDir(workDir)
+	if err != nil {
+		return "", err
 	}
 
 	tempPath := filepath.Join(wd, fmt.Sprintf(".acr-%s-%s", suffix, uuid.New().String()))
