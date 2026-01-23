@@ -107,6 +107,12 @@ func TestCodexSummaryParser_Parse(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name:    "decode error after valid message still fails",
+			input:   []byte(`{"type":"item.completed","item":{"type":"agent_message","text":"{\"findings\": [], \"info\": []}"}}{invalid json}`),
+			want:    nil,
+			wantErr: true,
+		},
 	}
 
 	parser := NewCodexSummaryParser()
@@ -162,9 +168,9 @@ func TestCodexSummaryParser_DecodeErrorIncluded(t *testing.T) {
 		t.Fatal("expected error for malformed JSON")
 	}
 
-	// Error should mention "decode error" since no agent_message was found
-	if !strings.Contains(err.Error(), "decode error") {
-		t.Errorf("error should include decode error details, got: %v", err)
+	// Error should mention decode failure
+	if !strings.Contains(err.Error(), "failed to decode") {
+		t.Errorf("error should include decode failure details, got: %v", err)
 	}
 }
 

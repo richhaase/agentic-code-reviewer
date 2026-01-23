@@ -49,7 +49,6 @@ func (p *CodexSummaryParser) Parse(data []byte) (*domain.GroupedFindings, error)
 			break
 		}
 		if err != nil {
-			// Capture decode error but continue - we may have already found a valid message
 			decodeErr = err
 			break
 		}
@@ -60,10 +59,12 @@ func (p *CodexSummaryParser) Parse(data []byte) (*domain.GroupedFindings, error)
 		}
 	}
 
+	// Fail on any decode error - don't silently proceed with partial output
+	if decodeErr != nil {
+		return nil, fmt.Errorf("failed to decode codex JSONL output: %w", decodeErr)
+	}
+
 	if messageText == "" {
-		if decodeErr != nil {
-			return nil, fmt.Errorf("no agent_message found in codex output (decode error: %w)", decodeErr)
-		}
 		return nil, fmt.Errorf("no agent_message found in codex output")
 	}
 
