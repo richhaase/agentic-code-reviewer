@@ -50,10 +50,11 @@ func printPreview(logger *terminal.Logger, label string, body string) {
 	fmt.Println(divider)
 }
 
-// checkPRAvailable verifies gh CLI is available and PR exists. Returns false if no PR found.
-func checkPRAvailable(pr prContext, logger *terminal.Logger) bool {
+// checkPRAvailable verifies gh CLI is available and PR exists.
+// Returns error if gh CLI unavailable, true if PR exists, false if no PR found.
+func checkPRAvailable(pr prContext, logger *terminal.Logger) (bool, error) {
 	if err := github.CheckGHAvailable(); err != nil {
-		return false
+		return false, err
 	}
 	if pr.number == "" {
 		branchDesc := "current branch"
@@ -61,9 +62,9 @@ func checkPRAvailable(pr prContext, logger *terminal.Logger) bool {
 			branchDesc = fmt.Sprintf("branch '%s'", worktreeBranch)
 		}
 		logger.Logf(terminal.StyleWarning, "No open PR found for %s.", branchDesc)
-		return false
+		return false, nil
 	}
-	return true
+	return true, nil
 }
 
 // readUserInput reads a line from stdin, returning empty string on error.
@@ -154,7 +155,11 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, logg
 	}
 	printPreview(logger, previewLabel, body)
 
-	if !checkPRAvailable(pr, logger) {
+	available, err := checkPRAvailable(pr, logger)
+	if err != nil {
+		return err
+	}
+	if !available {
 		return nil
 	}
 
@@ -236,7 +241,11 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, logger
 	}
 	printPreview(logger, previewLabel, body)
 
-	if !checkPRAvailable(pr, logger) {
+	available, err := checkPRAvailable(pr, logger)
+	if err != nil {
+		return err
+	}
+	if !available {
 		return nil
 	}
 
