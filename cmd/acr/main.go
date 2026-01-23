@@ -26,6 +26,7 @@ var (
 	retries             int
 	prompt              string
 	promptFile          string
+	refFile             bool
 	verbose             bool
 	local               bool
 	worktreeBranch      string
@@ -75,6 +76,8 @@ Exit codes:
 		"[experimental] Custom review prompt (env: ACR_REVIEW_PROMPT)")
 	rootCmd.Flags().StringVar(&promptFile, "prompt-file", "",
 		"[experimental] Path to file containing review prompt (env: ACR_REVIEW_PROMPT_FILE)")
+	rootCmd.Flags().BoolVar(&refFile, "ref-file", false,
+		"Enable ref-file mode (env: ACR_REF_FILE)")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false,
 		"Print agent messages as they arrive")
 	rootCmd.Flags().BoolVarP(&local, "local", "l", false,
@@ -189,6 +192,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		SummarizerAgentSet:  cmd.Flags().Changed("summarizer-agent"),
 		ReviewPromptSet:     cmd.Flags().Changed("prompt"),
 		ReviewPromptFileSet: cmd.Flags().Changed("prompt-file"),
+		RefFileSet:          cmd.Flags().Changed("ref-file"),
 	}
 
 	// Load env var state
@@ -205,6 +209,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		SummarizerAgent:  summarizerAgentName,
 		ReviewPrompt:     prompt,
 		ReviewPromptFile: promptFile,
+		RefFile:          refFile,
 	}
 
 	// Resolve final configuration (precedence: flags > env vars > config file > defaults)

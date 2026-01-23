@@ -65,6 +65,7 @@ type Config struct {
 	SummarizerAgent  *string      `yaml:"summarizer_agent"`
 	ReviewPrompt     *string      `yaml:"review_prompt"`
 	ReviewPromptFile *string      `yaml:"review_prompt_file"`
+	RefFile          *bool        `yaml:"ref_file"`
 	Filters          FilterConfig `yaml:"filters"`
 }
 
@@ -146,7 +147,7 @@ func (c *Config) validatePatterns() error {
 }
 
 // knownTopLevelKeys are the valid top-level keys in the config file.
-var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "reviewer_agent", "reviewer_agents", "summarizer_agent", "review_prompt", "review_prompt_file", "filters"}
+var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "reviewer_agent", "reviewer_agents", "summarizer_agent", "review_prompt", "review_prompt_file", "ref_file", "filters"}
 
 // knownFilterKeys are the valid keys under the "filters" section.
 var knownFilterKeys = []string{"exclude_patterns"}
@@ -326,6 +327,7 @@ type ResolvedConfig struct {
 	SummarizerAgent  string
 	ReviewPrompt     string
 	ReviewPromptFile string
+	RefFile          bool
 }
 
 // FlagState tracks whether a flag was explicitly set.
@@ -339,6 +341,7 @@ type FlagState struct {
 	SummarizerAgentSet  bool
 	ReviewPromptSet     bool
 	ReviewPromptFileSet bool
+	RefFileSet          bool
 }
 
 // EnvState captures env var values and whether they were set.
@@ -361,6 +364,8 @@ type EnvState struct {
 	ReviewPromptSet     bool
 	ReviewPromptFile    string
 	ReviewPromptFileSet bool
+	RefFile             bool
+	RefFileSet          bool
 }
 
 // LoadEnvState reads environment variables and returns their state.
@@ -416,6 +421,10 @@ func LoadEnvState() EnvState {
 		state.ReviewPromptFile = v
 		state.ReviewPromptFileSet = true
 	}
+	if v := os.Getenv("ACR_REF_FILE"); v != "" {
+		state.RefFileSet = true
+		state.RefFile = v == "true" || v == "1"
+	}
 
 	return state
 }
@@ -457,6 +466,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 		if cfg.ReviewPromptFile != nil {
 			result.ReviewPromptFile = *cfg.ReviewPromptFile
 		}
+		if cfg.RefFile != nil {
+			result.RefFile = *cfg.RefFile
+		}
 	}
 
 	// Apply env var values (if set)
@@ -487,6 +499,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	if envState.ReviewPromptFileSet {
 		result.ReviewPromptFile = envState.ReviewPromptFile
 	}
+	if envState.RefFileSet {
+		result.RefFile = envState.RefFile
+	}
 
 	// Apply flag values (if explicitly set)
 	if flagState.ReviewersSet {
@@ -515,6 +530,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	}
 	if flagState.ReviewPromptFileSet {
 		result.ReviewPromptFile = flagValues.ReviewPromptFile
+	}
+	if flagState.RefFileSet {
+		result.RefFile = flagValues.RefFile
 	}
 
 	return result
