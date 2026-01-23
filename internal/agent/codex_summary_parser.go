@@ -67,7 +67,9 @@ func (p *CodexSummaryParser) Parse(data []byte) (*domain.GroupedFindings, error)
 	}
 
 	if messageText == "" {
-		return nil, fmt.Errorf("no agent_message found in codex output")
+		// Provide more context about what was received
+		preview := truncate(string(data), 200)
+		return nil, fmt.Errorf("no agent_message found in codex output (received: %s)", preview)
 	}
 
 	// Strip markdown code fences if present

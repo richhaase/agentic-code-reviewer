@@ -46,7 +46,7 @@ func WriteDiffToTempFile(workDir, diff string) (string, error) {
 	if err != nil {
 		// Clean up the temp file since we can't return a valid path
 		if rmErr := os.Remove(tempPath); rmErr != nil && !os.IsNotExist(rmErr) {
-			fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s during error handling: %v", tempPath, rmErr)
+			fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s during error handling: %v\n", tempPath, rmErr)
 		}
 		return "", fmt.Errorf("failed to get absolute path for temp file: %w", err)
 	}
@@ -56,11 +56,14 @@ func WriteDiffToTempFile(workDir, diff string) (string, error) {
 
 // WriteInputToTempFile writes input content (e.g., summary input JSON) to a temporary file.
 // Returns the absolute path to the temp file.
+// If workDir is empty, uses the system temp directory.
 // The caller is responsible for cleaning up the file (use CleanupTempFile).
 func WriteInputToTempFile(workDir string, input []byte, suffix string) (string, error) {
-	wd, err := GetWorkDir(workDir)
-	if err != nil {
-		return "", err
+	var wd string
+	if workDir != "" {
+		wd = workDir
+	} else {
+		wd = os.TempDir()
 	}
 
 	tempPath := filepath.Join(wd, fmt.Sprintf(".acr-%s-%s", suffix, uuid.New().String()))
@@ -72,7 +75,7 @@ func WriteInputToTempFile(workDir string, input []byte, suffix string) (string, 
 	if err != nil {
 		// Clean up the temp file since we can't return a valid path
 		if rmErr := os.Remove(tempPath); rmErr != nil && !os.IsNotExist(rmErr) {
-			fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s during error handling: %v", tempPath, rmErr)
+			fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s during error handling: %v\n", tempPath, rmErr)
 		}
 		return "", fmt.Errorf("failed to get absolute path for temp file: %w", err)
 	}
@@ -87,6 +90,6 @@ func CleanupTempFile(path string) {
 		return
 	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s: %v", path, err)
+		fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s: %v\n", path, err)
 	}
 }
