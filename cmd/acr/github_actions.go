@@ -15,26 +15,90 @@ import (
 
 const maxDisplayedCIChecks = 5
 
+// prContext holds PR number and self-review status for GitHub operations.
+type prContext struct {
+	number       string
+	isSelfReview bool
+}
+
+// getPRContext retrieves PR number and self-review status for the current branch.
+func getPRContext(ctx context.Context) prContext {
+	if local || !github.IsGHAvailable() {
+		return prContext{}
+	}
+	prNumber := github.GetCurrentPRNumber(ctx, worktreeBranch)
+	if prNumber == "" {
+		return prContext{}
+	}
+	return prContext{
+		number:       prNumber,
+		isSelfReview: github.IsSelfReview(ctx, prNumber),
+	}
+}
+
+// printPreview displays a formatted preview of the review body.
+func printPreview(logger *terminal.Logger, label string, body string) {
+	fmt.Println()
+	logger.Logf(terminal.StylePhase, "%s%s%s",
+		terminal.Color(terminal.Bold), label, terminal.Color(terminal.Reset))
+	fmt.Println()
+
+	width := terminal.ReportWidth()
+	divider := terminal.Ruler(width, "━")
+	fmt.Println(divider)
+	fmt.Println(body)
+	fmt.Println(divider)
+}
+
+// checkPRAvailable verifies gh CLI is available and PR exists. Returns false if no PR found.
+func checkPRAvailable(pr prContext, logger *terminal.Logger) bool {
+	if err := github.CheckGHAvailable(); err != nil {
+		return false
+	}
+	if pr.number == "" {
+		branchDesc := "current branch"
+		if worktreeBranch != "" {
+			branchDesc = fmt.Sprintf("branch '%s'", worktreeBranch)
+		}
+		logger.Logf(terminal.StyleWarning, "No open PR found for %s.", branchDesc)
+		return false
+	}
+	return true
+}
+
+// readUserInput reads a line from stdin, returning empty string on error.
+func readUserInput() string {
+	reader := bufio.NewReader(os.Stdin)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(response))
+}
+
+// formatPrompt creates a colored prompt string for user input.
+func formatPrompt(question, options string) string {
+	return fmt.Sprintf("%s?%s %s %s%s%s ",
+		terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
+		question,
+		terminal.Color(terminal.Dim), options, terminal.Color(terminal.Reset))
+}
+
+// formatPRRef creates a bold PR reference like "#123".
+func formatPRRef(prNumber string) string {
+	return fmt.Sprintf("%s#%s%s", terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset))
+}
+
 func handleLGTM(ctx context.Context, allFindings []domain.Finding, stats domain.ReviewStats, logger *terminal.Logger) domain.ExitCode {
-	// Build reviewer comments
 	reviewerComments := make(map[int]string)
 	for _, f := range allFindings {
 		reviewerComments[f.ReviewerID] = f.Text
 	}
 
 	lgtmBody := runner.RenderLGTMMarkdown(stats.TotalReviewers, stats.SuccessfulReviewers, reviewerComments)
+	pr := getPRContext(ctx)
 
-	// Check for self-review (always when not local)
-	isSelfReview := false
-	var prNumber string
-	if !local && github.IsGHAvailable() {
-		prNumber = github.GetCurrentPRNumber(ctx, worktreeBranch)
-		if prNumber != "" {
-			isSelfReview = github.IsSelfReview(ctx, prNumber)
-		}
-	}
-
-	if err := confirmAndSubmitLGTM(ctx, lgtmBody, prNumber, isSelfReview, logger); err != nil {
+	if err := confirmAndSubmitLGTM(ctx, lgtmBody, pr, logger); err != nil {
 		return domain.ExitError
 	}
 
@@ -63,128 +127,82 @@ func handleFindings(ctx context.Context, grouped domain.GroupedFindings, aggrega
 		}
 	}
 
-	// Check for self-review (can't request changes on own PR)
-	isSelfReview := false
-	var prNumber string
-	if !local && github.IsGHAvailable() {
-		prNumber = github.GetCurrentPRNumber(ctx, worktreeBranch)
-		if prNumber != "" {
-			isSelfReview = github.IsSelfReview(ctx, prNumber)
-		}
-	}
+	pr := getPRContext(ctx)
 
-	// Create filtered GroupedFindings for rendering
 	filteredGrouped := domain.GroupedFindings{
 		Findings: selectedFindings,
 		Info:     grouped.Info,
 	}
-
 	reviewBody := runner.RenderCommentMarkdown(filteredGrouped, stats.TotalReviewers, aggregated)
 
-	if err := confirmAndSubmitReview(ctx, reviewBody, prNumber, isSelfReview, logger); err != nil {
+	if err := confirmAndSubmitReview(ctx, reviewBody, pr, logger); err != nil {
 		return domain.ExitError
 	}
 
 	return domain.ExitFindings
 }
 
-func confirmAndSubmitReview(ctx context.Context, body, prNumber string, isSelfReview bool, logger *terminal.Logger) error {
+func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, logger *terminal.Logger) error {
 	if local {
 		logger.Log("Local mode enabled; skipping PR review.", terminal.StyleDim)
 		return nil
 	}
 
-	// Preview
-	fmt.Println()
 	previewLabel := "PR review preview"
-	if isSelfReview {
+	if pr.isSelfReview {
 		previewLabel = "PR review preview (self-review)"
 	}
-	logger.Logf(terminal.StylePhase, "%s%s%s",
-		terminal.Color(terminal.Bold), previewLabel, terminal.Color(terminal.Reset))
-	fmt.Println()
+	printPreview(logger, previewLabel, body)
 
-	width := terminal.ReportWidth()
-	divider := terminal.Ruler(width, "━")
-	fmt.Println(divider)
-	fmt.Println(body)
-	fmt.Println(divider)
-
-	if err := github.CheckGHAvailable(); err != nil {
-		return err
-	}
-
-	if prNumber == "" {
-		branchDesc := "current branch"
-		if worktreeBranch != "" {
-			branchDesc = fmt.Sprintf("branch '%s'", worktreeBranch)
-		}
-		logger.Logf(terminal.StyleWarning, "No open PR found for %s.", branchDesc)
+	if !checkPRAvailable(pr, logger) {
 		return nil
 	}
 
-	// Determine review type
-	// For self-review: can only comment (GitHub doesn't allow requesting changes on own PR)
-	requestChanges := !isSelfReview // default: request changes for others, comment for self
+	// Determine review type (self-review can only comment)
+	requestChanges := !pr.isSelfReview
+
 	if !autoYes {
-		// Require TTY for interactive prompts
 		if !terminal.IsStdoutTTY() {
 			logger.Log("Non-interactive mode without --yes flag; skipping PR review.", terminal.StyleDim)
 			return nil
 		}
 
 		fmt.Println()
-		if isSelfReview {
-			// Self-review: can only comment or skip
-			fmt.Printf("%s?%s You cannot request changes on your own PR. Post review to PR %s#%s%s? %s[C]omment / [S]kip:%s ",
-				terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
-				terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset),
-				terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
+		prRef := formatPRRef(pr.number)
+		if pr.isSelfReview {
+			fmt.Print(formatPrompt(
+				"You cannot request changes on your own PR. Post review to PR "+prRef+"?",
+				"[C]omment / [S]kip:"))
 		} else {
-			// Non-self-review: request changes, comment, or skip
-			fmt.Printf("%s?%s Post review to PR %s#%s%s? %s[R]equest changes / [C]omment / [S]kip:%s ",
-				terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
-				terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset),
-				terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
+			fmt.Print(formatPrompt(
+				"Post review to PR "+prRef+"?",
+				"[R]equest changes / [C]omment / [S]kip:"))
 		}
 
-		reader := bufio.NewReader(os.Stdin)
-		response, err := reader.ReadString('\n')
-		if err != nil {
-			logger.Log("Input error; skipping PR review.", terminal.StyleDim)
-			return nil
-		}
-		response = strings.ToLower(strings.TrimSpace(response))
+		response := readUserInput()
 
-		if isSelfReview {
+		if pr.isSelfReview {
 			switch response {
-			case "", "c", "y", "yes":
-				requestChanges = false
 			case "s", "n", "no":
 				logger.Log("Skipped posting review.", terminal.StyleDim)
 				return nil
 			default:
-				// Treat unknown input as default (comment for self-review)
 				requestChanges = false
 			}
 		} else {
 			switch response {
-			case "", "r", "y", "yes":
-				requestChanges = true
 			case "c":
 				requestChanges = false
 			case "s", "n", "no":
 				logger.Log("Skipped posting review.", terminal.StyleDim)
 				return nil
 			default:
-				// Treat unknown input as default (request changes)
 				requestChanges = true
 			}
 		}
 	}
 
-	// Execute
-	if err := github.SubmitPRReview(ctx, prNumber, body, requestChanges); err != nil {
+	if err := github.SubmitPRReview(ctx, pr.number, body, requestChanges); err != nil {
 		logger.Logf(terminal.StyleError, "Failed: %v", err)
 		return err
 	}
@@ -193,182 +211,156 @@ func confirmAndSubmitReview(ctx context.Context, body, prNumber string, isSelfRe
 	if !requestChanges {
 		reviewType = "comment"
 	}
-	logger.Logf(terminal.StyleSuccess, "Posted %s review to PR #%s.", reviewType, prNumber)
+	logger.Logf(terminal.StyleSuccess, "Posted %s review to PR #%s.", reviewType, pr.number)
 	return nil
 }
 
-func confirmAndSubmitLGTM(ctx context.Context, body, prNumber string, isSelfReview bool, logger *terminal.Logger) error {
+// lgtmAction represents the action to take for an LGTM review.
+type lgtmAction int
+
+const (
+	actionApprove lgtmAction = iota
+	actionComment
+	actionSkip
+)
+
+func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, logger *terminal.Logger) error {
 	if local {
 		logger.Log("Local mode enabled; skipping PR approval.", terminal.StyleDim)
 		return nil
 	}
 
-	// Preview
-	fmt.Println()
 	previewLabel := "LGTM approval preview"
-	if isSelfReview {
+	if pr.isSelfReview {
 		previewLabel = "LGTM review preview (self-review)"
 	}
-	logger.Logf(terminal.StylePhase, "%s%s%s",
-		terminal.Color(terminal.Bold), previewLabel, terminal.Color(terminal.Reset))
-	fmt.Println()
+	printPreview(logger, previewLabel, body)
 
-	width := terminal.ReportWidth()
-	divider := terminal.Ruler(width, "━")
-	fmt.Println(divider)
-	fmt.Println(body)
-	fmt.Println(divider)
-
-	if err := github.CheckGHAvailable(); err != nil {
-		return err
-	}
-
-	if prNumber == "" {
-		branchDesc := "current branch"
-		if worktreeBranch != "" {
-			branchDesc = fmt.Sprintf("branch '%s'", worktreeBranch)
-		}
-		logger.Logf(terminal.StyleWarning, "No open PR found for %s.", branchDesc)
+	if !checkPRAvailable(pr, logger) {
 		return nil
 	}
 
-	// Determine action type
-	type lgtmAction int
-	const (
-		actionApprove lgtmAction = iota
-		actionComment
-		actionSkip
-	)
-
-	action := actionApprove // default for non-self-review
-	if isSelfReview {
-		action = actionComment // default for self-review (can't approve own PR)
+	action := actionApprove
+	if pr.isSelfReview {
+		action = actionComment
 	}
 
 	if !autoYes {
-		// Require TTY for interactive prompts
 		if !terminal.IsStdoutTTY() {
 			logger.Log("Non-interactive mode without --yes flag; skipping LGTM.", terminal.StyleDim)
 			return nil
 		}
 
-		fmt.Println()
-		if isSelfReview {
-			// Self-review: can only comment or skip
-			fmt.Printf("%s?%s You cannot approve your own PR. Post LGTM review to PR %s#%s%s? %s[C]omment / [S]kip:%s ",
-				terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
-				terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset),
-				terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
-		} else {
-			// Non-self-review: approve, comment, or skip
-			fmt.Printf("%s?%s Post LGTM to PR %s#%s%s? %s[A]pprove / [C]omment / [S]kip:%s ",
-				terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
-				terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset),
-				terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
-		}
-
-		reader := bufio.NewReader(os.Stdin)
-		response, err := reader.ReadString('\n')
-		if err != nil {
-			logger.Log("Input error; skipping LGTM.", terminal.StyleDim)
+		action = promptLGTMAction(pr)
+		if action == actionSkip {
+			logger.Log("Skipped posting LGTM.", terminal.StyleDim)
 			return nil
 		}
-		response = strings.ToLower(strings.TrimSpace(response))
-
-		if isSelfReview {
-			switch response {
-			case "", "c", "y", "yes":
-				action = actionComment
-			case "s", "n", "no":
-				action = actionSkip
-			default:
-				// Treat unknown input as default (comment for self-review)
-				action = actionComment
-			}
-		} else {
-			switch response {
-			case "", "a", "y", "yes":
-				action = actionApprove
-			case "c":
-				action = actionComment
-			case "s", "n", "no":
-				action = actionSkip
-			default:
-				// Treat unknown input as default (approve)
-				action = actionApprove
-			}
-		}
 	}
 
-	// Check CI status before approving (only for approve action)
+	// Check CI status before approving
 	if action == actionApprove {
-		ciStatus := github.CheckCIStatus(ctx, prNumber)
-
-		if ciStatus.Error != "" {
-			logger.Logf(terminal.StyleError, "Failed to check CI status: %s", ciStatus.Error)
-			return fmt.Errorf("CI check failed: %s", ciStatus.Error)
-		}
-
-		if !ciStatus.AllPassed {
-			if len(ciStatus.Failed) > 0 {
-				logger.Logf(terminal.StyleError, "Cannot approve PR: %d CI check(s) failed", len(ciStatus.Failed))
-				for i, check := range ciStatus.Failed {
-					if i >= maxDisplayedCIChecks {
-						logger.Logf(terminal.StyleDim, "  ... and %d more", len(ciStatus.Failed)-maxDisplayedCIChecks)
-						break
-					}
-					logger.Logf(terminal.StyleDim, "  • %s", check)
-				}
-			}
-			if len(ciStatus.Pending) > 0 {
-				logger.Logf(terminal.StyleWarning, "Cannot approve PR: %d CI check(s) pending", len(ciStatus.Pending))
-				for i, check := range ciStatus.Pending {
-					if i >= maxDisplayedCIChecks {
-						logger.Logf(terminal.StyleDim, "  ... and %d more", len(ciStatus.Pending)-maxDisplayedCIChecks)
-						break
-					}
-					logger.Logf(terminal.StyleDim, "  • %s", check)
-				}
-			}
-
-			// Offer fallback to comment or skip
-			if autoYes {
-				// In --yes mode, default to comment when CI fails
-				logger.Log("CI not green; posting as comment instead of approval.", terminal.StyleDim)
-				action = actionComment
-			} else if !terminal.IsStdoutTTY() {
-				// Non-interactive without --yes: skip
-				logger.Log("CI not green and non-interactive; skipping LGTM.", terminal.StyleDim)
-				return nil
-			} else {
-				fmt.Printf("%s?%s Post as comment instead? %s[C]omment / [S]kip:%s ",
-					terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
-					terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
-
-				reader := bufio.NewReader(os.Stdin)
-				response, err := reader.ReadString('\n')
-				if err != nil {
-					logger.Log("Input error; skipping LGTM.", terminal.StyleDim)
-					return nil
-				}
-				response = strings.ToLower(strings.TrimSpace(response))
-
-				switch response {
-				case "", "c", "y", "yes":
-					action = actionComment
-				default:
-					logger.Log("Skipped posting LGTM.", terminal.StyleDim)
-					return nil
-				}
-			}
+		action = checkCIAndMaybeDowngrade(ctx, pr.number, action, logger)
+		if action == actionSkip {
+			return nil
 		}
 	}
 
-	// Execute
-	switch action {
-	case actionSkip:
+	return executeLGTMAction(ctx, action, pr.number, body, logger)
+}
+
+// promptLGTMAction prompts the user for LGTM action choice.
+func promptLGTMAction(pr prContext) lgtmAction {
+	fmt.Println()
+	prRef := formatPRRef(pr.number)
+
+	if pr.isSelfReview {
+		fmt.Print(formatPrompt(
+			"You cannot approve your own PR. Post LGTM review to PR "+prRef+"?",
+			"[C]omment / [S]kip:"))
+	} else {
+		fmt.Print(formatPrompt(
+			"Post LGTM to PR "+prRef+"?",
+			"[A]pprove / [C]omment / [S]kip:"))
+	}
+
+	response := readUserInput()
+
+	if pr.isSelfReview {
+		if response == "s" || response == "n" || response == "no" {
+			return actionSkip
+		}
+		return actionComment
+	}
+
+	switch response {
+	case "c":
+		return actionComment
+	case "s", "n", "no":
+		return actionSkip
+	default:
+		return actionApprove
+	}
+}
+
+// logCIChecks logs a list of CI checks with truncation.
+func logCIChecks(logger *terminal.Logger, checks []string) {
+	for i, check := range checks {
+		if i >= maxDisplayedCIChecks {
+			logger.Logf(terminal.StyleDim, "  ... and %d more", len(checks)-maxDisplayedCIChecks)
+			break
+		}
+		logger.Logf(terminal.StyleDim, "  * %s", check)
+	}
+}
+
+// checkCIAndMaybeDowngrade checks CI status and downgrades to comment if CI is not green.
+func checkCIAndMaybeDowngrade(ctx context.Context, prNumber string, action lgtmAction, logger *terminal.Logger) lgtmAction {
+	ciStatus := github.CheckCIStatus(ctx, prNumber)
+
+	if ciStatus.Error != "" {
+		logger.Logf(terminal.StyleError, "Failed to check CI status: %s", ciStatus.Error)
+		return actionSkip
+	}
+
+	if ciStatus.AllPassed {
+		return action
+	}
+
+	if len(ciStatus.Failed) > 0 {
+		logger.Logf(terminal.StyleError, "Cannot approve PR: %d CI check(s) failed", len(ciStatus.Failed))
+		logCIChecks(logger, ciStatus.Failed)
+	}
+	if len(ciStatus.Pending) > 0 {
+		logger.Logf(terminal.StyleWarning, "Cannot approve PR: %d CI check(s) pending", len(ciStatus.Pending))
+		logCIChecks(logger, ciStatus.Pending)
+	}
+
+	if autoYes {
+		logger.Log("CI not green; posting as comment instead of approval.", terminal.StyleDim)
+		return actionComment
+	}
+
+	if !terminal.IsStdoutTTY() {
+		logger.Log("CI not green and non-interactive; skipping LGTM.", terminal.StyleDim)
+		return actionSkip
+	}
+
+	fmt.Print(formatPrompt("Post as comment instead?", "[C]omment / [S]kip:"))
+	response := readUserInput()
+
+	switch response {
+	case "", "c", "y", "yes":
+		return actionComment
+	default:
 		logger.Log("Skipped posting LGTM.", terminal.StyleDim)
-		return nil
+		return actionSkip
+	}
+}
+
+// executeLGTMAction executes the chosen LGTM action.
+func executeLGTMAction(ctx context.Context, action lgtmAction, prNumber, body string, logger *terminal.Logger) error {
+	switch action {
 	case actionApprove:
 		if err := github.ApprovePR(ctx, prNumber, body); err != nil {
 			logger.Logf(terminal.StyleError, "Failed: %v", err)
@@ -382,6 +374,5 @@ func confirmAndSubmitLGTM(ctx context.Context, body, prNumber string, isSelfRevi
 		}
 		logger.Logf(terminal.StyleSuccess, "Posted LGTM review to PR #%s.", prNumber)
 	}
-
 	return nil
 }
