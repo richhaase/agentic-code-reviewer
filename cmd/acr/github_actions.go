@@ -332,24 +332,34 @@ func confirmAndSubmitLGTM(ctx context.Context, body, prNumber string, isSelfRevi
 			}
 
 			// Offer fallback to comment or skip
-			fmt.Printf("%s?%s Post as comment instead? %s[C]omment / [S]kip:%s ",
-				terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
-				terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
-
-			reader := bufio.NewReader(os.Stdin)
-			response, err := reader.ReadString('\n')
-			if err != nil {
-				logger.Log("Input error; skipping LGTM.", terminal.StyleDim)
-				return nil
-			}
-			response = strings.ToLower(strings.TrimSpace(response))
-
-			switch response {
-			case "", "c", "y", "yes":
+			if autoYes {
+				// In --yes mode, default to comment when CI fails
+				logger.Log("CI not green; posting as comment instead of approval.", terminal.StyleDim)
 				action = actionComment
-			default:
-				logger.Log("Skipped posting LGTM.", terminal.StyleDim)
+			} else if !terminal.IsStdoutTTY() {
+				// Non-interactive without --yes: skip
+				logger.Log("CI not green and non-interactive; skipping LGTM.", terminal.StyleDim)
 				return nil
+			} else {
+				fmt.Printf("%s?%s Post as comment instead? %s[C]omment / [S]kip:%s ",
+					terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
+					terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
+
+				reader := bufio.NewReader(os.Stdin)
+				response, err := reader.ReadString('\n')
+				if err != nil {
+					logger.Log("Input error; skipping LGTM.", terminal.StyleDim)
+					return nil
+				}
+				response = strings.ToLower(strings.TrimSpace(response))
+
+				switch response {
+				case "", "c", "y", "yes":
+					action = actionComment
+				default:
+					logger.Log("Skipped posting LGTM.", terminal.StyleDim)
+					return nil
+				}
 			}
 		}
 	}
