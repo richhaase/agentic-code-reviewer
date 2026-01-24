@@ -7,7 +7,11 @@
       "Bash(make vet:*)",
       "Bash(make test:*)",
       "Bash(tlog ready:*)",
-      "Bash(tlog claim:*)"
+      "Bash(tlog claim:*)",
+      "Bash(git add:*)",
+      "Bash(git rebase:*)",
+      "Bash(GIT_EDITOR=true git rebase:*)",
+      "Bash(git -c core.editor=true rebase:*)"
     ]
   }
 }

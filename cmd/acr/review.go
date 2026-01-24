@@ -12,7 +12,7 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
-func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, reviewerAgentNames []string, logger *terminal.Logger) domain.ExitCode {
+func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, reviewerAgentNames []string, useRefFile bool, logger *terminal.Logger) domain.ExitCode {
 	if concurrency < reviewers {
 		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, %d concurrent, base=%s)%s",
 			terminal.Color(terminal.Dim), reviewers, concurrency, baseRef, terminal.Color(terminal.Reset))
@@ -65,10 +65,18 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		Verbose:      verbose,
 		WorkDir:      workDir,
 		CustomPrompt: customPrompt,
+		UseRefFile:   useRefFile,
 	}, reviewAgents, logger)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Runner initialization failed: %v", err)
 		return domain.ExitError
+	}
+
+	// Log ref-file mode if explicitly requested (verbose)
+	// Note: We don't pre-fetch the diff here to avoid duplicate GetGitDiff calls.
+	// Each agent will fetch the diff and decide on ref-file mode based on size.
+	if verbose && useRefFile {
+		logger.Logf(terminal.StyleDim, "Ref-file mode enabled")
 	}
 
 	results, wallClock, err := r.Run(ctx)

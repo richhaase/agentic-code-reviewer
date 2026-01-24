@@ -103,3 +103,65 @@ func TestClaudeAgent_ExecuteSummary_ClaudeNotAvailable(t *testing.T) {
 		t.Errorf("ExecuteSummary() error = %v, want error containing 'claude CLI not found'", err)
 	}
 }
+
+func TestBuildRefFilePrompt(t *testing.T) {
+	tests := []struct {
+		name         string
+		customPrompt string
+		diffPath     string
+		wantContains []string
+		wantMissing  []string
+	}{
+		{
+			name:         "custom prompt is preserved in ref-file mode",
+			customPrompt: "My custom security review prompt with special instructions",
+			diffPath:     "/tmp/test.patch",
+			wantContains: []string{
+				"My custom security review prompt with special instructions",
+				"/tmp/test.patch",
+				"Read tool",
+			},
+			wantMissing: []string{},
+		},
+		{
+			name:         "empty custom prompt uses default ref-file prompt",
+			customPrompt: "",
+			diffPath:     "/tmp/test.patch",
+			wantContains: []string{
+				"/tmp/test.patch",
+				"Read tool",
+				"Review this git diff for bugs", // from DefaultClaudeRefFilePrompt
+			},
+			wantMissing: []string{},
+		},
+		{
+			name:         "custom prompt not overwritten by default",
+			customPrompt: "CUSTOM_MARKER_12345",
+			diffPath:     "/path/to/diff.patch",
+			wantContains: []string{
+				"CUSTOM_MARKER_12345",
+			},
+			wantMissing: []string{
+				"Review this git diff for bugs", // should NOT contain default prompt
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prompt := BuildRefFilePrompt(tt.customPrompt, tt.diffPath)
+
+			for _, want := range tt.wantContains {
+				if !strings.Contains(prompt, want) {
+					t.Errorf("BuildRefFilePrompt() prompt missing expected content %q\nGot: %s", want, prompt)
+				}
+			}
+
+			for _, notWant := range tt.wantMissing {
+				if strings.Contains(prompt, notWant) {
+					t.Errorf("BuildRefFilePrompt() prompt should not contain %q\nGot: %s", notWant, prompt)
+				}
+			}
+		})
+	}
+}

@@ -17,7 +17,7 @@ const (
 	StylePhase   Style = "phase"
 )
 
-// ANSI escape sequence to clear the entire line
+// clearLine is the ANSI escape sequence to clear the entire line.
 const clearLine = "\033[2K"
 
 // Logger provides styled logging to stderr.
