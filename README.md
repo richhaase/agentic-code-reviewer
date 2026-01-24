@@ -82,7 +82,6 @@ acr --verbose
 | `--local`           | `-l`  | false   | Skip posting to GitHub PR                |
 | `--worktree-branch` | `-B`  |         | Review a branch in a temp worktree       |
 | `--yes`             | `-y`  | false   | Auto-submit without prompting            |
-| `--no`              | `-n`  | false   | Skip submitting review                   |
 | `--exclude-pattern` |       |         | Exclude findings matching regex (repeat) |
 | `--no-config`       |       | false   | Skip loading .acr.yaml config file       |
 | `--reviewer-agent`  | `-a`  | codex   | [experimental] Agent(s) for reviews, comma-separated (codex, claude, gemini) |
@@ -224,10 +223,35 @@ Configuration is resolved with the following precedence (highest to lowest):
 
 ## GitHub Integration
 
-When not in `--local` mode, ACR can:
+When not in `--local` mode, ACR posts results as **PR reviews** (not comments), so they appear in the PR's Reviews tab.
 
-- **Post findings** as PR comments when issues are found
-- **Approve PRs** with an LGTM message when no issues are found (checks CI status first)
+### When findings are found
+
+You'll be prompted to choose how to post the review:
+
+```
+? Post review to PR #123? [R]equest changes / [C]omment / [S]kip:
+```
+
+- **R** (default): Post as a "request changes" review
+- **C**: Post as a comment-only review
+- **S**: Skip posting
+
+### When no findings (LGTM)
+
+You'll be prompted to choose how to post the approval:
+
+```
+? Post LGTM to PR #123? [A]pprove / [C]omment / [S]kip:
+```
+
+- **A** (default): Approve the PR (checks CI status first)
+- **C**: Post as a comment-only review
+- **S**: Skip posting
+
+Self-reviews (reviewing your own PR) only show Comment/Skip options since GitHub doesn't allow self-approval.
+
+Use `--yes` to auto-submit with defaults (request-changes for findings, approve for LGTM).
 
 Requires the `gh` CLI to be authenticated.
 

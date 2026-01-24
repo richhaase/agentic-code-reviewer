@@ -30,7 +30,6 @@ var (
 	local               bool
 	worktreeBranch      string
 	autoYes             bool
-	autoNo              bool
 	excludePatterns     []string
 	noConfig            bool
 	agentName           string
@@ -82,12 +81,8 @@ Exit codes:
 	rootCmd.Flags().StringVarP(&worktreeBranch, "worktree-branch", "B", "",
 		"Review a branch in a temporary worktree")
 
-	// Mutually exclusive submit options
 	rootCmd.Flags().BoolVarP(&autoYes, "yes", "y", false,
 		"Automatically submit review without prompting")
-	rootCmd.Flags().BoolVarP(&autoNo, "no", "n", false,
-		"Automatically skip submitting review")
-	rootCmd.MarkFlagsMutuallyExclusive("yes", "no")
 
 	// Filtering options
 	rootCmd.Flags().StringArrayVar(&excludePatterns, "exclude-pattern", nil,
