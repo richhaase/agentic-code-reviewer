@@ -35,6 +35,8 @@ var (
 	agentName           string
 	summarizerAgentName string
 	refFile             bool
+	noFPFilter          bool
+	fpThreshold         int
 )
 
 func main() {
@@ -96,6 +98,10 @@ Exit codes:
 		"[experimental] Agent to use for summarization: codex, claude, gemini (env: ACR_SUMMARIZER_AGENT)")
 	rootCmd.Flags().BoolVar(&refFile, "ref-file", false,
 		"Write diff to a temp file instead of embedding in prompt (auto-enabled for large diffs)")
+	rootCmd.Flags().BoolVar(&noFPFilter, "no-fp-filter", false,
+		"Disable false positive filtering (env: ACR_FP_FILTER=false to disable)")
+	rootCmd.Flags().IntVar(&fpThreshold, "fp-threshold", 75,
+		"False positive confidence threshold 1-100 (default: 75, env: ACR_FP_THRESHOLD)")
 
 	if err := rootCmd.Execute(); err != nil {
 		// Check if this is an exit code wrapper (not a real error)
@@ -176,7 +182,6 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Build flag state from cobra's Changed() method
 	flagState := config.FlagState{
 		ReviewersSet:        cmd.Flags().Changed("reviewers"),
 		ConcurrencySet:      cmd.Flags().Changed("concurrency"),
@@ -187,12 +192,13 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		SummarizerAgentSet:  cmd.Flags().Changed("summarizer-agent"),
 		ReviewPromptSet:     cmd.Flags().Changed("prompt"),
 		ReviewPromptFileSet: cmd.Flags().Changed("prompt-file"),
+		NoFPFilterSet:       cmd.Flags().Changed("no-fp-filter"),
+		FPThresholdSet:      cmd.Flags().Changed("fp-threshold"),
 	}
 
 	// Load env var state
 	envState := config.LoadEnvState()
 
-	// Build flag values struct
 	flagValues := config.ResolvedConfig{
 		Reviewers:        reviewers,
 		Concurrency:      concurrency,
@@ -203,6 +209,8 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		SummarizerAgent:  summarizerAgentName,
 		ReviewPrompt:     prompt,
 		ReviewPromptFile: promptFile,
+		FPFilterEnabled:  !noFPFilter,
+		FPThreshold:      fpThreshold,
 	}
 
 	// Resolve final configuration (precedence: flags > env vars > config file > defaults)
@@ -240,7 +248,6 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		return exitCode(domain.ExitError)
 	}
 
-	// Run the review
-	code := executeReview(ctx, workDir, allExcludePatterns, customPrompt, resolved.ReviewerAgents, refFile, logger)
+	code := executeReview(ctx, workDir, allExcludePatterns, customPrompt, resolved.ReviewerAgents, resolved.SummarizerAgent, refFile, resolved.FPFilterEnabled, resolved.FPThreshold, logger)
 	return exitCode(code)
 }
