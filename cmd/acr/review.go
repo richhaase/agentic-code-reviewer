@@ -74,6 +74,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		BaseRef:      resolvedBaseRef,
 		Timeout:      timeout,
 		Retries:      retries,
+		FetchRemote:  fetchRemote,
 		Verbose:      verbose,
 		WorkDir:      workDir,
 		CustomPrompt: customPrompt,
