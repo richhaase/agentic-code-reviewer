@@ -10,6 +10,7 @@ JSON with "findings" array, each containing:
 - title: short issue title
 - summary: 1-2 sentence description
 - messages: evidence excerpts from reviewers
+- reviewer_count: how many independent reviewers found this issue
 
 ## Your Task
 For each finding, think step-by-step:
@@ -17,6 +18,7 @@ For each finding, think step-by-step:
 2. Is this a concrete bug/vulnerability or a subjective suggestion?
 3. Does the evidence support a real problem or is it speculative?
 4. Would fixing this prevent actual bugs or just change style?
+5. How many reviewers found this? (higher count = more likely real issue)
 
 Then assign:
 - fp_score: 0-100 (100 = definitely false positive, 0 = definitely real issue)
@@ -46,19 +48,25 @@ UNCERTAIN (fp_score 40-60):
 - Depends on context not provided
 - Partially valid concern
 
+## Reviewer Agreement Signal
+The reviewer_count indicates how many independent reviewers found this issue:
+- High count (5+ reviewers): Strong signal this is a real issue. Bias toward lower fp_score.
+- Medium count (2-4 reviewers): Moderate confidence. Use other signals.
+- Low count (1 reviewer): Could be noise or edge case. Evaluate on merit alone.
+
 ## Examples
 
 EXAMPLE 1:
-Finding: {"id": 0, "title": "Add error handling for database connection", "summary": "The database connection error is silently ignored", "messages": ["db.Connect() error not checked on line 42"]}
-Reasoning: Error from db.Connect() is discarded, which could hide connection failures and cause silent data loss.
+Finding: {"id": 0, "title": "Add error handling for database connection", "summary": "The database connection error is silently ignored", "messages": ["db.Connect() error not checked on line 42"], "reviewer_count": 7}
+Reasoning: Error from db.Connect() is discarded. 7/10 reviewers found this - strong agreement it's a real issue.
 fp_score: 10
-Why: Specific bug - unchecked error that could cause real problems.
+Why: Specific bug with high reviewer agreement.
 
 EXAMPLE 2:
-Finding: {"id": 1, "title": "Consider adding comments", "summary": "Function lacks documentation", "messages": ["calculateDiscount() should have a docstring explaining parameters"]}
-Reasoning: Documentation suggestion, code functions correctly without it.
+Finding: {"id": 1, "title": "Consider adding comments", "summary": "Function lacks documentation", "messages": ["calculateDiscount() should have a docstring explaining parameters"], "reviewer_count": 1}
+Reasoning: Documentation suggestion from only 1 reviewer. Code functions correctly without it.
 fp_score: 90
-Why: Style preference, not a bug. Code works fine.
+Why: Style preference with low agreement, not a bug.
 
 EXAMPLE 3:
 Finding: {"id": 2, "title": "Potential SQL injection", "summary": "User input concatenated into query", "messages": ["query := \"SELECT * FROM users WHERE id=\" + userId"]}
