@@ -47,7 +47,7 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (i
 
 	if config.CustomPrompt != "" {
 		// Custom prompt mode: pipe prompt + diff to 'codex exec -'
-		diff, err := GetGitDiff(ctx, config.BaseRef, config.WorkDir)
+		diff, err := GetGitDiff(ctx, config.BaseRef, config.WorkDir, config.FetchRemote)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get diff for review: %w", err)
 		}

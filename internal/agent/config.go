@@ -22,4 +22,8 @@ type ReviewConfig struct {
 
 	// ReviewerID is a unique identifier for this reviewer instance (e.g., "reviewer-1").
 	ReviewerID string
+
+	// FetchRemote enables fetching the latest base ref from origin before diffing.
+	// When true, compares against origin/<baseRef>. Falls back to local ref if fetch fails.
+	FetchRemote bool
 }
