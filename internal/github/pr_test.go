@@ -1,6 +1,8 @@
 package github
 
 import (
+	"errors"
+	"os/exec"
 	"testing"
 )
 
@@ -268,5 +270,94 @@ func TestCheckSelfReview_UsernameWithHyphens(t *testing.T) {
 	result := checkSelfReview("octo-cat", "OCTO-CAT")
 	if !result {
 		t.Error("expected true for matching usernames with hyphens (case insensitive)")
+	}
+}
+
+// Tests for classifyGHError
+
+func TestClassifyGHError_NoPRFound(t *testing.T) {
+	// Create an ExitError with stderr indicating no PR found
+	exitErr := &exec.ExitError{
+		Stderr: []byte(`no pull requests found for branch "feature-branch"`),
+	}
+
+	err := classifyGHError(exitErr)
+
+	if !errors.Is(err, ErrNoPRFound) {
+		t.Errorf("expected ErrNoPRFound, got %v", err)
+	}
+}
+
+func TestClassifyGHError_AuthFailed401(t *testing.T) {
+	exitErr := &exec.ExitError{
+		Stderr: []byte(`HTTP 401: Bad credentials (https://api.github.com/graphql)`),
+	}
+
+	err := classifyGHError(exitErr)
+
+	if !errors.Is(err, ErrAuthFailed) {
+		t.Errorf("expected ErrAuthFailed, got %v", err)
+	}
+}
+
+func TestClassifyGHError_AuthFailedLogin(t *testing.T) {
+	exitErr := &exec.ExitError{
+		Stderr: []byte(`To get started with GitHub CLI, please run:  gh auth login`),
+	}
+
+	err := classifyGHError(exitErr)
+
+	if !errors.Is(err, ErrAuthFailed) {
+		t.Errorf("expected ErrAuthFailed, got %v", err)
+	}
+}
+
+func TestClassifyGHError_AuthFailedCredentials(t *testing.T) {
+	exitErr := &exec.ExitError{
+		Stderr: []byte(`error: authentication required, check your credentials`),
+	}
+
+	err := classifyGHError(exitErr)
+
+	if !errors.Is(err, ErrAuthFailed) {
+		t.Errorf("expected ErrAuthFailed, got %v", err)
+	}
+}
+
+func TestClassifyGHError_OtherError(t *testing.T) {
+	exitErr := &exec.ExitError{
+		Stderr: []byte(`repository not found`),
+	}
+
+	err := classifyGHError(exitErr)
+
+	if errors.Is(err, ErrNoPRFound) || errors.Is(err, ErrAuthFailed) {
+		t.Errorf("expected generic error, got %v", err)
+	}
+	if err == nil {
+		t.Error("expected an error, got nil")
+	}
+}
+
+func TestClassifyGHError_EmptyStderr(t *testing.T) {
+	exitErr := &exec.ExitError{
+		Stderr: []byte{},
+	}
+
+	err := classifyGHError(exitErr)
+
+	if errors.Is(err, ErrNoPRFound) || errors.Is(err, ErrAuthFailed) {
+		t.Errorf("expected generic error for empty stderr, got %v", err)
+	}
+}
+
+func TestClassifyGHError_NonExitError(t *testing.T) {
+	// Test with a non-ExitError
+	plainErr := errors.New("some other error")
+
+	err := classifyGHError(plainErr)
+
+	if errors.Is(err, ErrNoPRFound) || errors.Is(err, ErrAuthFailed) {
+		t.Errorf("expected wrapped error for non-ExitError, got %v", err)
 	}
 }
