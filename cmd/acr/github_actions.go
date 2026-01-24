@@ -147,7 +147,8 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, logg
 	requestChanges := !pr.isSelfReview
 
 	if !autoYes {
-		if !terminal.IsStdoutTTY() {
+		// Check if stdin is a TTY before prompting to avoid hanging in CI
+		if !terminal.IsStdinTTY() {
 			logger.Log("Non-interactive mode without --yes flag; skipping PR review.", terminal.StyleDim)
 			return nil
 		}

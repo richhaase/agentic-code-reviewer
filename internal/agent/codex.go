@@ -131,10 +131,10 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (i
 // ExecuteSummary runs a summarization task using the codex CLI.
 // Uses 'codex exec --color never -' with the prompt and input piped to stdin.
 //
-// Note: Unlike Claude, Codex does not have a built-in file reading capability,
-// so very large inputs (>100KB) may hit prompt length limits. In practice,
-// summary inputs are typically much smaller since they contain aggregated
-// findings rather than raw diffs.
+// Note: While Codex can read files within its working directory, this function
+// embeds the input directly in the prompt for simplicity. Very large inputs
+// (>100KB) may hit prompt length limits, but summary inputs are typically
+// much smaller since they contain aggregated findings rather than raw diffs.
 func (c *CodexAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (io.Reader, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err

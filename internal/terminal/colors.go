@@ -106,6 +106,11 @@ func IsStderrTTY() bool {
 	return IsTTY(int(os.Stderr.Fd()))
 }
 
+// IsStdinTTY returns true if stdin is a TTY.
+func IsStdinTTY() bool {
+	return IsTTY(int(os.Stdin.Fd()))
+}
+
 // GetTerminalWidth returns the terminal width, or 80 if detection fails.
 func GetTerminalWidth() int {
 	width, _, err := term.GetSize(int(os.Stdout.Fd()))
