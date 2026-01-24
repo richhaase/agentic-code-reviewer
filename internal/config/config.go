@@ -59,6 +59,7 @@ type Config struct {
 	Base             *string        `yaml:"base"`
 	Timeout          *Duration      `yaml:"timeout"`
 	Retries          *int           `yaml:"retries"`
+	Fetch            *bool          `yaml:"fetch"`
 	ReviewerAgent    *string        `yaml:"reviewer_agent"`
 	ReviewerAgents   []string       `yaml:"reviewer_agents"`
 	SummarizerAgent  *string        `yaml:"summarizer_agent"`
@@ -150,7 +151,7 @@ func (c *Config) validatePatterns() error {
 	return nil
 }
 
-var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "reviewer_agent", "reviewer_agents", "summarizer_agent", "review_prompt", "review_prompt_file", "filters", "fp_filter"}
+var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "fetch", "reviewer_agent", "reviewer_agents", "summarizer_agent", "review_prompt", "review_prompt_file", "filters", "fp_filter"}
 
 var knownFPFilterKeys = []string{"enabled", "threshold"}
 
@@ -330,6 +331,7 @@ var Defaults = ResolvedConfig{
 	Base:            "main",
 	Timeout:         10 * time.Minute,
 	Retries:         1,
+	Fetch:           true,
 	ReviewerAgents:  []string{agent.DefaultAgent},
 	SummarizerAgent: agent.DefaultSummarizerAgent,
 	FPFilterEnabled: true,
@@ -342,6 +344,7 @@ type ResolvedConfig struct {
 	Base             string
 	Timeout          time.Duration
 	Retries          int
+	Fetch            bool
 	ReviewerAgents   []string
 	SummarizerAgent  string
 	ReviewPrompt     string
@@ -356,6 +359,7 @@ type FlagState struct {
 	BaseSet             bool
 	TimeoutSet          bool
 	RetriesSet          bool
+	FetchSet            bool
 	ReviewerAgentsSet   bool
 	SummarizerAgentSet  bool
 	ReviewPromptSet     bool
@@ -375,6 +379,8 @@ type EnvState struct {
 	TimeoutSet          bool
 	Retries             int
 	RetriesSet          bool
+	Fetch               bool
+	FetchSet            bool
 	ReviewerAgents      []string
 	ReviewerAgentsSet   bool
 	SummarizerAgent     string
@@ -422,6 +428,16 @@ func LoadEnvState() EnvState {
 		if i, err := strconv.Atoi(v); err == nil {
 			state.Retries = i
 			state.RetriesSet = true
+		}
+	}
+	if v := os.Getenv("ACR_FETCH"); v != "" {
+		switch strings.ToLower(v) {
+		case "true", "1", "yes":
+			state.Fetch = true
+			state.FetchSet = true
+		case "false", "0", "no":
+			state.Fetch = false
+			state.FetchSet = true
 		}
 	}
 	if v := os.Getenv("ACR_REVIEWER_AGENT"); v != "" {
@@ -486,6 +502,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 		if cfg.Retries != nil {
 			result.Retries = *cfg.Retries
 		}
+		if cfg.Fetch != nil {
+			result.Fetch = *cfg.Fetch
+		}
 		// reviewer_agents array takes precedence over reviewer_agent scalar
 		if len(cfg.ReviewerAgents) > 0 {
 			result.ReviewerAgents = cfg.ReviewerAgents
@@ -525,6 +544,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	if envState.RetriesSet {
 		result.Retries = envState.Retries
 	}
+	if envState.FetchSet {
+		result.Fetch = envState.Fetch
+	}
 	if envState.ReviewerAgentsSet {
 		result.ReviewerAgents = envState.ReviewerAgents
 	}
@@ -558,6 +580,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	}
 	if flagState.RetriesSet {
 		result.Retries = flagValues.Retries
+	}
+	if flagState.FetchSet {
+		result.Fetch = flagValues.Fetch
 	}
 	if flagState.ReviewerAgentsSet {
 		result.ReviewerAgents = flagValues.ReviewerAgents

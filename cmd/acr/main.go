@@ -24,6 +24,8 @@ var (
 	baseRef             string
 	timeout             time.Duration
 	retries             int
+	fetch               bool
+	noFetch             bool
 	prompt              string
 	promptFile          string
 	verbose             bool
@@ -73,6 +75,10 @@ Exit codes:
 		"Timeout per reviewer (default: 10m, env: ACR_TIMEOUT)")
 	rootCmd.Flags().IntVarP(&retries, "retries", "R", 0,
 		"Retry failed reviewers N times (default: 1, env: ACR_RETRIES)")
+	rootCmd.Flags().BoolVar(&fetch, "fetch", true,
+		"Fetch latest base ref from origin before diff (default: true, env: ACR_FETCH)")
+	rootCmd.Flags().BoolVar(&noFetch, "no-fetch", false,
+		"Disable fetching base ref from origin (use local state)")
 	rootCmd.Flags().StringVar(&prompt, "prompt", "",
 		"[experimental] Custom review prompt (env: ACR_REVIEW_PROMPT)")
 	rootCmd.Flags().StringVar(&promptFile, "prompt-file", "",
@@ -182,12 +188,16 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Build flag state from cobra's Changed() method
+	// For fetch, either --fetch or --no-fetch being set counts as explicit
+	fetchFlagSet := cmd.Flags().Changed("fetch") || cmd.Flags().Changed("no-fetch")
 	flagState := config.FlagState{
 		ReviewersSet:        cmd.Flags().Changed("reviewers"),
 		ConcurrencySet:      cmd.Flags().Changed("concurrency"),
 		BaseSet:             cmd.Flags().Changed("base"),
 		TimeoutSet:          cmd.Flags().Changed("timeout"),
 		RetriesSet:          cmd.Flags().Changed("retries"),
+		FetchSet:            fetchFlagSet,
 		ReviewerAgentsSet:   cmd.Flags().Changed("reviewer-agent"),
 		SummarizerAgentSet:  cmd.Flags().Changed("summarizer-agent"),
 		ReviewPromptSet:     cmd.Flags().Changed("prompt"),
@@ -199,12 +209,16 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	// Load env var state
 	envState := config.LoadEnvState()
 
+	// Build flag values struct
+	// If --no-fetch is set, it overrides --fetch
+	fetchValue := fetch && !noFetch
 	flagValues := config.ResolvedConfig{
 		Reviewers:        reviewers,
 		Concurrency:      concurrency,
 		Base:             baseRef,
 		Timeout:          timeout,
 		Retries:          retries,
+		Fetch:            fetchValue,
 		ReviewerAgents:   agent.ParseAgentNames(agentName),
 		SummarizerAgent:  summarizerAgentName,
 		ReviewPrompt:     prompt,
@@ -248,6 +262,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		return exitCode(domain.ExitError)
 	}
 
-	code := executeReview(ctx, workDir, allExcludePatterns, customPrompt, resolved.ReviewerAgents, resolved.SummarizerAgent, refFile, resolved.FPFilterEnabled, resolved.FPThreshold, logger)
+	// Run the review
+	code := executeReview(ctx, workDir, allExcludePatterns, customPrompt, resolved.ReviewerAgents, resolved.SummarizerAgent, resolved.Fetch, refFile, resolved.FPFilterEnabled, resolved.FPThreshold, logger)
 	return exitCode(code)
 }
