@@ -25,6 +25,8 @@ type Result struct {
 	RemovedCount int
 	Duration     time.Duration
 	EvalErrors   int
+	Skipped      bool
+	SkipReason   string
 }
 
 type Filter struct {
@@ -39,6 +41,17 @@ func New(agentName string, threshold int) *Filter {
 	return &Filter{
 		agentName: agentName,
 		threshold: threshold,
+	}
+}
+
+// skippedResult returns a Result that passes through all findings unfiltered.
+// Used for fail-open behavior when errors occur.
+func skippedResult(grouped domain.GroupedFindings, start time.Time, reason string) *Result {
+	return &Result{
+		Grouped:    grouped,
+		Duration:   time.Since(start),
+		Skipped:    true,
+		SkipReason: reason,
 	}
 }
 
@@ -76,7 +89,7 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 
 	ag, err := agent.NewAgent(f.agentName)
 	if err != nil {
-		return nil, err
+		return skippedResult(grouped, start, "agent creation failed: "+err.Error()), nil
 	}
 
 	req := evaluationRequest{
@@ -94,18 +107,15 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 
 	payload, err := json.Marshal(req)
 	if err != nil {
-		return nil, err
+		return skippedResult(grouped, start, "request marshal failed: "+err.Error()), nil
 	}
 
 	reader, err := ag.ExecuteSummary(ctx, fpEvaluationPrompt, payload)
 	if err != nil {
 		if ctx.Err() != nil {
-			return &Result{
-				Grouped:  grouped,
-				Duration: time.Since(start),
-			}, nil
+			return skippedResult(grouped, start, "context cancelled"), nil
 		}
-		return nil, err
+		return skippedResult(grouped, start, "LLM execution failed: "+err.Error()), nil
 	}
 
 	output, err := io.ReadAll(reader)
@@ -114,12 +124,9 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 			_ = closer.Close()
 		}
 		if ctx.Err() != nil {
-			return &Result{
-				Grouped:  grouped,
-				Duration: time.Since(start),
-			}, nil
+			return skippedResult(grouped, start, "context cancelled"), nil
 		}
-		return nil, err
+		return skippedResult(grouped, start, "response read failed: "+err.Error()), nil
 	}
 
 	if closer, ok := reader.(io.Closer); ok {
@@ -130,11 +137,9 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 
 	var response evaluationResponse
 	if err := json.Unmarshal([]byte(cleanedOutput), &response); err != nil {
-		return &Result{
-			Grouped:    grouped,
-			Duration:   time.Since(start),
-			EvalErrors: len(grouped.Findings),
-		}, nil
+		r := skippedResult(grouped, start, "response parse failed: "+err.Error())
+		r.EvalErrors = len(grouped.Findings)
+		return r, nil
 	}
 
 	evalMap := make(map[int]findingEvaluation)

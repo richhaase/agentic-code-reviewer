@@ -122,7 +122,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 	var fpFilteredCount int
 	if fpFilterEnabled && summaryResult.ExitCode == 0 && len(summaryResult.Grouped.Findings) > 0 && ctx.Err() == nil {
 		fpSpinner := terminal.NewPhaseSpinner("Filtering false positives")
-		fpSpinnerCtx, fpSpinnerCancel := context.WithCancel(ctx)
+		fpSpinnerCtx, fpSpinnerCancel := context.WithCancel(context.Background())
 		fpSpinnerDone := make(chan struct{})
 		go func() {
 			fpSpinner.Run(fpSpinnerCtx)
@@ -130,17 +130,16 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		}()
 
 		fpFilter := fpfilter.New(summarizerAgentName, fpThreshold)
-		fpResult, err := fpFilter.Apply(ctx, summaryResult.Grouped)
+		fpResult, _ := fpFilter.Apply(ctx, summaryResult.Grouped)
 		fpSpinnerCancel()
 		<-fpSpinnerDone
 
-		if err == nil && fpResult != nil {
-			summaryResult.Grouped = fpResult.Grouped
-			fpFilteredCount = fpResult.RemovedCount
-			stats.FPFilterDuration = fpResult.Duration
-		} else if err != nil && ctx.Err() == nil {
-			logger.Logf(terminal.StyleWarning, "FP filter error (continuing without filter): %v", err)
+		if fpResult.Skipped {
+			logger.Logf(terminal.StyleWarning, "FP filter skipped (%s): showing all findings", fpResult.SkipReason)
 		}
+		summaryResult.Grouped = fpResult.Grouped
+		fpFilteredCount = fpResult.RemovedCount
+		stats.FPFilterDuration = fpResult.Duration
 	}
 	stats.FPFilteredCount = fpFilteredCount
 
