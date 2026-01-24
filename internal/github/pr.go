@@ -11,6 +11,12 @@ import (
 	"strings"
 )
 
+// ErrNoPRFound indicates no pull request exists for the given branch.
+var ErrNoPRFound = errors.New("no pull request found")
+
+// ErrAuthFailed indicates GitHub authentication failed.
+var ErrAuthFailed = errors.New("GitHub authentication failed")
+
 // CIStatus represents the CI check status for a PR.
 type CIStatus struct {
 	AllPassed bool
@@ -20,8 +26,9 @@ type CIStatus struct {
 }
 
 // GetCurrentPRNumber returns the PR number for the given branch (or current branch).
-// Returns empty string if no PR is found.
-func GetCurrentPRNumber(ctx context.Context, branch string) string {
+// Returns ErrNoPRFound if no PR exists, ErrAuthFailed if authentication failed,
+// or another error for other failures.
+func GetCurrentPRNumber(ctx context.Context, branch string) (string, error) {
 	args := []string{"pr", "view"}
 	if branch != "" {
 		args = append(args, branch)
@@ -31,9 +38,36 @@ func GetCurrentPRNumber(ctx context.Context, branch string) string {
 	cmd := exec.CommandContext(ctx, "gh", args...)
 	out, err := cmd.Output()
 	if err != nil {
-		return ""
+		return "", classifyGHError(err)
 	}
-	return strings.TrimSpace(string(out))
+	return strings.TrimSpace(string(out)), nil
+}
+
+// classifyGHError examines a gh CLI error and returns a typed error.
+func classifyGHError(err error) error {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return fmt.Errorf("gh command failed: %w", err)
+	}
+
+	stderr := strings.ToLower(string(exitErr.Stderr))
+
+	if strings.Contains(stderr, "no pull request") {
+		return ErrNoPRFound
+	}
+
+	if strings.Contains(stderr, "401") ||
+		strings.Contains(stderr, "auth") ||
+		strings.Contains(stderr, "credentials") ||
+		strings.Contains(stderr, "login") {
+		return ErrAuthFailed
+	}
+
+	errMsg := strings.TrimSpace(string(exitErr.Stderr))
+	if errMsg != "" {
+		return fmt.Errorf("gh command failed: %s", errMsg)
+	}
+	return fmt.Errorf("gh command failed: %w", err)
 }
 
 // ApprovePR approves a PR with the given body.

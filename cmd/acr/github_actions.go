@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -19,6 +20,7 @@ const maxDisplayedCIChecks = 5
 type prContext struct {
 	number       string
 	isSelfReview bool
+	err          error // non-nil if PR lookup failed (distinguishes auth errors from "no PR")
 }
 
 // getPRContext retrieves PR number and self-review status for the current branch.
@@ -26,9 +28,9 @@ func getPRContext(ctx context.Context) prContext {
 	if local || !github.IsGHAvailable() {
 		return prContext{}
 	}
-	prNumber := github.GetCurrentPRNumber(ctx, worktreeBranch)
-	if prNumber == "" {
-		return prContext{}
+	prNumber, err := github.GetCurrentPRNumber(ctx, worktreeBranch)
+	if err != nil {
+		return prContext{err: err}
 	}
 	return prContext{
 		number:       prNumber,
@@ -37,11 +39,29 @@ func getPRContext(ctx context.Context) prContext {
 }
 
 // checkPRAvailable verifies gh CLI is available and PR exists.
-// Returns error if gh CLI unavailable, true if PR exists, false if no PR found.
+// Returns error if gh CLI unavailable or auth failed, true if PR exists, false if no PR found.
 func checkPRAvailable(pr prContext, logger *terminal.Logger) (bool, error) {
 	if err := github.CheckGHAvailable(); err != nil {
 		return false, err
 	}
+
+	if pr.err != nil {
+		if errors.Is(pr.err, github.ErrAuthFailed) {
+			logger.Logf(terminal.StyleError, "GitHub authentication failed. Run 'gh auth login' to authenticate.")
+			return false, pr.err
+		}
+		if errors.Is(pr.err, github.ErrNoPRFound) {
+			branchDesc := "current branch"
+			if worktreeBranch != "" {
+				branchDesc = fmt.Sprintf("branch '%s'", worktreeBranch)
+			}
+			logger.Logf(terminal.StyleWarning, "No open PR found for %s.", branchDesc)
+			return false, nil
+		}
+		logger.Logf(terminal.StyleError, "Failed to check PR: %v", pr.err)
+		return false, pr.err
+	}
+
 	if pr.number == "" {
 		branchDesc := "current branch"
 		if worktreeBranch != "" {
