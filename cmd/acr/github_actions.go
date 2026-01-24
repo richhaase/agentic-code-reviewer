@@ -36,20 +36,6 @@ func getPRContext(ctx context.Context) prContext {
 	}
 }
 
-// printPreview displays a formatted preview of the review body.
-func printPreview(logger *terminal.Logger, label string, body string) {
-	fmt.Println()
-	logger.Logf(terminal.StylePhase, "%s%s%s",
-		terminal.Color(terminal.Bold), label, terminal.Color(terminal.Reset))
-	fmt.Println()
-
-	width := terminal.ReportWidth()
-	divider := terminal.Ruler(width, "━")
-	fmt.Println(divider)
-	fmt.Println(body)
-	fmt.Println(divider)
-}
-
 // checkPRAvailable verifies gh CLI is available and PR exists.
 // Returns error if gh CLI unavailable, true if PR exists, false if no PR found.
 func checkPRAvailable(pr prContext, logger *terminal.Logger) (bool, error) {
@@ -149,12 +135,6 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, logg
 		return nil
 	}
 
-	previewLabel := "PR review preview"
-	if pr.isSelfReview {
-		previewLabel = "PR review preview (self-review)"
-	}
-	printPreview(logger, previewLabel, body)
-
 	available, err := checkPRAvailable(pr, logger)
 	if err != nil {
 		return err
@@ -234,12 +214,6 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, logger
 		logger.Log("Local mode enabled; skipping PR approval.", terminal.StyleDim)
 		return nil
 	}
-
-	previewLabel := "LGTM approval preview"
-	if pr.isSelfReview {
-		previewLabel = "LGTM review preview (self-review)"
-	}
-	printPreview(logger, previewLabel, body)
 
 	available, err := checkPRAvailable(pr, logger)
 	if err != nil {
