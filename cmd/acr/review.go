@@ -53,14 +53,27 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 			terminal.Color(terminal.Dim), reviewerAgentNames[0], terminal.Color(terminal.Reset))
 	}
 
+	// Resolve the base ref once before launching parallel reviewers.
+	// This ensures all reviewers compare against the same ref, avoiding
+	// inconsistent results if network conditions vary during parallel execution.
+	resolvedBaseRef := baseRef
+	if fetchRemote {
+		result := agent.FetchRemoteRef(ctx, baseRef, workDir)
+		resolvedBaseRef = result.ResolvedRef
+		if result.FetchAttempted && !result.FetchSucceeded {
+			logger.Logf(terminal.StyleWarning, "Failed to fetch %s from origin, comparing against local %s (may be stale)", baseRef, resolvedBaseRef)
+		} else if verbose && result.FetchAttempted && result.FetchSucceeded {
+			logger.Logf(terminal.StyleDim, "Comparing against %s (fetched from origin)", resolvedBaseRef)
+		}
+	}
+
 	// Run reviewers
 	r, err := runner.New(runner.Config{
 		Reviewers:    reviewers,
 		Concurrency:  concurrency,
-		BaseRef:      baseRef,
+		BaseRef:      resolvedBaseRef,
 		Timeout:      timeout,
 		Retries:      retries,
-		FetchRemote:  fetchRemote,
 		Verbose:      verbose,
 		WorkDir:      workDir,
 		CustomPrompt: customPrompt,

@@ -11,7 +11,19 @@
       "Bash(git add:*)",
       "Bash(git rebase:*)",
       "Bash(GIT_EDITOR=true git rebase:*)",
-      "Bash(git -c core.editor=true rebase:*)"
+      "Bash(git -c core.editor=true rebase:*)",
+      "Bash(make build:*)",
+      "Bash(gh pr create:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(gh pr checks:*)",
+      "Bash(command -v:*)",
+      "Bash(bun --version:*)",
+      "Bash(npx --version:*)",
+      "Bash(opencode:*)",
+      "WebSearch",
+      "Bash(bin/acr:*)",
+      "Bash(brew install:*)",
+      "Bash(bunx oh-my-opencode install:*)"
     ]
   }
 }

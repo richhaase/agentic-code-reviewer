@@ -7,12 +7,95 @@ import (
 	"strings"
 )
 
+// FetchResult contains the result of a FetchRemoteRef operation.
+type FetchResult struct {
+	// ResolvedRef is the ref to use for diffing (either "origin/<baseRef>" or "<baseRef>")
+	ResolvedRef string
+	// FetchSucceeded indicates whether the remote fetch was successful
+	FetchSucceeded bool
+	// FetchAttempted indicates whether a fetch was attempted (false if baseRef already has origin/ prefix)
+	FetchAttempted bool
+}
+
+// FetchRemoteRef fetches the base ref from origin and returns the resolved ref to use.
+// If fetch succeeds, returns "origin/<baseRef>". If fetch fails, returns "<baseRef>".
+// This function should be called once before launching parallel reviewers to ensure
+// all reviewers use the same ref for comparison.
+//
+// For non-branch refs (relative refs like HEAD~3, commit SHAs, or refs starting with -),
+// the function skips fetching and returns the ref as-is since these cannot be fetched
+// from a remote or would be invalid with the origin/ prefix.
+func FetchRemoteRef(ctx context.Context, baseRef, workDir string) FetchResult {
+	// If already has origin/ prefix, no fetch needed
+	if strings.HasPrefix(baseRef, "origin/") {
+		return FetchResult{
+			ResolvedRef:    baseRef,
+			FetchSucceeded: true,
+			FetchAttempted: false,
+		}
+	}
+
+	// Skip fetch for refs that can't be fetched or shouldn't have origin/ prefix:
+	// - Refs starting with - (potential flag injection, also not valid branch names)
+	// - Relative refs containing ~ or ^ (e.g., HEAD~3, main^2)
+	// - HEAD (special ref that doesn't have a remote tracking branch)
+	// - Commit SHAs (40-char hex strings can't be fetched by ref name)
+	if strings.HasPrefix(baseRef, "-") ||
+		strings.Contains(baseRef, "~") ||
+		strings.Contains(baseRef, "^") ||
+		baseRef == "HEAD" ||
+		isLikelyCommitSHA(baseRef) {
+		return FetchResult{
+			ResolvedRef:    baseRef,
+			FetchSucceeded: true,
+			FetchAttempted: false,
+		}
+	}
+
+	// Try to fetch the latest base ref from origin
+	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "origin", baseRef)
+	if workDir != "" {
+		fetchCmd.Dir = workDir
+	}
+
+	if err := fetchCmd.Run(); err == nil {
+		// Fetch succeeded, use the remote ref
+		return FetchResult{
+			ResolvedRef:    "origin/" + baseRef,
+			FetchSucceeded: true,
+			FetchAttempted: true,
+		}
+	}
+
+	// Fetch failed, fall back to local ref
+	return FetchResult{
+		ResolvedRef:    baseRef,
+		FetchSucceeded: false,
+		FetchAttempted: true,
+	}
+}
+
+// isLikelyCommitSHA returns true if the ref looks like a git commit SHA.
+// We check for hex strings of 7-40 characters (short and full SHAs).
+func isLikelyCommitSHA(ref string) bool {
+	if len(ref) < 7 || len(ref) > 40 {
+		return false
+	}
+	for _, c := range ref {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
 // GetGitDiff returns the git diff against the specified base reference.
 // If workDir is empty, uses the current directory.
-// If fetchRemote is true, fetches the latest base ref from origin before diffing
-// and compares against origin/<baseRef>. Falls back to local ref if fetch fails.
 // The context is used to support cancellation/timeout.
-func GetGitDiff(ctx context.Context, baseRef, workDir string, fetchRemote bool) (string, error) {
+//
+// Note: For remote refs, call FetchRemoteRef once upfront before launching
+// parallel reviewers to ensure all reviewers use the same ref for comparison.
+func GetGitDiff(ctx context.Context, baseRef, workDir string) (string, error) {
 	// Validate baseRef
 	if baseRef == "" {
 		return "", fmt.Errorf("base ref cannot be empty")
@@ -23,24 +106,7 @@ func GetGitDiff(ctx context.Context, baseRef, workDir string, fetchRemote bool) 
 		return "", fmt.Errorf("invalid base ref %q: must not start with -", baseRef)
 	}
 
-	// Determine the ref to diff against
-	diffRef := baseRef
-
-	if fetchRemote && !strings.HasPrefix(baseRef, "origin/") {
-		// Try to fetch the latest base ref from origin
-		fetchCmd := exec.CommandContext(ctx, "git", "fetch", "origin", baseRef)
-		if workDir != "" {
-			fetchCmd.Dir = workDir
-		}
-
-		if err := fetchCmd.Run(); err == nil {
-			// Fetch succeeded, use the remote ref
-			diffRef = "origin/" + baseRef
-		}
-		// If fetch fails (offline, ref doesn't exist on remote, etc.), fall back to local ref
-	}
-
-	args := []string{"diff", diffRef, "--"}
+	args := []string{"diff", baseRef, "--"}
 	cmd := exec.CommandContext(ctx, "git", args...)
 
 	if workDir != "" {

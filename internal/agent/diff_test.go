@@ -11,7 +11,7 @@ import (
 
 func TestGetGitDiff_EmptyBaseRef(t *testing.T) {
 	ctx := context.Background()
-	_, err := GetGitDiff(ctx, "", "", false)
+	_, err := GetGitDiff(ctx, "", "")
 	if err == nil {
 		t.Error("GetGitDiff() should return error for empty baseRef")
 	}
@@ -22,7 +22,7 @@ func TestGetGitDiff_EmptyBaseRef(t *testing.T) {
 
 func TestGetGitDiff_InvalidBaseRef(t *testing.T) {
 	ctx := context.Background()
-	_, err := GetGitDiff(ctx, "-invalidref", "", false)
+	_, err := GetGitDiff(ctx, "-invalidref", "")
 	if err == nil {
 		t.Error("GetGitDiff() should return error for baseRef starting with -")
 	}
@@ -31,7 +31,7 @@ func TestGetGitDiff_InvalidBaseRef(t *testing.T) {
 	}
 }
 
-func TestGetGitDiff_FetchDisabled(t *testing.T) {
+func TestGetGitDiff_Basic(t *testing.T) {
 	// Create a temporary git repo for testing
 	tmpDir, err := os.MkdirTemp("", "git-diff-test")
 	if err != nil {
@@ -67,9 +67,9 @@ func TestGetGitDiff_FetchDisabled(t *testing.T) {
 		t.Fatalf("Failed to modify test file: %v", err)
 	}
 
-	// Get diff without fetch (fetchRemote=false)
+	// Get diff
 	ctx := context.Background()
-	diff, err := GetGitDiff(ctx, "HEAD", tmpDir, false)
+	diff, err := GetGitDiff(ctx, "HEAD", tmpDir)
 	if err != nil {
 		t.Fatalf("GetGitDiff() error = %v", err)
 	}
@@ -80,58 +80,82 @@ func TestGetGitDiff_FetchDisabled(t *testing.T) {
 	}
 }
 
-func TestGetGitDiff_FetchEnabled_FallbackOnFailure(t *testing.T) {
-	// Create a temporary git repo for testing (no remote configured)
-	tmpDir, err := os.MkdirTemp("", "git-diff-test")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	// Initialize git repo
-	if err := runGit(tmpDir, "init"); err != nil {
-		t.Fatalf("Failed to init git repo: %v", err)
-	}
-	if err := runGit(tmpDir, "config", "user.email", "test@test.com"); err != nil {
-		t.Fatalf("Failed to set git email: %v", err)
-	}
-	if err := runGit(tmpDir, "config", "user.name", "Test"); err != nil {
-		t.Fatalf("Failed to set git name: %v", err)
-	}
-
-	// Create initial commit
-	testFile := filepath.Join(tmpDir, "test.txt")
-	if err := os.WriteFile(testFile, []byte("initial"), 0644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
-	}
-	if err := runGit(tmpDir, "add", "."); err != nil {
-		t.Fatalf("Failed to git add: %v", err)
-	}
-	if err := runGit(tmpDir, "commit", "-m", "initial"); err != nil {
-		t.Fatalf("Failed to git commit: %v", err)
-	}
-
-	// Modify file
-	if err := os.WriteFile(testFile, []byte("modified"), 0644); err != nil {
-		t.Fatalf("Failed to modify test file: %v", err)
-	}
-
-	// Get diff with fetch enabled (should fall back to local since no remote)
+func TestFetchRemoteRef_AlreadyHasOriginPrefix(t *testing.T) {
 	ctx := context.Background()
-	diff, err := GetGitDiff(ctx, "HEAD", tmpDir, true)
-	if err != nil {
-		t.Fatalf("GetGitDiff() error = %v", err)
-	}
+	result := FetchRemoteRef(ctx, "origin/main", "")
 
-	// Verify diff contains the change (fallback to local worked)
-	if !strings.Contains(diff, "-initial") || !strings.Contains(diff, "+modified") {
-		t.Errorf("GetGitDiff() diff doesn't contain expected changes: %s", diff)
+	if result.ResolvedRef != "origin/main" {
+		t.Errorf("FetchRemoteRef() ResolvedRef = %q, want %q", result.ResolvedRef, "origin/main")
+	}
+	if !result.FetchSucceeded {
+		t.Error("FetchRemoteRef() FetchSucceeded = false, want true")
+	}
+	if result.FetchAttempted {
+		t.Error("FetchRemoteRef() FetchAttempted = true, want false (no fetch needed)")
 	}
 }
 
-func TestGetGitDiff_FetchEnabled_AlreadyHasOriginPrefix(t *testing.T) {
-	// Create a temporary git repo for testing
-	tmpDir, err := os.MkdirTemp("", "git-diff-test")
+func TestFetchRemoteRef_SkipsNonBranchRefs(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name    string
+		baseRef string
+	}{
+		{"flag injection attempt", "-c protocol.file.allow=always"},
+		{"relative ref with tilde", "HEAD~3"},
+		{"relative ref with caret", "main^2"},
+		{"HEAD", "HEAD"},
+		{"short commit SHA", "abc1234"},
+		{"full commit SHA", "abc1234567890abcdef1234567890abcdef1234"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := FetchRemoteRef(ctx, tt.baseRef, "")
+
+			// These refs should be returned as-is without fetch attempt
+			if result.ResolvedRef != tt.baseRef {
+				t.Errorf("FetchRemoteRef(%q) ResolvedRef = %q, want %q", tt.baseRef, result.ResolvedRef, tt.baseRef)
+			}
+			if !result.FetchSucceeded {
+				t.Errorf("FetchRemoteRef(%q) FetchSucceeded = false, want true", tt.baseRef)
+			}
+			if result.FetchAttempted {
+				t.Errorf("FetchRemoteRef(%q) FetchAttempted = true, want false (skip fetch for non-branch refs)", tt.baseRef)
+			}
+		})
+	}
+}
+
+func TestIsLikelyCommitSHA(t *testing.T) {
+	tests := []struct {
+		ref      string
+		expected bool
+	}{
+		{"abc1234", true},                                      // 7 char short SHA
+		{"abc1234567890abcdef1234567890abcdef1234", true},      // 40 char full SHA
+		{"ABC1234", true},                                      // uppercase hex
+		{"main", false},                                        // branch name
+		{"HEAD~3", false},                                      // contains ~
+		{"abc123", false},                                      // too short (6 chars)
+		{"abc123456789012345678901234567890123456789", false},   // too long (41 chars)
+		{"xyz1234", false},                                     // contains non-hex
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.ref, func(t *testing.T) {
+			result := isLikelyCommitSHA(tt.ref)
+			if result != tt.expected {
+				t.Errorf("isLikelyCommitSHA(%q) = %v, want %v", tt.ref, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFetchRemoteRef_NoRemote(t *testing.T) {
+	// Create a temporary git repo for testing (no remote configured)
+	tmpDir, err := os.MkdirTemp("", "git-fetch-test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
@@ -148,7 +172,7 @@ func TestGetGitDiff_FetchEnabled_AlreadyHasOriginPrefix(t *testing.T) {
 		t.Fatalf("Failed to set git name: %v", err)
 	}
 
-	// Create initial commit
+	// Create initial commit on master/main
 	testFile := filepath.Join(tmpDir, "test.txt")
 	if err := os.WriteFile(testFile, []byte("initial"), 0644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
@@ -160,17 +184,7 @@ func TestGetGitDiff_FetchEnabled_AlreadyHasOriginPrefix(t *testing.T) {
 		t.Fatalf("Failed to git commit: %v", err)
 	}
 
-	// Add a fake origin remote
-	if err := runGit(tmpDir, "remote", "add", "origin", tmpDir); err != nil {
-		t.Fatalf("Failed to add remote: %v", err)
-	}
-
-	// Fetch to create origin refs
-	if err := runGit(tmpDir, "fetch", "origin"); err != nil {
-		t.Fatalf("Failed to fetch: %v", err)
-	}
-
-	// Get current branch name (could be main or master depending on git config)
+	// Get current branch name
 	cmd := exec.Command("git", "branch", "--show-current")
 	cmd.Dir = tmpDir
 	branchOutput, err := cmd.Output()
@@ -179,22 +193,79 @@ func TestGetGitDiff_FetchEnabled_AlreadyHasOriginPrefix(t *testing.T) {
 	}
 	branchName := strings.TrimSpace(string(branchOutput))
 
-	// Modify file
-	if err := os.WriteFile(testFile, []byte("modified"), 0644); err != nil {
-		t.Fatalf("Failed to modify test file: %v", err)
-	}
-
-	// Get diff with baseRef already containing "origin/" prefix
-	// Should NOT prepend another "origin/" (i.e., should not become "origin/origin/<branch>")
+	// Fetch should fail (no remote), and fall back to local ref
 	ctx := context.Background()
-	diff, err := GetGitDiff(ctx, "origin/"+branchName, tmpDir, true)
+	result := FetchRemoteRef(ctx, branchName, tmpDir)
+
+	if result.ResolvedRef != branchName {
+		t.Errorf("FetchRemoteRef() ResolvedRef = %q, want %q (local fallback)", result.ResolvedRef, branchName)
+	}
+	if result.FetchSucceeded {
+		t.Error("FetchRemoteRef() FetchSucceeded = true, want false (no remote)")
+	}
+	if !result.FetchAttempted {
+		t.Error("FetchRemoteRef() FetchAttempted = false, want true")
+	}
+}
+
+func TestFetchRemoteRef_WithRemote(t *testing.T) {
+	// Create a temporary git repo for testing
+	tmpDir, err := os.MkdirTemp("", "git-fetch-test")
 	if err != nil {
-		t.Fatalf("GetGitDiff() error = %v", err)
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Initialize git repo
+	if err := runGit(tmpDir, "init"); err != nil {
+		t.Fatalf("Failed to init git repo: %v", err)
+	}
+	if err := runGit(tmpDir, "config", "user.email", "test@test.com"); err != nil {
+		t.Fatalf("Failed to set git email: %v", err)
+	}
+	if err := runGit(tmpDir, "config", "user.name", "Test"); err != nil {
+		t.Fatalf("Failed to set git name: %v", err)
 	}
 
-	// Verify diff contains the change
-	if !strings.Contains(diff, "-initial") || !strings.Contains(diff, "+modified") {
-		t.Errorf("GetGitDiff() diff doesn't contain expected changes: %s", diff)
+	// Create initial commit
+	testFile := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(testFile, []byte("initial"), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+	if err := runGit(tmpDir, "add", "."); err != nil {
+		t.Fatalf("Failed to git add: %v", err)
+	}
+	if err := runGit(tmpDir, "commit", "-m", "initial"); err != nil {
+		t.Fatalf("Failed to git commit: %v", err)
+	}
+
+	// Add self as remote (for testing purposes)
+	if err := runGit(tmpDir, "remote", "add", "origin", tmpDir); err != nil {
+		t.Fatalf("Failed to add remote: %v", err)
+	}
+
+	// Get current branch name
+	cmd := exec.Command("git", "branch", "--show-current")
+	cmd.Dir = tmpDir
+	branchOutput, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("Failed to get current branch: %v", err)
+	}
+	branchName := strings.TrimSpace(string(branchOutput))
+
+	// Fetch should succeed
+	ctx := context.Background()
+	result := FetchRemoteRef(ctx, branchName, tmpDir)
+
+	expectedRef := "origin/" + branchName
+	if result.ResolvedRef != expectedRef {
+		t.Errorf("FetchRemoteRef() ResolvedRef = %q, want %q", result.ResolvedRef, expectedRef)
+	}
+	if !result.FetchSucceeded {
+		t.Error("FetchRemoteRef() FetchSucceeded = false, want true")
+	}
+	if !result.FetchAttempted {
+		t.Error("FetchRemoteRef() FetchAttempted = false, want true")
 	}
 }
 
