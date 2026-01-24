@@ -230,7 +230,7 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, logger
 	}
 
 	if !autoYes {
-		if !terminal.IsStdoutTTY() {
+		if !terminal.IsStdinTTY() {
 			logger.Log("Non-interactive mode without --yes flag; skipping LGTM.", terminal.StyleDim)
 			return nil
 		}
@@ -330,7 +330,7 @@ func checkCIAndMaybeDowngrade(ctx context.Context, prNumber string, action lgtmA
 		return actionComment, nil
 	}
 
-	if !terminal.IsStdoutTTY() {
+	if !terminal.IsStdinTTY() {
 		logger.Log("CI not green and non-interactive; skipping LGTM.", terminal.StyleDim)
 		return actionSkip, nil
 	}
