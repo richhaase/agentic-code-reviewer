@@ -3,7 +3,6 @@ package terminal
 import (
 	"fmt"
 	"os"
-	"strings"
 )
 
 // Style represents a log message style.
@@ -18,7 +17,8 @@ const (
 	StylePhase   Style = "phase"
 )
 
-const lineClearWidth = 100
+// ANSI escape sequence to clear the entire line
+const clearLine = "\033[2K"
 
 // Logger provides styled logging to stderr.
 type Logger struct {
@@ -57,9 +57,9 @@ func (l *Logger) Log(msg string, style Style) {
 		symbol = "▸"
 	}
 
-	// Clear line if TTY
+	// Clear line if TTY (to overwrite any spinner output)
 	if l.isTTY {
-		fmt.Fprint(os.Stderr, "\r"+strings.Repeat(" ", lineClearWidth)+"\r")
+		fmt.Fprint(os.Stderr, clearLine+"\r")
 	}
 
 	tag := fmt.Sprintf("%s[%s%s%s%s%s]%s",

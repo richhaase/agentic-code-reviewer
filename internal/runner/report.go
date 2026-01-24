@@ -69,9 +69,10 @@ func RenderReport(
 
 	// No findings case
 	if !grouped.HasFindings() {
-		lines = append(lines, "")
-		lines = append(lines, fmt.Sprintf("%s%sLGTM%s", terminal.Color(terminal.Green), terminal.Color(terminal.Bold), terminal.Color(terminal.Reset)))
-		lines = append(lines, "")
+		lines = append(lines, fmt.Sprintf("%s✓%s %s%sLGTM%s %s(%d/%d reviewers)%s",
+			terminal.Color(terminal.Green), terminal.Color(terminal.Reset),
+			terminal.Color(terminal.Green), terminal.Color(terminal.Bold), terminal.Color(terminal.Reset),
+			terminal.Color(terminal.Dim), stats.SuccessfulReviewers, stats.TotalReviewers, terminal.Color(terminal.Reset)))
 		return strings.Join(lines, "\n")
 	}
 
