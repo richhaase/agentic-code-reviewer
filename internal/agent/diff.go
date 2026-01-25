@@ -40,11 +40,13 @@ func FetchRemoteRef(ctx context.Context, baseRef, workDir string) FetchResult {
 	// - Relative refs containing ~ or ^ (e.g., HEAD~3, main^2)
 	// - HEAD (special ref that doesn't have a remote tracking branch)
 	// - Commit SHAs (40-char hex strings can't be fetched by ref name)
+	// - Fully qualified tag refs (refs/tags/...)
 	if strings.HasPrefix(baseRef, "-") ||
 		strings.Contains(baseRef, "~") ||
 		strings.Contains(baseRef, "^") ||
 		baseRef == "HEAD" ||
-		isLikelyCommitSHA(baseRef) {
+		isLikelyCommitSHA(baseRef) ||
+		strings.HasPrefix(baseRef, "refs/tags/") {
 		return FetchResult{
 			ResolvedRef:    baseRef,
 			FetchSucceeded: true,
@@ -59,7 +61,17 @@ func FetchRemoteRef(ctx context.Context, baseRef, workDir string) FetchResult {
 	}
 
 	if err := fetchCmd.Run(); err == nil {
-		// Fetch succeeded, use the remote ref
+		// Fetch succeeded - check if this is a tag before prefixing with origin/
+		// Tags are fetched into refs/tags/, not refs/remotes/origin/, so they
+		// should not be prefixed with origin/
+		if isTag(ctx, baseRef, workDir) {
+			return FetchResult{
+				ResolvedRef:    baseRef,
+				FetchSucceeded: true,
+				FetchAttempted: true,
+			}
+		}
+		// It's a branch, use the remote ref
 		return FetchResult{
 			ResolvedRef:    "origin/" + baseRef,
 			FetchSucceeded: true,
@@ -87,6 +99,16 @@ func isLikelyCommitSHA(ref string) bool {
 		}
 	}
 	return true
+}
+
+// isTag checks if the given ref is a tag in the repository.
+// Tags are stored in refs/tags/ and should not be prefixed with origin/.
+func isTag(ctx context.Context, ref, workDir string) bool {
+	cmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/tags/"+ref)
+	if workDir != "" {
+		cmd.Dir = workDir
+	}
+	return cmd.Run() == nil
 }
 
 // GetGitDiff returns the git diff against the specified base reference.
