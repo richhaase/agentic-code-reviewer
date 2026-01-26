@@ -40,13 +40,13 @@ func FetchRemoteRef(ctx context.Context, baseRef, workDir string) FetchResult {
 	// - Relative refs containing ~ or ^ (e.g., HEAD~3, main^2)
 	// - HEAD (special ref that doesn't have a remote tracking branch)
 	// - Commit SHAs (40-char hex strings can't be fetched by ref name)
-	// - Fully qualified tag refs (refs/tags/...)
+	// - Fully qualified refs (refs/heads/..., refs/tags/..., refs/remotes/...)
 	if strings.HasPrefix(baseRef, "-") ||
 		strings.Contains(baseRef, "~") ||
 		strings.Contains(baseRef, "^") ||
 		baseRef == "HEAD" ||
 		isLikelyCommitSHA(baseRef) ||
-		strings.HasPrefix(baseRef, "refs/tags/") {
+		strings.HasPrefix(baseRef, "refs/") {
 		return FetchResult{
 			ResolvedRef:    baseRef,
 			FetchSucceeded: true,
