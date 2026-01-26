@@ -104,6 +104,11 @@ func isLikelyCommitSHA(ref string) bool {
 // isTag checks if the given ref is a tag in the repository.
 // Tags are stored in refs/tags/ and should not be prefixed with origin/.
 func isTag(ctx context.Context, ref, workDir string) bool {
+	// Validate ref to prevent command injection
+	if ref == "" || strings.HasPrefix(ref, "-") {
+		return false
+	}
+	// #nosec G204 - ref is validated above and used with exec.CommandContext (no shell interpretation)
 	cmd := exec.CommandContext(ctx, "git", "show-ref", "--verify", "--quiet", "refs/tags/"+ref)
 	if workDir != "" {
 		cmd.Dir = workDir
