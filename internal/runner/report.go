@@ -124,7 +124,18 @@ func RenderReport(
 	lines = append(lines, "")
 	lines = append(lines, terminal.Ruler(width, "━"))
 
-	// Timing stats
+	if stats.FPFilteredCount > 0 {
+		findingWord := "finding"
+		positiveWord := "positive"
+		if stats.FPFilteredCount != 1 {
+			findingWord = "findings"
+			positiveWord = "positives"
+		}
+		lines = append(lines, "")
+		lines = append(lines, fmt.Sprintf("%sℹ %d %s filtered as likely false %s%s",
+			terminal.Color(terminal.Dim), stats.FPFilteredCount, findingWord, positiveWord, terminal.Color(terminal.Reset)))
+	}
+
 	if stats.WallClockDuration > 0 || len(stats.ReviewerDurations) > 0 || summaryResult.Duration > 0 {
 		lines = append(lines, "")
 		lines = append(lines, fmt.Sprintf("%sTiming:%s", terminal.Color(terminal.Dim), terminal.Color(terminal.Reset)))
@@ -158,8 +169,13 @@ func RenderReport(
 				terminal.Color(terminal.Dim), terminal.FormatDuration(summaryResult.Duration), terminal.Color(terminal.Reset)))
 		}
 
+		if stats.FPFilterDuration > 0 {
+			lines = append(lines, fmt.Sprintf("  %sfp-filter: %s%s",
+				terminal.Color(terminal.Dim), terminal.FormatDuration(stats.FPFilterDuration), terminal.Color(terminal.Reset)))
+		}
+
 		if stats.WallClockDuration > 0 && summaryResult.Duration > 0 {
-			total := stats.WallClockDuration + summaryResult.Duration
+			total := stats.WallClockDuration + summaryResult.Duration + stats.FPFilterDuration
 			lines = append(lines, fmt.Sprintf("  %stotal: %s%s",
 				terminal.Color(terminal.Dim), terminal.FormatDuration(total), terminal.Color(terminal.Reset)))
 		}

@@ -7,12 +7,13 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/filter"
+	"github.com/richhaase/agentic-code-reviewer/internal/fpfilter"
 	"github.com/richhaase/agentic-code-reviewer/internal/runner"
 	"github.com/richhaase/agentic-code-reviewer/internal/summarizer"
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
-func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, reviewerAgentNames []string, useRefFile bool, logger *terminal.Logger) domain.ExitCode {
+func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, reviewerAgentNames []string, summarizerAgentName string, useRefFile bool, fpFilterEnabled bool, fpThreshold int, logger *terminal.Logger) domain.ExitCode {
 	if concurrency < reviewers {
 		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, %d concurrent, base=%s)%s",
 			terminal.Color(terminal.Dim), reviewers, concurrency, baseRef, terminal.Color(terminal.Reset))
@@ -21,20 +22,17 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 			terminal.Color(terminal.Dim), reviewers, baseRef, terminal.Color(terminal.Reset))
 	}
 
-	// Validate agent names
 	if err := agent.ValidateAgentNames(reviewerAgentNames); err != nil {
 		logger.Logf(terminal.StyleError, "Invalid agent: %v", err)
 		return domain.ExitError
 	}
 
-	// Create agent instances (validates all CLIs upfront - fail fast)
 	reviewAgents, err := agent.CreateAgents(reviewerAgentNames)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "%v", err)
 		return domain.ExitError
 	}
 
-	// Validate summarizer agent up front to fail fast if CLI is missing
 	summarizerAgent, err := agent.NewAgent(summarizerAgentName)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Invalid summarizer agent: %v", err)
@@ -121,7 +119,31 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 
 	stats.SummarizerDuration = summaryResult.Duration
 
-	// Apply exclude patterns if configured
+	var fpFilteredCount int
+	if fpFilterEnabled && summaryResult.ExitCode == 0 && len(summaryResult.Grouped.Findings) > 0 && ctx.Err() == nil {
+		fpSpinner := terminal.NewPhaseSpinner("Filtering false positives")
+		fpSpinnerCtx, fpSpinnerCancel := context.WithCancel(ctx)
+		fpSpinnerDone := make(chan struct{})
+		go func() {
+			fpSpinner.Run(fpSpinnerCtx)
+			close(fpSpinnerDone)
+		}()
+
+		fpFilter := fpfilter.New(summarizerAgentName, fpThreshold)
+		fpResult, err := fpFilter.Apply(ctx, summaryResult.Grouped)
+		fpSpinnerCancel()
+		<-fpSpinnerDone
+
+		if err == nil && fpResult != nil {
+			summaryResult.Grouped = fpResult.Grouped
+			fpFilteredCount = fpResult.RemovedCount
+			stats.FPFilterDuration = fpResult.Duration
+		} else if err != nil && ctx.Err() == nil {
+			logger.Logf(terminal.StyleWarning, "FP filter error (continuing without filter): %v", err)
+		}
+	}
+	stats.FPFilteredCount = fpFilteredCount
+
 	if len(excludePatterns) > 0 {
 		f, err := filter.New(excludePatterns)
 		if err != nil {

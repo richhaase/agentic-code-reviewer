@@ -13,7 +13,6 @@ type ReviewerResult struct {
 	Duration    time.Duration
 }
 
-// ReviewStats holds statistics about the review run.
 type ReviewStats struct {
 	TotalReviewers      int
 	SuccessfulReviewers int
@@ -21,9 +20,11 @@ type ReviewStats struct {
 	TimedOutReviewers   []int
 	ParseErrors         int
 	ReviewerDurations   map[int]time.Duration
-	ReviewerAgentNames  map[int]string // Reviewer ID → agent name
+	ReviewerAgentNames  map[int]string
 	WallClockDuration   time.Duration
 	SummarizerDuration  time.Duration
+	FPFilterDuration    time.Duration
+	FPFilteredCount     int
 }
 
 // AllFailed returns true if all reviewers failed.
