@@ -53,19 +53,24 @@ func (d Duration) AsDuration() time.Duration {
 	return time.Duration(d)
 }
 
-// Config represents the acr configuration file.
 type Config struct {
-	Reviewers        *int         `yaml:"reviewers"`
-	Concurrency      *int         `yaml:"concurrency"`
-	Base             *string      `yaml:"base"`
-	Timeout          *Duration    `yaml:"timeout"`
-	Retries          *int         `yaml:"retries"`
-	ReviewerAgent    *string      `yaml:"reviewer_agent"`  // Single agent (backward compat)
-	ReviewerAgents   []string     `yaml:"reviewer_agents"` // Multiple agents (round-robin)
-	SummarizerAgent  *string      `yaml:"summarizer_agent"`
-	ReviewPrompt     *string      `yaml:"review_prompt"`
-	ReviewPromptFile *string      `yaml:"review_prompt_file"`
-	Filters          FilterConfig `yaml:"filters"`
+	Reviewers        *int           `yaml:"reviewers"`
+	Concurrency      *int           `yaml:"concurrency"`
+	Base             *string        `yaml:"base"`
+	Timeout          *Duration      `yaml:"timeout"`
+	Retries          *int           `yaml:"retries"`
+	ReviewerAgent    *string        `yaml:"reviewer_agent"`
+	ReviewerAgents   []string       `yaml:"reviewer_agents"`
+	SummarizerAgent  *string        `yaml:"summarizer_agent"`
+	ReviewPrompt     *string        `yaml:"review_prompt"`
+	ReviewPromptFile *string        `yaml:"review_prompt_file"`
+	Filters          FilterConfig   `yaml:"filters"`
+	FPFilter         FPFilterConfig `yaml:"fp_filter"`
+}
+
+type FPFilterConfig struct {
+	Enabled   *bool `yaml:"enabled"`
+	Threshold *int  `yaml:"threshold"`
 }
 
 // FilterConfig holds filter-related configuration.
@@ -145,8 +150,9 @@ func (c *Config) validatePatterns() error {
 	return nil
 }
 
-// knownTopLevelKeys are the valid top-level keys in the config file.
-var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "reviewer_agent", "reviewer_agents", "summarizer_agent", "review_prompt", "review_prompt_file", "filters"}
+var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "reviewer_agent", "reviewer_agents", "summarizer_agent", "review_prompt", "review_prompt_file", "filters", "fp_filter"}
+
+var knownFPFilterKeys = []string{"enabled", "threshold"}
 
 // knownFilterKeys are the valid keys under the "filters" section.
 var knownFilterKeys = []string{"exclude_patterns"}
@@ -173,12 +179,23 @@ func checkUnknownKeys(data []byte) []string {
 		}
 	}
 
-	// Check keys under "filters" section
 	if filters, ok := raw["filters"].(map[string]any); ok {
 		for key := range filters {
 			if !slices.Contains(knownFilterKeys, key) {
 				warning := fmt.Sprintf("unknown key %q in filters section of %s", key, ConfigFileName)
 				if suggestion := findSimilar(key, knownFilterKeys); suggestion != "" {
+					warning += fmt.Sprintf(" (did you mean %q?)", suggestion)
+				}
+				warnings = append(warnings, warning)
+			}
+		}
+	}
+
+	if fpFilter, ok := raw["fp_filter"].(map[string]any); ok {
+		for key := range fpFilter {
+			if !slices.Contains(knownFPFilterKeys, key) {
+				warning := fmt.Sprintf("unknown key %q in fp_filter section of %s", key, ConfigFileName)
+				if suggestion := findSimilar(key, knownFPFilterKeys); suggestion != "" {
 					warning += fmt.Sprintf(" (did you mean %q?)", suggestion)
 				}
 				warnings = append(warnings, warning)
@@ -301,34 +318,38 @@ func (c *Config) Validate() error {
 	if c.SummarizerAgent != nil && !slices.Contains(agent.SupportedAgents, *c.SummarizerAgent) {
 		return fmt.Errorf("summarizer_agent must be one of %v, got %q", agent.SupportedAgents, *c.SummarizerAgent)
 	}
+	if c.FPFilter.Threshold != nil && (*c.FPFilter.Threshold < 1 || *c.FPFilter.Threshold > 100) {
+		return fmt.Errorf("fp_filter.threshold must be 1-100, got %d", *c.FPFilter.Threshold)
+	}
 	return nil
 }
 
-// Defaults holds the built-in default values.
 var Defaults = ResolvedConfig{
 	Reviewers:       5,
-	Concurrency:     0, // means "same as reviewers"
+	Concurrency:     0,
 	Base:            "main",
 	Timeout:         10 * time.Minute,
 	Retries:         1,
 	ReviewerAgents:  []string{agent.DefaultAgent},
 	SummarizerAgent: agent.DefaultSummarizerAgent,
+	FPFilterEnabled: true,
+	FPThreshold:     75,
 }
 
-// ResolvedConfig holds the final resolved configuration values.
 type ResolvedConfig struct {
 	Reviewers        int
 	Concurrency      int
 	Base             string
 	Timeout          time.Duration
 	Retries          int
-	ReviewerAgents   []string // Agent(s) for reviewers (round-robin if multiple)
+	ReviewerAgents   []string
 	SummarizerAgent  string
 	ReviewPrompt     string
 	ReviewPromptFile string
+	FPFilterEnabled  bool
+	FPThreshold      int
 }
 
-// FlagState tracks whether a flag was explicitly set.
 type FlagState struct {
 	ReviewersSet        bool
 	ConcurrencySet      bool
@@ -339,9 +360,10 @@ type FlagState struct {
 	SummarizerAgentSet  bool
 	ReviewPromptSet     bool
 	ReviewPromptFileSet bool
+	NoFPFilterSet       bool
+	FPThresholdSet      bool
 }
 
-// EnvState captures env var values and whether they were set.
 type EnvState struct {
 	Reviewers           int
 	ReviewersSet        bool
@@ -361,6 +383,10 @@ type EnvState struct {
 	ReviewPromptSet     bool
 	ReviewPromptFile    string
 	ReviewPromptFileSet bool
+	FPFilterEnabled     bool
+	FPFilterSet         bool
+	FPThreshold         int
+	FPThresholdSet      bool
 }
 
 // LoadEnvState reads environment variables and returns their state.
@@ -417,6 +443,24 @@ func LoadEnvState() EnvState {
 		state.ReviewPromptFileSet = true
 	}
 
+	if v := os.Getenv("ACR_FP_FILTER"); v != "" {
+		switch v {
+		case "true", "1":
+			state.FPFilterEnabled = true
+			state.FPFilterSet = true
+		case "false", "0":
+			state.FPFilterEnabled = false
+			state.FPFilterSet = true
+		}
+	}
+
+	if v := os.Getenv("ACR_FP_THRESHOLD"); v != "" {
+		if i, err := strconv.Atoi(v); err == nil && i >= 1 && i <= 100 {
+			state.FPThreshold = i
+			state.FPThresholdSet = true
+		}
+	}
+
 	return state
 }
 
@@ -457,6 +501,12 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 		if cfg.ReviewPromptFile != nil {
 			result.ReviewPromptFile = *cfg.ReviewPromptFile
 		}
+		if cfg.FPFilter.Enabled != nil {
+			result.FPFilterEnabled = *cfg.FPFilter.Enabled
+		}
+		if cfg.FPFilter.Threshold != nil {
+			result.FPThreshold = *cfg.FPFilter.Threshold
+		}
 	}
 
 	// Apply env var values (if set)
@@ -487,8 +537,13 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	if envState.ReviewPromptFileSet {
 		result.ReviewPromptFile = envState.ReviewPromptFile
 	}
+	if envState.FPFilterSet {
+		result.FPFilterEnabled = envState.FPFilterEnabled
+	}
+	if envState.FPThresholdSet {
+		result.FPThreshold = envState.FPThreshold
+	}
 
-	// Apply flag values (if explicitly set)
 	if flagState.ReviewersSet {
 		result.Reviewers = flagValues.Reviewers
 	}
@@ -515,6 +570,12 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	}
 	if flagState.ReviewPromptFileSet {
 		result.ReviewPromptFile = flagValues.ReviewPromptFile
+	}
+	if flagState.NoFPFilterSet {
+		result.FPFilterEnabled = flagValues.FPFilterEnabled
+	}
+	if flagState.FPThresholdSet {
+		result.FPThreshold = flagValues.FPThreshold
 	}
 
 	return result
