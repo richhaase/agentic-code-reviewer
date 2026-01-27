@@ -1,0 +1,112 @@
+{
+  "branchName": "manual-fp-cache",
+  "feature": "Manual False Positive Marking",
+  "description": "Allow users to mark findings as false positives via a terminal picker. Marked findings are saved to .acr/ignore and skipped in future runs.",
+  "userStories": [
+    {
+      "id": "1",
+      "title": "Create ignore file utilities",
+      "description": "Create a new package with functions to load, save, and match against the .acr/ignore file",
+      "acceptanceCriteria": [
+        "New package at internal/fpcache/",
+        "LoadIgnoreFile(path string) returns []string of patterns, creates empty file if not exists",
+        "SaveIgnoreFile(path string, patterns []string) writes patterns one per line",
+        "MatchesIgnore(title string, patterns []string) returns true if any pattern is substring of title",
+        "Handle empty file and missing directory gracefully"
+      ],
+      "files": ["internal/fpcache/ignore.go"],
+      "passes": false
+    },
+    {
+      "id": "2",
+      "title": "Save last-run findings to file",
+      "description": "After each review, save the findings to .acr/last-run.json for use by the picker",
+      "acceptanceCriteria": [
+        "LastRun struct with Findings []LastRunFinding field",
+        "LastRunFinding struct with Title and Summary fields",
+        "SaveLastRun(path string, findings GroupedFindings) saves findings to JSON",
+        "LoadLastRun(path string) returns LastRun struct",
+        "Creates .acr/ directory if it doesn't exist",
+        "review.go calls SaveLastRun after summarization completes"
+      ],
+      "files": ["internal/fpcache/lastrun.go", "cmd/acr/review.go"],
+      "passes": false
+    },
+    {
+      "id": "3",
+      "title": "Filter findings against ignore file during review",
+      "description": "Before rendering results, filter out any findings that match patterns in .acr/ignore",
+      "acceptanceCriteria": [
+        "ApplyIgnoreFilter(findings GroupedFindings, patterns []string) returns filtered GroupedFindings",
+        "Filters both Findings and Info lists",
+        "review.go loads ignore file and applies filter after FP filter step",
+        "Reports count of ignored findings in output (e.g., '2 skipped from .acr/ignore')",
+        "Works correctly when ignore file doesn't exist (no filtering)"
+      ],
+      "files": ["internal/fpcache/ignore.go", "cmd/acr/review.go"],
+      "passes": false
+    },
+    {
+      "id": "4",
+      "title": "Create terminal picker UI",
+      "description": "Build a terminal UI that displays findings and lets users toggle them as false positives",
+      "acceptanceCriteria": [
+        "RunPicker(findings []LastRunFinding, alreadyIgnored []string) returns selected []string",
+        "Displays findings with checkbox UI: [ ] or [x]",
+        "Shows title and truncated summary for each finding",
+        "Arrow keys (up/down) navigate between findings",
+        "Spacebar toggles selection",
+        "Enter saves and exits, returns selected titles",
+        "q or Esc cancels and returns nil",
+        "Pre-checks findings that are already in ignore file",
+        "Works in non-TTY mode: prints error and exits"
+      ],
+      "files": ["internal/fpcache/picker.go"],
+      "passes": false
+    },
+    {
+      "id": "5",
+      "title": "Add mark-fp command",
+      "description": "Add the 'acr mark-fp' subcommand that launches the picker and updates the ignore file",
+      "acceptanceCriteria": [
+        "New command: acr mark-fp",
+        "Loads .acr/last-run.json, errors if not found with helpful message",
+        "Loads existing .acr/ignore patterns",
+        "Launches picker with findings and existing patterns",
+        "On save, writes selected titles to .acr/ignore (preserves existing, adds new)",
+        "Prints confirmation: 'Added N findings to .acr/ignore'",
+        "On cancel, prints 'Cancelled' and exits cleanly"
+      ],
+      "files": ["cmd/acr/markfp.go", "cmd/acr/main.go"],
+      "passes": false
+    },
+    {
+      "id": "6",
+      "title": "Add tests",
+      "description": "Add unit tests for all new functionality",
+      "acceptanceCriteria": [
+        "Test LoadIgnoreFile with existing file, missing file, empty file",
+        "Test SaveIgnoreFile writes correct format",
+        "Test MatchesIgnore with exact match, substring match, no match, empty patterns",
+        "Test ApplyIgnoreFilter filters correctly, preserves non-matching",
+        "Test SaveLastRun/LoadLastRun round-trip",
+        "All tests pass with make test"
+      ],
+      "files": ["internal/fpcache/ignore_test.go", "internal/fpcache/lastrun_test.go"],
+      "passes": false
+    },
+    {
+      "id": "7",
+      "title": "Documentation",
+      "description": "Document the feature in README and add .acr/last-run.json to suggested gitignore",
+      "acceptanceCriteria": [
+        "README section explaining mark-fp workflow",
+        "Document .acr/ignore file format",
+        "Note that teams can choose to commit or gitignore .acr/ignore",
+        "Recommend gitignoring .acr/last-run.json"
+      ],
+      "files": ["README.md"],
+      "passes": false
+    }
+  ]
+}
