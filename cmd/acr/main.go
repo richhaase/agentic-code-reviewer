@@ -103,6 +103,9 @@ Exit codes:
 	rootCmd.Flags().IntVar(&fpThreshold, "fp-threshold", 75,
 		"False positive confidence threshold 1-100 (default: 75, env: ACR_FP_THRESHOLD)")
 
+	// Add subcommands
+	rootCmd.AddCommand(newMarkFPCmd())
+
 	if err := rootCmd.Execute(); err != nil {
 		// Check if this is an exit code wrapper (not a real error)
 		if exitErr, ok := err.(exitCodeError); ok {
