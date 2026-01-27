@@ -15,6 +15,7 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/config"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/git"
+	"github.com/richhaase/agentic-code-reviewer/internal/github"
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
@@ -142,7 +143,59 @@ func runReview(cmd *cobra.Command, _ []string) error {
 
 	// Handle worktree-based review
 	var workDir string
-	if worktreeBranch != "" {
+
+	// Validate mutual exclusivity
+	if prNumber != "" && worktreeBranch != "" {
+		logger.Log("--pr and --worktree-branch are mutually exclusive", terminal.StyleError)
+		return exitCode(domain.ExitError)
+	}
+
+	// Handle PR-based review
+	if prNumber != "" {
+		if err := github.CheckGHAvailable(); err != nil {
+			logger.Logf(terminal.StyleError, "--pr requires gh CLI: %v", err)
+			return exitCode(domain.ExitError)
+		}
+
+		logger.Logf(terminal.StyleInfo, "Fetching PR %s#%s%s",
+			terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset))
+
+		// Get PR branch name
+		branchName, err := github.GetPRBranch(ctx, prNumber)
+		if err != nil {
+			logger.Logf(terminal.StyleError, "Error: %v", err)
+			return exitCode(domain.ExitError)
+		}
+
+		// Auto-detect base ref if not explicitly set
+		if !cmd.Flags().Changed("base") {
+			if detectedBase, err := github.GetPRBaseRef(ctx, prNumber); err == nil && detectedBase != "" {
+				baseRef = detectedBase
+				logger.Logf(terminal.StyleDim, "Auto-detected base: %s", baseRef)
+			}
+		}
+
+		// Get repo root for worktree creation
+		repoRoot, err := git.GetRoot()
+		if err != nil {
+			logger.Logf(terminal.StyleError, "Error: %v", err)
+			return exitCode(domain.ExitError)
+		}
+
+		wt, err := git.CreateWorktreeFromPR(repoRoot, prNumber, branchName)
+		if err != nil {
+			logger.Logf(terminal.StyleError, "Error: %v", err)
+			return exitCode(domain.ExitError)
+		}
+		defer func() {
+			logger.Log("Cleaning up worktree", terminal.StyleDim)
+			_ = wt.Remove()
+		}()
+
+		logger.Logf(terminal.StyleSuccess, "Worktree ready %s(%s)%s",
+			terminal.Color(terminal.Dim), wt.Path, terminal.Color(terminal.Reset))
+		workDir = wt.Path
+	} else if worktreeBranch != "" {
 		logger.Logf(terminal.StyleInfo, "Creating worktree for %s%s%s",
 			terminal.Color(terminal.Bold), worktreeBranch, terminal.Color(terminal.Reset))
 
