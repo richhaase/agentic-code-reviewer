@@ -54,7 +54,7 @@
         "Keep --no-fp-filter flag unchanged"
       ],
       "files": ["cmd/acr/main.go", "internal/config/config.go"],
-      "passes": false
+      "passes": true
     },
     {
       "id": "5",

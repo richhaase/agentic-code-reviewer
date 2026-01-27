@@ -13,7 +13,7 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
-func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, reviewerAgentNames []string, summarizerAgentName string, useRefFile bool, fpFilterEnabled bool, fpThreshold int, logger *terminal.Logger) domain.ExitCode {
+func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, reviewerAgentNames []string, summarizerAgentName string, useRefFile bool, fpFilterEnabled bool, logger *terminal.Logger) domain.ExitCode {
 	if concurrency < reviewers {
 		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, %d concurrent, base=%s)%s",
 			terminal.Color(terminal.Dim), reviewers, concurrency, baseRef, terminal.Color(terminal.Reset))
@@ -129,7 +129,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 			close(fpSpinnerDone)
 		}()
 
-		fpFilter := fpfilter.New(summarizerAgentName, fpThreshold)
+		fpFilter := fpfilter.New(summarizerAgentName)
 		fpResult, err := fpFilter.Apply(ctx, summaryResult.Grouped)
 		fpSpinnerCancel()
 		<-fpSpinnerDone

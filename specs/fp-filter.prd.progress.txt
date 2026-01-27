@@ -150,3 +150,67 @@
 - Story 6: Can now write comprehensive tests for the boolean filtering behavior
 
 ---
+
+## Iteration 4 - Story 4: Remove threshold CLI flag
+
+**Why this story was selected:**
+- Stories 1, 2, and 3 are complete (all foundation work done)
+- Story 4 has zero dependencies since the filter logic (Story 3) is complete
+- Unblocks Story 5 - Story 5 needs to remove threshold-related code from review.go, which depends on CLI flag being removed for consistency
+- Clean separation - pure cleanup work (removing old code) vs. integration work (Story 5) or test work (Story 6)
+- Low risk - just removing unused configuration, no new logic
+- Logical sequence - remove the configuration mechanism before cleaning up the call sites
+
+**What was implemented:**
+1. Removed `--fp-threshold` flag from cmd/acr/main.go:
+   - Removed `fpThreshold` variable declaration
+   - Removed flag definition for `--fp-threshold`
+   - Removed `FPThresholdSet` from `config.FlagState`
+   - Removed `fpThreshold` from `config.ResolvedConfig` passed to flag values
+   - Removed `fpThreshold` parameter from `executeReview()` call
+
+2. Updated review.go to remove threshold parameter:
+   - Removed `fpThreshold int` parameter from `executeReview()` function signature
+   - Updated `fpfilter.New()` call to remove threshold argument
+
+3. Removed threshold from fpfilter package:
+   - Removed `DefaultThreshold` constant (was 75)
+   - Removed `threshold` field from `Filter` struct
+   - Updated `New()` function to only accept `agentName` parameter
+   - Removed threshold validation logic from `New()`
+   - Removed `TestNewFilter` test that validated threshold behavior
+
+4. Removed fp_filter.threshold from config package:
+   - Removed `Threshold *int` field from `FPFilterConfig` struct
+   - Updated `knownFPFilterKeys` to only include "enabled"
+   - Removed threshold validation from `Config.Validate()`
+   - Removed `FPThreshold` field from `ResolvedConfig` struct
+   - Removed `FPThreshold` from `Defaults` variable
+   - Removed `FPThresholdSet` field from `FlagState` struct
+   - Removed `FPThreshold` and `FPThresholdSet` fields from `EnvState` struct
+   - Removed ACR_FP_THRESHOLD env var handling from `LoadEnvState()`
+   - Removed all threshold resolution logic from `Resolve()` function
+
+**Gotchas and patterns discovered:**
+- Removing a configuration parameter requires updates across 4 layers:
+  1. CLI flag layer (main.go)
+  2. Function signature layer (review.go)
+  3. Implementation layer (fpfilter/filter.go)
+  4. Config file support layer (config/config.go)
+- The threshold field was pervasive but actually unused in the filtering logic (Story 3 made it obsolete)
+- Config package has complex precedence resolution (flags > env > config > defaults), so threshold had to be removed from ALL layers
+- Tests are sensitive to struct changes - removed TestNewFilter since it was testing threshold validation behavior
+- The existing TestFindingEvaluation test is still valid and correctly validates the boolean filtering data structures
+
+**Files modified:**
+- cmd/acr/main.go (removed flag, variable, and parameter passing)
+- cmd/acr/review.go (removed parameter from executeReview signature and fpfilter.New call)
+- internal/fpfilter/filter.go (removed threshold field and DefaultThreshold constant)
+- internal/fpfilter/filter_test.go (removed TestNewFilter)
+- internal/config/config.go (removed threshold from all config structures and resolution logic)
+
+**What stories are now unblocked:**
+- Story 5: Can now update review integration without threshold references
+- Story 6: Can now write tests knowing the final config structure (no threshold)
+
+---

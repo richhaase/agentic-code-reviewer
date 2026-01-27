@@ -67,27 +67,3 @@ func TestFindingEvaluationConstruction(t *testing.T) {
 		})
 	}
 }
-
-func TestNewFilter(t *testing.T) {
-	tests := []struct {
-		name      string
-		threshold int
-		want      int
-	}{
-		{"valid threshold", 50, 50},
-		{"zero uses default", 0, DefaultThreshold},
-		{"negative uses default", -1, DefaultThreshold},
-		{"above 100 uses default", 101, DefaultThreshold},
-		{"exactly 100", 100, 100},
-		{"exactly 1", 1, 1},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := New("claude", tt.threshold)
-			if f.threshold != tt.want {
-				t.Errorf("threshold = %d, want %d", f.threshold, tt.want)
-			}
-		})
-	}
-}

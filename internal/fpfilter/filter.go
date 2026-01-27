@@ -11,8 +11,6 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
-const DefaultThreshold = 75
-
 // FindingEvaluation represents a finding with fields for in-place evaluation.
 // The LLM agent receives this with IsFalsePositive and Reasoning as null,
 // and returns the same structure with those fields filled in.
@@ -55,16 +53,11 @@ type EvaluatedFinding struct {
 
 type Filter struct {
 	agentName string
-	threshold int
 }
 
-func New(agentName string, threshold int) *Filter {
-	if threshold < 1 || threshold > 100 {
-		threshold = DefaultThreshold
-	}
+func New(agentName string) *Filter {
 	return &Filter{
 		agentName: agentName,
-		threshold: threshold,
 	}
 }
 
