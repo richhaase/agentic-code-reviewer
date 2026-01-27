@@ -13,7 +13,7 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
-func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, reviewerAgentNames []string, summarizerAgentName string, useRefFile bool, fpFilterEnabled bool, fpThreshold int, logger *terminal.Logger) domain.ExitCode {
+func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, reviewerAgentNames []string, summarizerAgentName string, useRefFile bool, fpFilterEnabled bool, logger *terminal.Logger) domain.ExitCode {
 	if concurrency < reviewers {
 		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, %d concurrent, base=%s)%s",
 			terminal.Color(terminal.Dim), reviewers, concurrency, baseRef, terminal.Color(terminal.Reset))
@@ -120,6 +120,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 	stats.SummarizerDuration = summaryResult.Duration
 
 	var fpFilteredCount int
+	var fpFilteredFindings []fpfilter.FilteredFinding // Store filtered findings for potential future use
 	if fpFilterEnabled && summaryResult.ExitCode == 0 && len(summaryResult.Grouped.Findings) > 0 && ctx.Err() == nil {
 		fpSpinner := terminal.NewPhaseSpinner("Filtering false positives")
 		fpSpinnerCtx, fpSpinnerCancel := context.WithCancel(ctx)
@@ -129,15 +130,21 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 			close(fpSpinnerDone)
 		}()
 
-		fpFilter := fpfilter.New(summarizerAgentName, fpThreshold)
+		fpFilter := fpfilter.New(summarizerAgentName)
 		fpResult, err := fpFilter.Apply(ctx, summaryResult.Grouped)
 		fpSpinnerCancel()
 		<-fpSpinnerDone
 
 		if err == nil && fpResult != nil {
-			summaryResult.Grouped = fpResult.Grouped
-			fpFilteredCount = fpResult.RemovedCount
+			summaryResult.Grouped = fpResult.Kept
+			fpFilteredFindings = fpResult.Filtered
+			fpFilteredCount = fpResult.FilteredCount
 			stats.FPFilterDuration = fpResult.Duration
+
+			// Log filtered findings in verbose mode
+			if verbose && len(fpFilteredFindings) > 0 {
+				logger.Logf(terminal.StyleDim, "Filtered %d finding(s) as false positives", len(fpFilteredFindings))
+			}
 		} else if err != nil && ctx.Err() == nil {
 			logger.Logf(terminal.StyleWarning, "FP filter error (continuing without filter): %v", err)
 		}

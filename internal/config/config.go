@@ -69,8 +69,7 @@ type Config struct {
 }
 
 type FPFilterConfig struct {
-	Enabled   *bool `yaml:"enabled"`
-	Threshold *int  `yaml:"threshold"`
+	Enabled *bool `yaml:"enabled"`
 }
 
 // FilterConfig holds filter-related configuration.
@@ -152,7 +151,7 @@ func (c *Config) validatePatterns() error {
 
 var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "reviewer_agent", "reviewer_agents", "summarizer_agent", "review_prompt", "review_prompt_file", "filters", "fp_filter"}
 
-var knownFPFilterKeys = []string{"enabled", "threshold"}
+var knownFPFilterKeys = []string{"enabled"}
 
 // knownFilterKeys are the valid keys under the "filters" section.
 var knownFilterKeys = []string{"exclude_patterns"}
@@ -318,9 +317,6 @@ func (c *Config) Validate() error {
 	if c.SummarizerAgent != nil && !slices.Contains(agent.SupportedAgents, *c.SummarizerAgent) {
 		return fmt.Errorf("summarizer_agent must be one of %v, got %q", agent.SupportedAgents, *c.SummarizerAgent)
 	}
-	if c.FPFilter.Threshold != nil && (*c.FPFilter.Threshold < 1 || *c.FPFilter.Threshold > 100) {
-		return fmt.Errorf("fp_filter.threshold must be 1-100, got %d", *c.FPFilter.Threshold)
-	}
 	return nil
 }
 
@@ -333,7 +329,6 @@ var Defaults = ResolvedConfig{
 	ReviewerAgents:  []string{agent.DefaultAgent},
 	SummarizerAgent: agent.DefaultSummarizerAgent,
 	FPFilterEnabled: true,
-	FPThreshold:     75,
 }
 
 type ResolvedConfig struct {
@@ -347,7 +342,6 @@ type ResolvedConfig struct {
 	ReviewPrompt     string
 	ReviewPromptFile string
 	FPFilterEnabled  bool
-	FPThreshold      int
 }
 
 type FlagState struct {
@@ -361,7 +355,6 @@ type FlagState struct {
 	ReviewPromptSet     bool
 	ReviewPromptFileSet bool
 	NoFPFilterSet       bool
-	FPThresholdSet      bool
 }
 
 type EnvState struct {
@@ -385,8 +378,6 @@ type EnvState struct {
 	ReviewPromptFileSet bool
 	FPFilterEnabled     bool
 	FPFilterSet         bool
-	FPThreshold         int
-	FPThresholdSet      bool
 }
 
 // LoadEnvState reads environment variables and returns their state.
@@ -454,13 +445,6 @@ func LoadEnvState() EnvState {
 		}
 	}
 
-	if v := os.Getenv("ACR_FP_THRESHOLD"); v != "" {
-		if i, err := strconv.Atoi(v); err == nil && i >= 1 && i <= 100 {
-			state.FPThreshold = i
-			state.FPThresholdSet = true
-		}
-	}
-
 	return state
 }
 
@@ -504,9 +488,6 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 		if cfg.FPFilter.Enabled != nil {
 			result.FPFilterEnabled = *cfg.FPFilter.Enabled
 		}
-		if cfg.FPFilter.Threshold != nil {
-			result.FPThreshold = *cfg.FPFilter.Threshold
-		}
 	}
 
 	// Apply env var values (if set)
@@ -540,9 +521,6 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	if envState.FPFilterSet {
 		result.FPFilterEnabled = envState.FPFilterEnabled
 	}
-	if envState.FPThresholdSet {
-		result.FPThreshold = envState.FPThreshold
-	}
 
 	if flagState.ReviewersSet {
 		result.Reviewers = flagValues.Reviewers
@@ -573,9 +551,6 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	}
 	if flagState.NoFPFilterSet {
 		result.FPFilterEnabled = flagValues.FPFilterEnabled
-	}
-	if flagState.FPThresholdSet {
-		result.FPThreshold = flagValues.FPThreshold
 	}
 
 	return result

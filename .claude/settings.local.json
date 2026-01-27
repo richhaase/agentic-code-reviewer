@@ -11,7 +11,14 @@
       "Bash(git add:*)",
       "Bash(git rebase:*)",
       "Bash(GIT_EDITOR=true git rebase:*)",
-      "Bash(git -c core.editor=true rebase:*)"
+      "Bash(git -c core.editor=true rebase:*)",
+      "WebSearch",
+      "WebFetch(domain:ghuntley.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.aihero.dev)",
+      "WebFetch(domain:awesomeclaude.ai)",
+      "Bash(grep:*)",
+      "Bash(chmod:*)"
     ]
   }
 }
