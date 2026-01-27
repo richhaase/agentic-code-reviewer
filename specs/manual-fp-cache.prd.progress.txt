@@ -1,0 +1,106 @@
+# Manual False Positive Marking - Progress Log
+
+## Iteration 1 - Story 3: Filter findings against ignore file during review
+
+### Why this story was selected
+Stories 1 and 2 were already completed in previous commits:
+- Story 1 (commit bb8cadc): Created ignore file utilities in internal/fpcache/ignore.go
+- Story 2 (commit d7be5e6): Implemented last-run saving in internal/fpcache/lastrun.go
+
+Story 3 was selected because:
+1. It builds on Story 1 (ignore file utilities) which is now complete
+2. It's a foundational feature for the entire workflow - provides the actual filtering mechanism
+3. It unblocks the full end-to-end flow once Story 4 (picker UI) and Story 5 (mark-fp command) are complete
+4. Stories 4 and 5 depend on this filtering actually working
+5. It's a core feature that should be implemented before tests (Story 6)
+
+### What was implemented
+Added ignore file filtering to the review pipeline:
+1. Load .acr/ignore patterns after the FP filter step (cmd/acr/review.go:158-168)
+2. Apply ignore filter using fpcache.ApplyIgnoreFilter() if patterns exist
+3. Track ignored count in stats.IgnoredCount (domain.ReviewStats)
+4. Display ignored count in terminal report with format: "ℹ N finding(s) skipped from .acr/ignore"
+
+The implementation follows the existing pattern from the FP filter:
+- Loads ignore file (creating empty if not exists)
+- Applies filter to GroupedFindings (both Findings and Info)
+- Tracks count in ReviewStats
+- Displays in report with dimmed informational style
+
+### Files modified
+- cmd/acr/review.go - Added ignore file loading and filtering logic after FP filter
+- internal/domain/result.go - Added IgnoredCount int field to ReviewStats struct
+- internal/runner/report.go - Added ignored count display in terminal report
+
+### Gotchas and patterns discovered
+1. The ignore filter is applied AFTER the FP filter (line 158), which is correct - we want to filter findings that have already been through FP detection
+2. The implementation handles missing ignore files gracefully - LoadIgnoreFile creates an empty file if it doesn't exist, so no special error handling needed
+3. The report display follows the same pattern as FPFilteredCount - dimmed info style, singular/plural handling
+4. No need to fail the review if ignore file loading fails - just log a warning
+
+### Stories now unblocked
+- Story 5 (mark-fp command) is now closer to being functional - the filtering mechanism is in place
+- Story 6 (tests) can now test the full ignore filter flow
+
+### Next steps
+The logical next story is:
+- **Story 4** (Terminal picker UI) - Required for Story 5, independent of Story 3
+- Then **Story 5** (mark-fp command) - Ties everything together
+- Then **Story 6** (Tests) - Cover all functionality
+- Finally **Story 7** (Documentation)
+
+---
+
+## Iteration 2 - FINAL: All Stories Complete
+
+### Status Check
+All user stories from the PRD have been implemented in previous commits:
+
+1. **Story 1** (bb8cadc) - Ignore file utilities ✓
+2. **Story 2** (d7be5e6) - Save last-run findings ✓
+3. **Story 3** (0f14e56) - Filter findings against ignore file ✓
+4. **Story 4** (9293348) - Terminal picker UI ✓
+5. **Story 5** (34d6e45) - mark-fp command ✓
+6. **Story 6** (0f78b07) - Unit tests ✓
+7. **Story 7** (1616952) - Documentation ✓
+
+### Quality Verification
+Ran `make check` to verify all quality gates pass:
+- Formatting: PASS
+- golangci-lint v2: PASS (0 issues)
+- go vet: PASS
+- staticcheck: PASS
+- Unit tests: PASS (all packages)
+
+### Feature Summary
+The Manual False Positive Marking feature is now complete. Users can:
+1. Run `acr` to review code and save findings to `.acr/last-run.json`
+2. Run `acr mark-fp` to launch an interactive picker
+3. Use arrow keys/spacebar to mark findings as false positives
+4. Press Enter to save selections to `.acr/ignore`
+5. Future reviews automatically skip ignored findings
+
+### Files Created/Modified
+- `internal/fpcache/ignore.go` - Ignore file utilities
+- `internal/fpcache/lastrun.go` - Last-run persistence
+- `internal/fpcache/picker.go` - Terminal picker UI
+- `internal/fpcache/ignore_test.go` - Ignore tests
+- `internal/fpcache/lastrun_test.go` - Last-run tests
+- `cmd/acr/markfp.go` - mark-fp command
+- `cmd/acr/main.go` - Command registration
+- `cmd/acr/review.go` - Ignore filter integration
+- `internal/domain/result.go` - IgnoredCount field
+- `internal/runner/report.go` - Ignore count display
+- `README.md` - Feature documentation
+
+### All Acceptance Criteria Met
+All acceptance criteria from all 7 stories have been verified and implemented. The PRD file has been updated to mark all stories as `"passes": true`.
+
+### Final Notes
+This was a well-structured feature implementation with clear separation of concerns:
+- Data layer (fpcache package)
+- Integration layer (review.go, markfp.go)
+- UI layer (picker.go, report.go)
+- Tests covering all utilities
+
+The feature follows existing ACR patterns and integrates seamlessly with the review pipeline.

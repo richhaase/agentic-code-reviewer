@@ -255,6 +255,92 @@ Use `--yes` to auto-submit with defaults (request-changes for findings, approve 
 
 Requires the `gh` CLI to be authenticated.
 
+## False Positive Management
+
+ACR provides an interactive workflow to mark findings as false positives, automatically filtering them from future reviews.
+
+### Workflow
+
+```bash
+# 1. Run a review (saves findings to .acr/last-run.json)
+acr
+
+# 2. Launch the interactive picker to mark false positives
+acr mark-fp
+
+# 3. Future reviews automatically filter out marked findings
+acr  # marked findings are skipped
+```
+
+### Using the Picker
+
+The `acr mark-fp` command displays an interactive terminal UI:
+
+```
+Mark False Positives
+
+[ ] Missing error handling in handleRequest
+    Summary: Function handleRequest doesn't check error return from parseRequest...
+
+[x] Unused import in config.go
+    Summary: Import "fmt" is imported but never used...
+
+[↑↓] navigate  [space] toggle  [enter] save  [q] cancel
+```
+
+Controls:
+- `↑`/`↓` or `k`/`j` - Navigate between findings
+- `space` - Toggle selection
+- `enter` - Save selections to `.acr/ignore`
+- `q` or `esc` - Cancel without saving
+
+Already-ignored findings appear pre-checked in the picker.
+
+### The .acr/ignore File
+
+Marked findings are saved to `.acr/ignore`, one pattern per line:
+
+```
+Missing error handling in handleRequest
+Unused import in config.go
+Variable 'ctx' is unused in processData
+```
+
+Patterns are matched as substrings against finding titles (case-sensitive). You can also edit this file manually.
+
+### Git Integration
+
+Teams can choose how to handle `.acr/ignore`:
+
+**Option 1: Commit to repository (recommended for teams)**
+```bash
+# Share false positive decisions across the team
+git add .acr/ignore
+git commit -m "Mark config warnings as false positives"
+```
+
+**Option 2: Keep local (recommended for individual workflows)**
+```gitignore
+# Add to .gitignore to keep personal false positive lists
+.acr/ignore
+```
+
+**Always gitignore the last-run file:**
+```gitignore
+# This file is temporary and should not be committed
+.acr/last-run.json
+```
+
+The `.acr/last-run.json` file is regenerated on every review and contains the full findings list for the picker. It's not meant to be committed.
+
+### Filtering Report
+
+When findings are filtered by `.acr/ignore`, the review report shows:
+
+```
+ℹ 2 findings skipped from .acr/ignore
+```
+
 ## Development
 
 ```bash

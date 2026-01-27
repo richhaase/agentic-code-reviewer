@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/filter"
+	"github.com/richhaase/agentic-code-reviewer/internal/fpcache"
 	"github.com/richhaase/agentic-code-reviewer/internal/fpfilter"
 	"github.com/richhaase/agentic-code-reviewer/internal/runner"
 	"github.com/richhaase/agentic-code-reviewer/internal/summarizer"
@@ -151,6 +153,27 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 			return domain.ExitError
 		}
 		summaryResult.Grouped = f.Apply(summaryResult.Grouped)
+	}
+
+	// Apply ignore file filter
+	ignorePath := filepath.Join(workDir, ".acr", "ignore")
+	ignorePatterns, err := fpcache.LoadIgnoreFile(ignorePath)
+	if err != nil {
+		logger.Logf(terminal.StyleWarning, "Failed to load ignore file: %v", err)
+	}
+	var ignoredCount int
+	if len(ignorePatterns) > 0 {
+		summaryResult.Grouped, ignoredCount = fpcache.ApplyIgnoreFilter(summaryResult.Grouped, ignorePatterns)
+	}
+	stats.IgnoredCount = ignoredCount
+
+	// Save findings to last-run file
+	lastRunPath := filepath.Join(workDir, ".acr", "last-run.json")
+	if err := fpcache.SaveLastRun(lastRunPath, summaryResult.Grouped); err != nil {
+		// Log warning but don't fail the review
+		if verbose {
+			logger.Logf(terminal.StyleWarning, "Failed to save last-run file: %v", err)
+		}
 	}
 
 	// Render and print report
