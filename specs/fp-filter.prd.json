@@ -81,7 +81,7 @@
         "All tests pass with make test"
       ],
       "files": ["internal/fpfilter/filter_test.go"],
-      "passes": false
+      "passes": true
     }
   ]
 }
