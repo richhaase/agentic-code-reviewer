@@ -134,3 +134,71 @@ func CreateWorktree(branch string) (*Worktree, error) {
 		repoRoot: repoRoot,
 	}, nil
 }
+
+// fetchPRRef fetches a PR ref from origin into a local branch.
+func fetchPRRef(repoRoot, prNumber, branch string) error {
+	// Fetch PR head into local branch: git fetch origin pull/N/head:branch
+	refSpec := fmt.Sprintf("pull/%s/head:%s", prNumber, branch)
+	cmd := exec.Command("git", "fetch", "origin", refSpec)
+	cmd.Dir = repoRoot
+	if out, err := cmd.CombinedOutput(); err != nil {
+		output := strings.TrimSpace(string(out))
+		if output != "" {
+			return fmt.Errorf("failed to fetch PR #%s (%s): %w", prNumber, output, err)
+		}
+		return fmt.Errorf("failed to fetch PR #%s: %w", prNumber, err)
+	}
+	return nil
+}
+
+// CreateWorktreeFromPR fetches a PR and creates a worktree for it.
+// The branchName parameter is the name to use for the local branch.
+// The caller is responsible for calling Remove() on the returned Worktree.
+func CreateWorktreeFromPR(repoRoot, prNumber, branchName string) (*Worktree, error) {
+	// Fetch the PR ref into a local branch
+	if err := fetchPRRef(repoRoot, prNumber, branchName); err != nil {
+		return nil, err
+	}
+
+	// Use existing CreateWorktree to create the worktree
+	// But we need to run from the repo root context
+	commonDir, err := GetCommonDir()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := ensureWorktreesExcluded(commonDir); err != nil {
+		return nil, err
+	}
+
+	// Generate unique ID
+	idBytes := make([]byte, 4)
+	if _, err := rand.Read(idBytes); err != nil {
+		return nil, fmt.Errorf("failed to generate worktree ID: %w", err)
+	}
+	worktreeID := hex.EncodeToString(idBytes)
+
+	safeBranch := strings.ReplaceAll(branchName, "/", "-")
+	worktreeName := fmt.Sprintf("review-pr%s-%s-%s", prNumber, safeBranch, worktreeID)
+	worktreesDir := filepath.Join(repoRoot, ".worktrees")
+	worktreePath := filepath.Join(worktreesDir, worktreeName)
+
+	if err := os.MkdirAll(worktreesDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create worktrees directory: %w", err)
+	}
+
+	cmd := exec.Command("git", "worktree", "add", worktreePath, branchName)
+	cmd.Dir = repoRoot
+	if out, err := cmd.CombinedOutput(); err != nil {
+		output := strings.TrimSpace(string(out))
+		if output != "" {
+			return nil, fmt.Errorf("failed to create worktree for PR #%s (%s): %w", prNumber, output, err)
+		}
+		return nil, fmt.Errorf("failed to create worktree for PR #%s: %w", prNumber, err)
+	}
+
+	return &Worktree{
+		Path:     worktreePath,
+		repoRoot: repoRoot,
+	}, nil
+}

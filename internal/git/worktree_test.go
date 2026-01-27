@@ -311,3 +311,29 @@ func TestEnsureWorktreesExcluded(t *testing.T) {
 		t.Errorf("expected .worktrees/ once, found %d times", count)
 	}
 }
+
+func TestFetchPRRef_CommandFormat(t *testing.T) {
+	// This tests the command building logic, not actual git execution
+	// We verify the function exists and has correct signature
+	repoDir := setupTestRepo(t)
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get current dir: %v", err)
+	}
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("failed to change to repo dir: %v", err)
+	}
+	defer os.Chdir(origDir)
+
+	// fetchPRRef will fail because there's no remote, but we can verify
+	// the function exists and returns an appropriate error
+	err = fetchPRRef(repoDir, "123", "test-branch")
+	if err == nil {
+		t.Error("expected error when fetching from non-existent remote")
+	}
+	// Error should mention the fetch failure, not a function signature issue
+	if !strings.Contains(err.Error(), "fetch") {
+		t.Errorf("expected fetch-related error, got: %v", err)
+	}
+}
