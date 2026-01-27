@@ -1,0 +1,87 @@
+{
+  "branchName": "deterministic-fp-filter",
+  "feature": "Deterministic False Positive Filtering",
+  "description": "Replace threshold-based FP filtering with boolean in-place updates for more reliable, auditable filtering",
+  "userStories": [
+    {
+      "id": "1",
+      "title": "Define in-place evaluation data structures",
+      "description": "Create new data structures that use the same JSON schema for input and output, with is_false_positive and reasoning fields",
+      "acceptanceCriteria": [
+        "FindingEvaluation struct with ID, Title, Summary, Messages, ReviewerCount, IsFalsePositive (*bool), Reasoning (*string)",
+        "EvaluationPayload struct wrapping []FindingEvaluation",
+        "FilteredFinding struct with Finding and Reasoning fields",
+        "Updated Result struct with Kept, Filtered, FilteredCount, Duration, ParseErrors fields"
+      ],
+      "files": ["internal/fpfilter/filter.go"],
+      "passes": true
+    },
+    {
+      "id": "2",
+      "title": "Update FP filter prompt for boolean output",
+      "description": "Rewrite the evaluation prompt to instruct the agent to set is_false_positive to true/false instead of returning a numeric score",
+      "acceptanceCriteria": [
+        "Prompt instructs agent to fill is_false_positive (boolean) and reasoning (string) for each finding",
+        "Examples show in-place update pattern with same structure in and out",
+        "Remove all references to fp_score and numeric thresholds",
+        "Keep reviewer_count guidance for agent reasoning"
+      ],
+      "files": ["internal/fpfilter/prompt.go"],
+      "passes": false
+    },
+    {
+      "id": "3",
+      "title": "Implement in-place filter logic",
+      "description": "Update Apply() to send findings with null fields, receive filled fields, and filter by boolean",
+      "acceptanceCriteria": [
+        "Apply() converts GroupedFindings to EvaluationPayload with null IsFalsePositive/Reasoning",
+        "Agent response parsed back into same EvaluationPayload structure",
+        "Findings filtered by IsFalsePositive == true",
+        "Filtered findings preserved in Result.Filtered with reasoning",
+        "Parse errors handled gracefully (keep finding if agent didn't fill fields)"
+      ],
+      "files": ["internal/fpfilter/filter.go"],
+      "passes": false
+    },
+    {
+      "id": "4",
+      "title": "Remove threshold CLI flag",
+      "description": "Remove --fp-threshold flag since filtering is now boolean-based",
+      "acceptanceCriteria": [
+        "Remove --fp-threshold flag from cmd/acr/main.go",
+        "Remove ACR_FP_THRESHOLD env var handling",
+        "Remove fp_threshold from config file support",
+        "Keep --no-fp-filter flag unchanged"
+      ],
+      "files": ["cmd/acr/main.go", "internal/config/config.go"],
+      "passes": false
+    },
+    {
+      "id": "5",
+      "title": "Update review integration",
+      "description": "Update review.go to use new Result structure and preserve filtered findings",
+      "acceptanceCriteria": [
+        "fpResult.Filtered stored for potential future use",
+        "Remove any threshold-related code",
+        "FilteredCount correctly reflects number of filtered findings"
+      ],
+      "files": ["cmd/acr/review.go"],
+      "passes": false
+    },
+    {
+      "id": "6",
+      "title": "Update and add tests",
+      "description": "Update existing tests and add new tests for boolean filtering",
+      "acceptanceCriteria": [
+        "Remove threshold validation tests",
+        "Add test for FindingEvaluation JSON marshaling/unmarshaling",
+        "Add test for in-place update parsing (null -> filled)",
+        "Add test for filtering by IsFalsePositive boolean",
+        "Add test for parse error handling (missing fields)",
+        "All tests pass with make test"
+      ],
+      "files": ["internal/fpfilter/filter_test.go"],
+      "passes": false
+    }
+  ]
+}

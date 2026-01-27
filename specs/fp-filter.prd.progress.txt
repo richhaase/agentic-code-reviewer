@@ -1,0 +1,55 @@
+# Deterministic FP Filter - Progress Log
+
+## Project Context
+- Codebase: ACR (Agentic Code Reviewer) - Go CLI for parallel LLM code reviews
+- Current FP filter location: internal/fpfilter/
+- Build command: make build
+- Test command: make test
+- Lint command: make check
+
+## Learnings
+(Entries will be added by Ralph as work progresses)
+
+---
+
+## Iteration 1 - Story 1: Define in-place evaluation data structures
+
+**Why this story was selected:**
+- Foundation story with ZERO dependencies
+- Blocks Stories 2, 3, and 5 - all depend on these new data structures
+- Low risk - purely structural changes (adding types, no behavioral changes)
+- Following the principle of "foundation first" to unblock parallel work in future iterations
+
+**What was implemented:**
+1. Added `FindingEvaluation` struct with:
+   - Core fields: ID, Title, Summary, Messages, ReviewerCount
+   - Nullable evaluation fields: IsFalsePositive (*bool), Reasoning (*string)
+   - These use pointers to support null/filled distinction in JSON
+2. Added `EvaluationPayload` wrapper struct containing []FindingEvaluation
+3. Added `FilteredFinding` struct with Finding and Reasoning fields
+4. Updated `Result` struct with new field names:
+   - Grouped → Kept (more descriptive of what's kept after filtering)
+   - Removed → Filtered (consistent terminology)
+   - RemovedCount → FilteredCount
+   - EvalErrors → ParseErrors (more accurate description)
+5. Updated `Apply()` function in filter.go to use new field names
+6. Updated review.go to reference new Result field names (Kept, FilteredCount)
+7. Kept old `EvaluatedFinding` struct marked as deprecated for backward compatibility during transition
+
+**Gotchas and patterns discovered:**
+- Using pointer types (*bool, *string) is the Go idiom for nullable JSON fields
+- The `omitempty` JSON tag allows fields to be omitted when null (important for the in-place pattern)
+- Changed field names cascade through Apply() function and its call site in review.go
+- Go's type system caught all field rename issues at compile time
+- Existing tests still pass because they don't directly inspect Result fields
+
+**Files modified:**
+- internal/fpfilter/filter.go (new structs, Apply() updates)
+- cmd/acr/review.go (Result field name updates)
+
+**What stories are now unblocked:**
+- Story 2: Can now reference FindingEvaluation in the new prompt
+- Story 3: Can now use EvaluationPayload and parse into FindingEvaluation
+- Story 5: Can now use the new Result structure with Kept/Filtered fields
+
+---

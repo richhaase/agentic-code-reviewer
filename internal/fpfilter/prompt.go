@@ -58,7 +58,7 @@ The reviewer_count indicates how many independent reviewers found this issue:
 
 EXAMPLE 1:
 Finding: {"id": 0, "title": "Add error handling for database connection", "summary": "The database connection error is silently ignored", "messages": ["db.Connect() error not checked on line 42"], "reviewer_count": 7}
-Reasoning: Error from db.Connect() is discarded. 7/10 reviewers found this - strong agreement it's a real issue.
+Reasoning: Error from db.Connect() is discarded. 7 reviewers found this - strong agreement it's a real issue.
 fp_score: 10
 Why: Specific bug with high reviewer agreement.
 

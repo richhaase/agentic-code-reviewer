@@ -135,8 +135,8 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		<-fpSpinnerDone
 
 		if err == nil && fpResult != nil {
-			summaryResult.Grouped = fpResult.Grouped
-			fpFilteredCount = fpResult.RemovedCount
+			summaryResult.Grouped = fpResult.Kept
+			fpFilteredCount = fpResult.FilteredCount
 			stats.FPFilterDuration = fpResult.Duration
 		} else if err != nil && ctx.Err() == nil {
 			logger.Logf(terminal.StyleWarning, "FP filter error (continuing without filter): %v", err)

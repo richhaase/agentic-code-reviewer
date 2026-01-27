@@ -13,18 +13,44 @@ import (
 
 const DefaultThreshold = 75
 
+// FindingEvaluation represents a finding with fields for in-place evaluation.
+// The LLM agent receives this with IsFalsePositive and Reasoning as null,
+// and returns the same structure with those fields filled in.
+type FindingEvaluation struct {
+	ID              int      `json:"id"`
+	Title           string   `json:"title"`
+	Summary         string   `json:"summary"`
+	Messages        []string `json:"messages"`
+	ReviewerCount   int      `json:"reviewer_count"`
+	IsFalsePositive *bool    `json:"is_false_positive,omitempty"`
+	Reasoning       *string  `json:"reasoning,omitempty"`
+}
+
+// EvaluationPayload wraps the findings array for LLM input/output.
+type EvaluationPayload struct {
+	Findings []FindingEvaluation `json:"findings"`
+}
+
+// FilteredFinding represents a finding that was filtered out as a false positive.
+type FilteredFinding struct {
+	Finding   domain.FindingGroup
+	Reasoning string
+}
+
+// Result represents the output of the false positive filter.
+type Result struct {
+	Kept          domain.GroupedFindings
+	Filtered      []FilteredFinding
+	FilteredCount int
+	Duration      time.Duration
+	ParseErrors   int
+}
+
+// EvaluatedFinding represents a finding with its evaluation score (deprecated).
 type EvaluatedFinding struct {
 	Finding   domain.FindingGroup
 	FPScore   int
 	Reasoning string
-}
-
-type Result struct {
-	Grouped      domain.GroupedFindings
-	Removed      []EvaluatedFinding
-	RemovedCount int
-	Duration     time.Duration
-	EvalErrors   int
 }
 
 type Filter struct {
@@ -69,7 +95,7 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 
 	if len(grouped.Findings) == 0 {
 		return &Result{
-			Grouped:  grouped,
+			Kept:     grouped,
 			Duration: time.Since(start),
 		}, nil
 	}
@@ -101,7 +127,7 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 	if err != nil {
 		if ctx.Err() != nil {
 			return &Result{
-				Grouped:  grouped,
+				Kept:     grouped,
 				Duration: time.Since(start),
 			}, nil
 		}
@@ -115,7 +141,7 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 		}
 		if ctx.Err() != nil {
 			return &Result{
-				Grouped:  grouped,
+				Kept:     grouped,
 				Duration: time.Since(start),
 			}, nil
 		}
@@ -131,9 +157,9 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 	var response evaluationResponse
 	if err := json.Unmarshal([]byte(cleanedOutput), &response); err != nil {
 		return &Result{
-			Grouped:    grouped,
-			Duration:   time.Since(start),
-			EvalErrors: len(grouped.Findings),
+			Kept:        grouped,
+			Duration:    time.Since(start),
+			ParseErrors: len(grouped.Findings),
 		}, nil
 	}
 
@@ -143,21 +169,20 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 	}
 
 	var kept []domain.FindingGroup
-	var removed []EvaluatedFinding
-	evalErrors := 0
+	var filtered []FilteredFinding
+	parseErrors := 0
 
 	for i, finding := range grouped.Findings {
 		eval, ok := evalMap[i]
 		if !ok {
 			kept = append(kept, finding)
-			evalErrors++
+			parseErrors++
 			continue
 		}
 
 		if eval.FPScore >= f.threshold {
-			removed = append(removed, EvaluatedFinding{
+			filtered = append(filtered, FilteredFinding{
 				Finding:   finding,
-				FPScore:   eval.FPScore,
 				Reasoning: eval.Reasoning,
 			})
 		} else {
@@ -166,13 +191,13 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 	}
 
 	return &Result{
-		Grouped: domain.GroupedFindings{
+		Kept: domain.GroupedFindings{
 			Findings: kept,
 			Info:     grouped.Info,
 		},
-		Removed:      removed,
-		RemovedCount: len(removed),
-		Duration:     time.Since(start),
-		EvalErrors:   evalErrors,
+		Filtered:      filtered,
+		FilteredCount: len(filtered),
+		Duration:      time.Since(start),
+		ParseErrors:   parseErrors,
 	}, nil
 }
