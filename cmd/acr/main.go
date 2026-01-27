@@ -29,6 +29,7 @@ var (
 	verbose             bool
 	local               bool
 	worktreeBranch      string
+	prNumber            string
 	autoYes             bool
 	excludePatterns     []string
 	noConfig            bool
@@ -83,6 +84,8 @@ Exit codes:
 		"Skip posting findings to a PR")
 	rootCmd.Flags().StringVarP(&worktreeBranch, "worktree-branch", "B", "",
 		"Review a branch in a temporary worktree")
+	rootCmd.Flags().StringVar(&prNumber, "pr", "",
+		"Review a PR by number (fetches into temp worktree)")
 
 	rootCmd.Flags().BoolVarP(&autoYes, "yes", "y", false,
 		"Automatically submit review without prompting")
