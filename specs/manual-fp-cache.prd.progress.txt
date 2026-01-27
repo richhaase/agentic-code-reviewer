@@ -1,0 +1,50 @@
+# Manual False Positive Marking - Progress Log
+
+## Iteration 1 - Story 3: Filter findings against ignore file during review
+
+### Why this story was selected
+Stories 1 and 2 were already completed in previous commits:
+- Story 1 (commit bb8cadc): Created ignore file utilities in internal/fpcache/ignore.go
+- Story 2 (commit d7be5e6): Implemented last-run saving in internal/fpcache/lastrun.go
+
+Story 3 was selected because:
+1. It builds on Story 1 (ignore file utilities) which is now complete
+2. It's a foundational feature for the entire workflow - provides the actual filtering mechanism
+3. It unblocks the full end-to-end flow once Story 4 (picker UI) and Story 5 (mark-fp command) are complete
+4. Stories 4 and 5 depend on this filtering actually working
+5. It's a core feature that should be implemented before tests (Story 6)
+
+### What was implemented
+Added ignore file filtering to the review pipeline:
+1. Load .acr/ignore patterns after the FP filter step (cmd/acr/review.go:158-168)
+2. Apply ignore filter using fpcache.ApplyIgnoreFilter() if patterns exist
+3. Track ignored count in stats.IgnoredCount (domain.ReviewStats)
+4. Display ignored count in terminal report with format: "ℹ N finding(s) skipped from .acr/ignore"
+
+The implementation follows the existing pattern from the FP filter:
+- Loads ignore file (creating empty if not exists)
+- Applies filter to GroupedFindings (both Findings and Info)
+- Tracks count in ReviewStats
+- Displays in report with dimmed informational style
+
+### Files modified
+- cmd/acr/review.go - Added ignore file loading and filtering logic after FP filter
+- internal/domain/result.go - Added IgnoredCount int field to ReviewStats struct
+- internal/runner/report.go - Added ignored count display in terminal report
+
+### Gotchas and patterns discovered
+1. The ignore filter is applied AFTER the FP filter (line 158), which is correct - we want to filter findings that have already been through FP detection
+2. The implementation handles missing ignore files gracefully - LoadIgnoreFile creates an empty file if it doesn't exist, so no special error handling needed
+3. The report display follows the same pattern as FPFilteredCount - dimmed info style, singular/plural handling
+4. No need to fail the review if ignore file loading fails - just log a warning
+
+### Stories now unblocked
+- Story 5 (mark-fp command) is now closer to being functional - the filtering mechanism is in place
+- Story 6 (tests) can now test the full ignore filter flow
+
+### Next steps
+The logical next story is:
+- **Story 4** (Terminal picker UI) - Required for Story 5, independent of Story 3
+- Then **Story 5** (mark-fp command) - Ties everything together
+- Then **Story 6** (Tests) - Cover all functionality
+- Finally **Story 7** (Documentation)

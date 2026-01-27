@@ -44,7 +44,7 @@
         "Works correctly when ignore file doesn't exist (no filtering)"
       ],
       "files": ["internal/fpcache/ignore.go", "cmd/acr/review.go"],
-      "passes": false
+      "passes": true
     },
     {
       "id": "4",

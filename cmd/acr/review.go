@@ -155,6 +155,18 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		summaryResult.Grouped = f.Apply(summaryResult.Grouped)
 	}
 
+	// Apply ignore file filter
+	ignorePath := filepath.Join(workDir, ".acr", "ignore")
+	ignorePatterns, err := fpcache.LoadIgnoreFile(ignorePath)
+	if err != nil {
+		logger.Logf(terminal.StyleWarning, "Failed to load ignore file: %v", err)
+	}
+	var ignoredCount int
+	if len(ignorePatterns) > 0 {
+		summaryResult.Grouped, ignoredCount = fpcache.ApplyIgnoreFilter(summaryResult.Grouped, ignorePatterns)
+	}
+	stats.IgnoredCount = ignoredCount
+
 	// Save findings to last-run file
 	lastRunPath := filepath.Join(workDir, ".acr", "last-run.json")
 	if err := fpcache.SaveLastRun(lastRunPath, summaryResult.Grouped); err != nil {

@@ -25,6 +25,7 @@ type ReviewStats struct {
 	SummarizerDuration  time.Duration
 	FPFilterDuration    time.Duration
 	FPFilteredCount     int
+	IgnoredCount        int
 }
 
 // AllFailed returns true if all reviewers failed.

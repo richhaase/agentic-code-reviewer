@@ -136,6 +136,16 @@ func RenderReport(
 			terminal.Color(terminal.Dim), stats.FPFilteredCount, findingWord, positiveWord, terminal.Color(terminal.Reset)))
 	}
 
+	if stats.IgnoredCount > 0 {
+		findingWord := "finding"
+		if stats.IgnoredCount != 1 {
+			findingWord = "findings"
+		}
+		lines = append(lines, "")
+		lines = append(lines, fmt.Sprintf("%sℹ %d %s skipped from .acr/ignore%s",
+			terminal.Color(terminal.Dim), stats.IgnoredCount, findingWord, terminal.Color(terminal.Reset)))
+	}
+
 	if stats.WallClockDuration > 0 || len(stats.ReviewerDurations) > 0 || summaryResult.Duration > 0 {
 		lines = append(lines, "")
 		lines = append(lines, fmt.Sprintf("%sTiming:%s", terminal.Color(terminal.Dim), terminal.Color(terminal.Reset)))
