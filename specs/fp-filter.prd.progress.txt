@@ -53,3 +53,46 @@
 - Story 5: Can now use the new Result structure with Kept/Filtered fields
 
 ---
+
+## Iteration 2 - Story 2: Update FP filter prompt for boolean output
+
+**Why this story was selected:**
+- Story 1 (data structures) is complete, so Story 2 is now unblocked
+- Story 3 (filter logic) depends on Story 2 - the logic needs the prompt to guide agent behavior correctly
+- Lower risk than Story 3 - just prompt text changes, no complex parsing logic
+- Foundation piece that defines the agent contract for the in-place evaluation pattern
+- Stories 4, 5, 6 are all independent but less impactful until the core logic (Story 3) is updated
+
+**What was implemented:**
+1. Completely rewrote the fpEvaluationPrompt constant to use boolean classification:
+   - Removed all references to fp_score (0-100 numeric scale)
+   - Added is_false_positive (boolean) and reasoning (string) fields to input format docs
+   - Updated decision criteria sections: "FALSE POSITIVE" and "TRUE POSITIVE" instead of score ranges
+   - Updated "WHEN UNCERTAIN" guidance to bias toward keeping findings (is_false_positive: false)
+2. Updated all 6 examples to show the in-place update pattern:
+   - Input shows fields with null values for is_false_positive and reasoning
+   - Output shows same structure with those fields filled in
+   - Demonstrates the JSON roundtrip the agent is expected to perform
+3. Updated output format section:
+   - Changed from {"evaluations": [...]} to {"findings": [...]}
+   - Matches the EvaluationPayload struct from Story 1
+   - Shows complete finding object in output, not just ID + score
+4. Updated reviewer_count guidance:
+   - High count → "Set is_false_positive: false" (instead of "bias toward lower fp_score")
+   - Clearer decision guidance for boolean classification
+5. Removed all threshold-related language from rules section
+
+**Gotchas and patterns discovered:**
+- The prompt needs to be VERY explicit about the in-place pattern (same structure in/out)
+- Including concrete input/output examples prevents agent confusion about expected format
+- Boolean decision is clearer than numeric scoring - reduces agent uncertainty
+- Keeping reviewer_count guidance helps agent make better decisions even without threshold
+- Conservative default (uncertain → keep finding) is safer than filtering questionable issues
+
+**Files modified:**
+- internal/fpfilter/prompt.go (complete prompt rewrite)
+
+**What stories are now unblocked:**
+- Story 3: Can now implement the filter logic knowing the exact agent contract
+
+---

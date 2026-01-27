@@ -27,7 +27,7 @@
         "Keep reviewer_count guidance for agent reasoning"
       ],
       "files": ["internal/fpfilter/prompt.go"],
-      "passes": false
+      "passes": true
     },
     {
       "id": "3",
