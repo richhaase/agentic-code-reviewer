@@ -96,3 +96,57 @@
 - Story 3: Can now implement the filter logic knowing the exact agent contract
 
 ---
+
+## Iteration 3 - Story 3: Implement in-place filter logic
+
+**Why this story was selected:**
+- Stories 1 and 2 are complete, so Story 3 is fully unblocked
+- This is the CORE behavioral change - the actual filter logic that determines what gets filtered
+- Foundation for Story 5 (review integration) and Story 6 (tests) - they depend on this logic working correctly
+- Most complex story with multiple acceptance criteria (parsing, error handling, filtering logic)
+- Following "risk reduction" principle - tackling the hardest story early
+- Story 4 (removing CLI flag) is independent but less impactful - just cleanup
+
+**What was implemented:**
+1. Rewrote `Apply()` function to use in-place evaluation pattern:
+   - Creates `EvaluationPayload` with `FindingEvaluation` structs
+   - Sets `IsFalsePositive` and `Reasoning` to `nil` (explicit null in JSON)
+   - Sends to agent via `ExecuteSummary()`
+2. Updated response parsing:
+   - Changed from `evaluationResponse` to `EvaluationPayload` (same type for input and output!)
+   - Parses agent response back into same structure with filled fields
+3. Implemented boolean filtering logic:
+   - `IsFalsePositive == true` → filter out (add to Result.Filtered)
+   - `IsFalsePositive == false` → keep (add to Result.Kept)
+   - Extracts reasoning string if provided (handles nil pointer safely)
+4. Added robust error handling:
+   - Complete parse failure: keep all findings, set ParseErrors count
+   - Missing finding from agent response: keep it, increment parse error count
+   - `IsFalsePositive` field is nil: keep finding (agent didn't fill it), increment parse error count
+   - Conservative default: if something goes wrong, KEEP the finding (safer than filtering)
+5. Removed old deprecated types:
+   - Deleted `evaluationRequest`, `findingInput`, `evaluationResponse`, `findingEvaluation`
+   - These were using the old score-based approach
+6. Updated test to match new structure:
+   - Renamed `TestFindingInputConstruction` → `TestFindingEvaluationConstruction`
+   - Tests now verify `FindingEvaluation` JSON marshaling with null fields
+   - Added assertions that null fields remain null after JSON round-trip
+
+**Gotchas and patterns discovered:**
+- Using the SAME type for input and output (EvaluationPayload) is cleaner than separate request/response types
+- Pointer types (*bool, *string) with omitempty tag allow distinguishing "field not set" from "field set to false/empty"
+- Conservative error handling is critical for a filter - better to show a false positive than hide a real bug
+- Multiple levels of error handling needed: JSON parse failure, missing finding, missing field
+- The `agent.StripMarkdownCodeFence()` utility is essential - LLMs often wrap JSON in markdown code blocks
+- Parse errors are tracked but don't fail the operation - we keep findings and continue
+- Removed threshold field entirely from filtering logic (still exists in Filter struct for now, will be removed in Story 4)
+
+**Files modified:**
+- internal/fpfilter/filter.go (Apply() rewrite, removed old types)
+- internal/fpfilter/filter_test.go (updated test to use FindingEvaluation)
+
+**What stories are now unblocked:**
+- Story 5: Can now integrate with review.go knowing the filtering logic is complete
+- Story 6: Can now write comprehensive tests for the boolean filtering behavior
+
+---

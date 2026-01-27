@@ -41,7 +41,7 @@
         "Parse errors handled gracefully (keep finding if agent didn't fill fields)"
       ],
       "files": ["internal/fpfilter/filter.go"],
-      "passes": false
+      "passes": true
     },
     {
       "id": "4",

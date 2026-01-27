@@ -68,28 +68,6 @@ func New(agentName string, threshold int) *Filter {
 	}
 }
 
-type evaluationRequest struct {
-	Findings []findingInput `json:"findings"`
-}
-
-type findingInput struct {
-	ID            int      `json:"id"`
-	Title         string   `json:"title"`
-	Summary       string   `json:"summary"`
-	Messages      []string `json:"messages"`
-	ReviewerCount int      `json:"reviewer_count"`
-}
-
-type evaluationResponse struct {
-	Evaluations []findingEvaluation `json:"evaluations"`
-}
-
-type findingEvaluation struct {
-	ID        int    `json:"id"`
-	FPScore   int    `json:"fp_score"`
-	Reasoning string `json:"reasoning"`
-}
-
 func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Result, error) {
 	start := time.Now()
 
@@ -105,16 +83,19 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 		return nil, err
 	}
 
-	req := evaluationRequest{
-		Findings: make([]findingInput, len(grouped.Findings)),
+	// Build EvaluationPayload with null IsFalsePositive and Reasoning fields
+	req := EvaluationPayload{
+		Findings: make([]FindingEvaluation, len(grouped.Findings)),
 	}
 	for i, finding := range grouped.Findings {
-		req.Findings[i] = findingInput{
-			ID:            i,
-			Title:         finding.Title,
-			Summary:       finding.Summary,
-			Messages:      finding.Messages,
-			ReviewerCount: finding.ReviewerCount,
+		req.Findings[i] = FindingEvaluation{
+			ID:              i,
+			Title:           finding.Title,
+			Summary:         finding.Summary,
+			Messages:        finding.Messages,
+			ReviewerCount:   finding.ReviewerCount,
+			IsFalsePositive: nil, // Explicitly null - agent will fill this
+			Reasoning:       nil, // Explicitly null - agent will fill this
 		}
 	}
 
@@ -154,8 +135,10 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 
 	cleanedOutput := agent.StripMarkdownCodeFence(string(output))
 
-	var response evaluationResponse
+	// Parse response back into same EvaluationPayload structure
+	var response EvaluationPayload
 	if err := json.Unmarshal([]byte(cleanedOutput), &response); err != nil {
+		// Complete parse failure - keep all findings
 		return &Result{
 			Kept:        grouped,
 			Duration:    time.Since(start),
@@ -163,8 +146,9 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 		}, nil
 	}
 
-	evalMap := make(map[int]findingEvaluation)
-	for _, eval := range response.Evaluations {
+	// Build map for efficient lookup by ID
+	evalMap := make(map[int]FindingEvaluation)
+	for _, eval := range response.Findings {
 		evalMap[eval.ID] = eval
 	}
 
@@ -175,15 +159,28 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 	for i, finding := range grouped.Findings {
 		eval, ok := evalMap[i]
 		if !ok {
+			// Agent didn't return this finding - keep it and count as parse error
 			kept = append(kept, finding)
 			parseErrors++
 			continue
 		}
 
-		if eval.FPScore >= f.threshold {
+		// If agent didn't fill in IsFalsePositive, treat as parse error and keep finding
+		if eval.IsFalsePositive == nil {
+			kept = append(kept, finding)
+			parseErrors++
+			continue
+		}
+
+		// Filter by boolean: true = false positive (filter out), false = real issue (keep)
+		if *eval.IsFalsePositive {
+			reasoning := ""
+			if eval.Reasoning != nil {
+				reasoning = *eval.Reasoning
+			}
 			filtered = append(filtered, FilteredFinding{
 				Finding:   finding,
-				Reasoning: eval.Reasoning,
+				Reasoning: reasoning,
 			})
 		} else {
 			kept = append(kept, finding)
