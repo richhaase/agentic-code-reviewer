@@ -11,9 +11,9 @@ import (
 type FetchResult struct {
 	// ResolvedRef is the ref to use for diffing (either "origin/<baseRef>" or "<baseRef>")
 	ResolvedRef string
-	// FetchSucceeded indicates whether the remote fetch was successful
-	FetchSucceeded bool
-	// FetchAttempted indicates whether a fetch was attempted (false if baseRef already has origin/ prefix)
+	// RefResolved indicates whether the ref was successfully resolved (true if fetch succeeded or was skipped)
+	RefResolved bool
+	// FetchAttempted indicates whether a fetch was attempted (false if baseRef already has origin/ prefix or is a non-branch ref)
 	FetchAttempted bool
 }
 
@@ -30,7 +30,7 @@ func FetchRemoteRef(ctx context.Context, baseRef, workDir string) FetchResult {
 	if strings.HasPrefix(baseRef, "origin/") {
 		return FetchResult{
 			ResolvedRef:    baseRef,
-			FetchSucceeded: true,
+			RefResolved:    true,
 			FetchAttempted: false,
 		}
 	}
@@ -49,7 +49,7 @@ func FetchRemoteRef(ctx context.Context, baseRef, workDir string) FetchResult {
 		strings.HasPrefix(baseRef, "refs/") {
 		return FetchResult{
 			ResolvedRef:    baseRef,
-			FetchSucceeded: true,
+			RefResolved:    true,
 			FetchAttempted: false,
 		}
 	}
@@ -67,14 +67,14 @@ func FetchRemoteRef(ctx context.Context, baseRef, workDir string) FetchResult {
 		if isTag(ctx, baseRef, workDir) {
 			return FetchResult{
 				ResolvedRef:    baseRef,
-				FetchSucceeded: true,
+				RefResolved:    true,
 				FetchAttempted: true,
 			}
 		}
 		// It's a branch, use the remote ref
 		return FetchResult{
 			ResolvedRef:    "origin/" + baseRef,
-			FetchSucceeded: true,
+			RefResolved:    true,
 			FetchAttempted: true,
 		}
 	}
@@ -82,7 +82,7 @@ func FetchRemoteRef(ctx context.Context, baseRef, workDir string) FetchResult {
 	// Fetch failed, fall back to local ref
 	return FetchResult{
 		ResolvedRef:    baseRef,
-		FetchSucceeded: false,
+		RefResolved:    false,
 		FetchAttempted: true,
 	}
 }

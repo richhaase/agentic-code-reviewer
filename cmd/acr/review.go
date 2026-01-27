@@ -60,9 +60,9 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 	if fetchRemote {
 		result := agent.FetchRemoteRef(ctx, baseRef, workDir)
 		resolvedBaseRef = result.ResolvedRef
-		if result.FetchAttempted && !result.FetchSucceeded {
+		if result.FetchAttempted && !result.RefResolved {
 			logger.Logf(terminal.StyleWarning, "Failed to fetch %s from origin, comparing against local %s (may be stale)", baseRef, resolvedBaseRef)
-		} else if verbose && result.FetchAttempted && result.FetchSucceeded {
+		} else if verbose && result.FetchAttempted && result.RefResolved {
 			logger.Logf(terminal.StyleDim, "Comparing against %s (fetched from origin)", resolvedBaseRef)
 		}
 	}
@@ -74,7 +74,6 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		BaseRef:      resolvedBaseRef,
 		Timeout:      timeout,
 		Retries:      retries,
-		FetchRemote:  fetchRemote,
 		Verbose:      verbose,
 		WorkDir:      workDir,
 		CustomPrompt: customPrompt,

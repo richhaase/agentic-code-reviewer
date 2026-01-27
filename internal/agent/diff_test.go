@@ -87,8 +87,8 @@ func TestFetchRemoteRef_AlreadyHasOriginPrefix(t *testing.T) {
 	if result.ResolvedRef != "origin/main" {
 		t.Errorf("FetchRemoteRef() ResolvedRef = %q, want %q", result.ResolvedRef, "origin/main")
 	}
-	if !result.FetchSucceeded {
-		t.Error("FetchRemoteRef() FetchSucceeded = false, want true")
+	if !result.RefResolved {
+		t.Error("FetchRemoteRef() RefResolved = false, want true")
 	}
 	if result.FetchAttempted {
 		t.Error("FetchRemoteRef() FetchAttempted = true, want false (no fetch needed)")
@@ -118,8 +118,8 @@ func TestFetchRemoteRef_SkipsNonBranchRefs(t *testing.T) {
 			if result.ResolvedRef != tt.baseRef {
 				t.Errorf("FetchRemoteRef(%q) ResolvedRef = %q, want %q", tt.baseRef, result.ResolvedRef, tt.baseRef)
 			}
-			if !result.FetchSucceeded {
-				t.Errorf("FetchRemoteRef(%q) FetchSucceeded = false, want true", tt.baseRef)
+			if !result.RefResolved {
+				t.Errorf("FetchRemoteRef(%q) RefResolved = false, want true", tt.baseRef)
 			}
 			if result.FetchAttempted {
 				t.Errorf("FetchRemoteRef(%q) FetchAttempted = true, want false (skip fetch for non-branch refs)", tt.baseRef)
@@ -133,14 +133,14 @@ func TestIsLikelyCommitSHA(t *testing.T) {
 		ref      string
 		expected bool
 	}{
-		{"abc1234", true},                                      // 7 char short SHA
-		{"abc1234567890abcdef1234567890abcdef1234", true},      // 40 char full SHA
-		{"ABC1234", true},                                      // uppercase hex
-		{"main", false},                                        // branch name
-		{"HEAD~3", false},                                      // contains ~
-		{"abc123", false},                                      // too short (6 chars)
-		{"abc123456789012345678901234567890123456789", false},   // too long (41 chars)
-		{"xyz1234", false},                                     // contains non-hex
+		{"abc1234", true}, // 7 char short SHA
+		{"abc1234567890abcdef1234567890abcdef1234", true}, // 40 char full SHA
+		{"ABC1234", true}, // uppercase hex
+		{"main", false},   // branch name
+		{"HEAD~3", false}, // contains ~
+		{"abc123", false}, // too short (6 chars)
+		{"abc123456789012345678901234567890123456789", false}, // too long (41 chars)
+		{"xyz1234", false}, // contains non-hex
 	}
 
 	for _, tt := range tests {
@@ -200,8 +200,8 @@ func TestFetchRemoteRef_NoRemote(t *testing.T) {
 	if result.ResolvedRef != branchName {
 		t.Errorf("FetchRemoteRef() ResolvedRef = %q, want %q (local fallback)", result.ResolvedRef, branchName)
 	}
-	if result.FetchSucceeded {
-		t.Error("FetchRemoteRef() FetchSucceeded = true, want false (no remote)")
+	if result.RefResolved {
+		t.Error("FetchRemoteRef() RefResolved = true, want false (no remote)")
 	}
 	if !result.FetchAttempted {
 		t.Error("FetchRemoteRef() FetchAttempted = false, want true")
@@ -261,8 +261,8 @@ func TestFetchRemoteRef_WithRemote(t *testing.T) {
 	if result.ResolvedRef != expectedRef {
 		t.Errorf("FetchRemoteRef() ResolvedRef = %q, want %q", result.ResolvedRef, expectedRef)
 	}
-	if !result.FetchSucceeded {
-		t.Error("FetchRemoteRef() FetchSucceeded = false, want true")
+	if !result.RefResolved {
+		t.Error("FetchRemoteRef() RefResolved = false, want true")
 	}
 	if !result.FetchAttempted {
 		t.Error("FetchRemoteRef() FetchAttempted = false, want true")

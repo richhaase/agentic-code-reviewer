@@ -22,7 +22,6 @@ type Config struct {
 	BaseRef      string
 	Timeout      time.Duration
 	Retries      int
-	FetchRemote  bool
 	Verbose      bool
 	WorkDir      string
 	CustomPrompt string
@@ -190,7 +189,6 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		Verbose:      r.config.Verbose,
 		CustomPrompt: r.config.CustomPrompt,
 		ReviewerID:   strconv.Itoa(reviewerID),
-		FetchRemote:  r.config.FetchRemote,
 		UseRefFile:   r.config.UseRefFile,
 	}
 
