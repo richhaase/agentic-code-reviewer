@@ -15,7 +15,7 @@
         "Handle empty file and missing directory gracefully"
       ],
       "files": ["internal/fpcache/ignore.go"],
-      "passes": false
+      "passes": true
     },
     {
       "id": "2",
@@ -30,7 +30,7 @@
         "review.go calls SaveLastRun after summarization completes"
       ],
       "files": ["internal/fpcache/lastrun.go", "cmd/acr/review.go"],
-      "passes": false
+      "passes": true
     },
     {
       "id": "3",
@@ -62,7 +62,7 @@
         "Works in non-TTY mode: prints error and exits"
       ],
       "files": ["internal/fpcache/picker.go"],
-      "passes": false
+      "passes": true
     },
     {
       "id": "5",
@@ -78,7 +78,7 @@
         "On cancel, prints 'Cancelled' and exits cleanly"
       ],
       "files": ["cmd/acr/markfp.go", "cmd/acr/main.go"],
-      "passes": false
+      "passes": true
     },
     {
       "id": "6",
@@ -93,7 +93,7 @@
         "All tests pass with make test"
       ],
       "files": ["internal/fpcache/ignore_test.go", "internal/fpcache/lastrun_test.go"],
-      "passes": false
+      "passes": true
     },
     {
       "id": "7",
@@ -106,7 +106,7 @@
         "Recommend gitignoring .acr/last-run.json"
       ],
       "files": ["README.md"],
-      "passes": false
+      "passes": true
     }
   ]
 }

@@ -48,3 +48,59 @@ The logical next story is:
 - Then **Story 5** (mark-fp command) - Ties everything together
 - Then **Story 6** (Tests) - Cover all functionality
 - Finally **Story 7** (Documentation)
+
+---
+
+## Iteration 2 - FINAL: All Stories Complete
+
+### Status Check
+All user stories from the PRD have been implemented in previous commits:
+
+1. **Story 1** (bb8cadc) - Ignore file utilities ✓
+2. **Story 2** (d7be5e6) - Save last-run findings ✓
+3. **Story 3** (0f14e56) - Filter findings against ignore file ✓
+4. **Story 4** (9293348) - Terminal picker UI ✓
+5. **Story 5** (34d6e45) - mark-fp command ✓
+6. **Story 6** (0f78b07) - Unit tests ✓
+7. **Story 7** (1616952) - Documentation ✓
+
+### Quality Verification
+Ran `make check` to verify all quality gates pass:
+- Formatting: PASS
+- golangci-lint v2: PASS (0 issues)
+- go vet: PASS
+- staticcheck: PASS
+- Unit tests: PASS (all packages)
+
+### Feature Summary
+The Manual False Positive Marking feature is now complete. Users can:
+1. Run `acr` to review code and save findings to `.acr/last-run.json`
+2. Run `acr mark-fp` to launch an interactive picker
+3. Use arrow keys/spacebar to mark findings as false positives
+4. Press Enter to save selections to `.acr/ignore`
+5. Future reviews automatically skip ignored findings
+
+### Files Created/Modified
+- `internal/fpcache/ignore.go` - Ignore file utilities
+- `internal/fpcache/lastrun.go` - Last-run persistence
+- `internal/fpcache/picker.go` - Terminal picker UI
+- `internal/fpcache/ignore_test.go` - Ignore tests
+- `internal/fpcache/lastrun_test.go` - Last-run tests
+- `cmd/acr/markfp.go` - mark-fp command
+- `cmd/acr/main.go` - Command registration
+- `cmd/acr/review.go` - Ignore filter integration
+- `internal/domain/result.go` - IgnoredCount field
+- `internal/runner/report.go` - Ignore count display
+- `README.md` - Feature documentation
+
+### All Acceptance Criteria Met
+All acceptance criteria from all 7 stories have been verified and implemented. The PRD file has been updated to mark all stories as `"passes": true`.
+
+### Final Notes
+This was a well-structured feature implementation with clear separation of concerns:
+- Data layer (fpcache package)
+- Integration layer (review.go, markfp.go)
+- UI layer (picker.go, report.go)
+- Tests covering all utilities
+
+The feature follows existing ACR patterns and integrates seamlessly with the review pipeline.
