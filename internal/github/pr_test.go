@@ -361,3 +361,43 @@ func TestClassifyGHError_NonExitError(t *testing.T) {
 		t.Errorf("expected wrapped error for non-ExitError, got %v", err)
 	}
 }
+
+func TestParsePRViewJSON_ValidResponse(t *testing.T) {
+	json := `{"headRefName": "feature-branch", "baseRefName": "main"}`
+
+	head, base, err := parsePRViewJSON([]byte(json))
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if head != "feature-branch" {
+		t.Errorf("expected head 'feature-branch', got %q", head)
+	}
+	if base != "main" {
+		t.Errorf("expected base 'main', got %q", base)
+	}
+}
+
+func TestParsePRViewJSON_InvalidJSON(t *testing.T) {
+	_, _, err := parsePRViewJSON([]byte(`not valid json`))
+
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestParsePRViewJSON_MissingFields(t *testing.T) {
+	json := `{"headRefName": "feature-branch"}`
+
+	head, base, err := parsePRViewJSON([]byte(json))
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if head != "feature-branch" {
+		t.Errorf("expected head 'feature-branch', got %q", head)
+	}
+	if base != "" {
+		t.Errorf("expected empty base, got %q", base)
+	}
+}

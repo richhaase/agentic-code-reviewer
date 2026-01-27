@@ -43,6 +43,45 @@ func GetCurrentPRNumber(ctx context.Context, branch string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// prViewResponse represents the JSON response from gh pr view.
+type prViewResponse struct {
+	HeadRefName string `json:"headRefName"`
+	BaseRefName string `json:"baseRefName"`
+}
+
+// parsePRViewJSON parses the JSON output from gh pr view.
+func parsePRViewJSON(data []byte) (head, base string, err error) {
+	var resp prViewResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return "", "", fmt.Errorf("failed to parse PR view response: %w", err)
+	}
+	return resp.HeadRefName, resp.BaseRefName, nil
+}
+
+// GetPRBranch returns the head branch name for a PR number.
+// Returns ErrNoPRFound if no PR exists, ErrAuthFailed if authentication failed.
+func GetPRBranch(ctx context.Context, prNumber string) (string, error) {
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "headRefName")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", classifyGHError(err)
+	}
+	head, _, err := parsePRViewJSON(out)
+	return head, err
+}
+
+// GetPRBaseRef returns the base branch name for a PR number.
+// Returns ErrNoPRFound if no PR exists, ErrAuthFailed if authentication failed.
+func GetPRBaseRef(ctx context.Context, prNumber string) (string, error) {
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "baseRefName")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", classifyGHError(err)
+	}
+	_, base, err := parsePRViewJSON(out)
+	return base, err
+}
+
 // classifyGHError examines a gh CLI error and returns a typed error.
 func classifyGHError(err error) error {
 	var exitErr *exec.ExitError
