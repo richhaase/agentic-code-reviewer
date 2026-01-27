@@ -214,3 +214,43 @@
 - Story 6: Can now write tests knowing the final config structure (no threshold)
 
 ---
+
+## Iteration 5 - Story 5: Update review integration
+
+**Why this story was selected:**
+- Stories 1, 2, 3, and 4 are complete (all foundation work done)
+- Story 5 has zero dependencies since all filter logic (Story 3) and config cleanup (Story 4) is complete
+- Should be implemented before Story 6 (tests) - tests should validate the final integrated behavior
+- Low risk - just integration changes to use new Result structure, no new logic
+- Final behavioral change before comprehensive testing
+
+**What was implemented:**
+1. Added `fpFilteredFindings` variable to store `fpResult.Filtered`:
+   - Declared as `[]fpfilter.FilteredFinding` type
+   - Stores filtered findings with their reasoning for future use
+   - Positioned alongside existing `fpFilteredCount` variable
+2. Added verbose logging for filtered findings:
+   - When verbose mode is enabled and findings are filtered, logs count
+   - Provides visibility into FP filter operation for debugging
+   - Uses existing verbose logging pattern from the codebase
+3. Verified no threshold-related code remains in review.go:
+   - Searched for "threshold" (case-insensitive) - no matches found
+   - All threshold removal from Story 4 is confirmed complete
+
+**Gotchas and patterns discovered:**
+- Go compiler requires unused variables to be referenced (can't just declare for future use)
+- Verbose logging is the idiomatic way to "use" data that's collected but not immediately needed
+- The `fpFilteredFindings` variable now satisfies all acceptance criteria:
+  - Stored for potential future use ✓
+  - Actually used (in verbose logging) so compiler is happy ✓
+  - Available for future enhancements (detailed reporting, debugging, etc.) ✓
+- Existing pattern: verbose logging uses `terminal.StyleDim` for non-critical information
+- FilteredCount correctly reflects `len(fpResult.Filtered)` - set directly from fpResult
+
+**Files modified:**
+- cmd/acr/review.go (added fpFilteredFindings variable, added verbose logging)
+
+**What stories are now unblocked:**
+- Story 6: Can now write comprehensive tests knowing the full integration is complete
+
+---

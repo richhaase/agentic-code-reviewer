@@ -120,6 +120,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 	stats.SummarizerDuration = summaryResult.Duration
 
 	var fpFilteredCount int
+	var fpFilteredFindings []fpfilter.FilteredFinding // Store filtered findings for potential future use
 	if fpFilterEnabled && summaryResult.ExitCode == 0 && len(summaryResult.Grouped.Findings) > 0 && ctx.Err() == nil {
 		fpSpinner := terminal.NewPhaseSpinner("Filtering false positives")
 		fpSpinnerCtx, fpSpinnerCancel := context.WithCancel(ctx)
@@ -136,8 +137,14 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 
 		if err == nil && fpResult != nil {
 			summaryResult.Grouped = fpResult.Kept
+			fpFilteredFindings = fpResult.Filtered
 			fpFilteredCount = fpResult.FilteredCount
 			stats.FPFilterDuration = fpResult.Duration
+
+			// Log filtered findings in verbose mode
+			if verbose && len(fpFilteredFindings) > 0 {
+				logger.Logf(terminal.StyleDim, "Filtered %d finding(s) as false positives", len(fpFilteredFindings))
+			}
 		} else if err != nil && ctx.Err() == nil {
 			logger.Logf(terminal.StyleWarning, "FP filter error (continuing without filter): %v", err)
 		}
