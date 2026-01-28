@@ -1,6 +1,6 @@
 # ACR - Agentic Code Reviewer
 
-A CLI tool that runs parallel AI-powered code reviews using LLM agents ([Codex CLI](https://github.com/openai/codex-cli), [Claude Code](https://github.com/anthropics/claude-code), or [Gemini CLI](https://github.com/google-gemini/gemini-cli)) and aggregates findings intelligently.
+A CLI tool that runs parallel AI-powered code reviews using LLM agents ([Codex](https://github.com/openai/codex), [Claude Code](https://github.com/anthropics/claude-code), or [Gemini CLI](https://github.com/google-gemini/gemini-cli)) and aggregates findings intelligently.
 
 ## Quick Start
 
@@ -9,7 +9,7 @@ A CLI tool that runs parallel AI-powered code reviews using LLM agents ([Codex C
 brew install richhaase/tap/acr
 
 # Install at least one LLM CLI (Codex shown here)
-npm install -g @openai/codex-cli
+brew install codex
 
 # Run a review in your repo
 cd your-repo
@@ -20,11 +20,11 @@ acr
 
 You need **at least one** of the following LLM CLIs installed and authenticated:
 
-| Agent | Install | Notes |
-|-------|---------|-------|
-| Codex CLI | `npm install -g @openai/codex-cli` | Default agent |
-| Claude Code | [Installation guide](https://github.com/anthropics/claude-code#installation) | Requires Anthropic API key |
-| Gemini CLI | [Installation guide](https://github.com/google-gemini/gemini-cli#installation) | Requires Google API key |
+| Agent | Installation |
+|-------|--------------|
+| Codex | [github.com/openai/codex](https://github.com/openai/codex) (default) |
+| Claude Code | [github.com/anthropics/claude-code](https://github.com/anthropics/claude-code) |
+| Gemini CLI | [github.com/google-gemini/gemini-cli](https://github.com/google-gemini/gemini-cli) |
 
 Optional:
 - **gh CLI** - For posting reviews to GitHub PRs. Install via `brew install gh` and authenticate with `gh auth login`
@@ -152,7 +152,7 @@ ACR supports multiple AI backends for code review:
 
 | Agent | CLI | Description |
 |-------|-----|-------------|
-| `codex` | [Codex CLI](https://github.com/openai/codex-cli) | Default. Uses built-in `codex exec review` |
+| `codex` | [Codex](https://github.com/openai/codex) | Default. Uses built-in `codex exec review` |
 | `claude` | [Claude Code](https://github.com/anthropics/claude-code) | Anthropic's Claude via CLI |
 | `gemini` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google's Gemini via CLI |
 
