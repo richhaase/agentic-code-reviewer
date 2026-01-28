@@ -6,30 +6,17 @@ A CLI tool that runs parallel AI-powered code reviews using [Codex CLI](https://
 
 ACR spawns multiple parallel reviewers, each running `codex exec review` independently. The parallel approach increases coverage: different reviewers may catch different issues. After all reviewers complete, ACR aggregates and clusters similar findings using an LLM summarizer, filters out likely false positives, then presents a consolidated report.
 
-```
-┌─────────────┐
-│   acr       │
-└─────┬───────┘
-      │ spawns N reviewers
-      ▼
-┌──────────┬──────────┬──────────┐
-│Reviewer 1│Reviewer 2│Reviewer N│  (parallel codex exec review)
-└────┬─────┴────┬─────┴────┬─────┘
-     │          │          │
-     └──────────┼──────────┘
-                ▼
-        ┌───────────────┐
-        │  Summarizer   │  (clusters & deduplicates)
-        └───────┬───────┘
-                ▼
-        ┌───────────────┐
-        │  FP Filter    │  (removes likely false positives)
-        └───────┬───────┘
-                ▼
-        ┌───────────────┐
-        │ Consolidated  │
-        │    Report     │
-        └───────────────┘
+```mermaid
+graph TD
+    A[acr] -->|spawns N reviewers| B
+    subgraph Parallel Review
+        B[Reviewer 1]
+        C[Reviewer 2]
+        D[Reviewer N]
+    end
+    B & C & D --> E[Summarizer]
+    E -->|clusters & deduplicates| F[FP Filter]
+    F -->|removes false positives| G[Consolidated Report]
 ```
 
 ## Installation
