@@ -1,10 +1,10 @@
 # ACR - Agentic Code Reviewer
 
-A CLI tool that runs parallel AI-powered code reviews using [Codex CLI](https://github.com/openai/codex-cli), (Claude Code and Gemini cli, experimentally) and aggregates findings intelligently.
+A CLI tool that runs parallel AI-powered code reviews using LLM agents ([Codex CLI](https://github.com/openai/codex-cli), [Claude Code](https://github.com/anthropics/claude-code), or [Gemini CLI](https://github.com/google-gemini/gemini-cli)) and aggregates findings intelligently.
 
 ## How It Works
 
-ACR spawns multiple parallel reviewers, each running `codex exec review` independently. The parallel approach increases coverage: different reviewers may catch different issues. After all reviewers complete, ACR aggregates and clusters similar findings using an LLM summarizer, filters out likely false positives, then presents a consolidated report.
+ACR spawns multiple parallel reviewers, each invoking your chosen LLM agent (Codex, Claude, or Gemini) independently. The parallel approach increases coverage: different reviewers may catch different issues. After all reviewers complete, ACR aggregates and clusters similar findings using an LLM summarizer, filters out likely false positives, then presents a consolidated report.
 
 ```mermaid
 graph TD
