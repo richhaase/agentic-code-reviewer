@@ -2,6 +2,33 @@
 
 A CLI tool that runs parallel AI-powered code reviews using LLM agents ([Codex CLI](https://github.com/openai/codex-cli), [Claude Code](https://github.com/anthropics/claude-code), or [Gemini CLI](https://github.com/google-gemini/gemini-cli)) and aggregates findings intelligently.
 
+## Quick Start
+
+```bash
+# Install ACR
+brew install richhaase/tap/acr
+
+# Install at least one LLM CLI (Codex shown here)
+npm install -g @openai/codex-cli
+
+# Run a review in your repo
+cd your-repo
+acr
+```
+
+## Prerequisites
+
+You need **at least one** of the following LLM CLIs installed and authenticated:
+
+| Agent | Install | Notes |
+|-------|---------|-------|
+| Codex CLI | `npm install -g @openai/codex-cli` | Default agent |
+| Claude Code | [Installation guide](https://github.com/anthropics/claude-code#installation) | Requires Anthropic API key |
+| Gemini CLI | [Installation guide](https://github.com/google-gemini/gemini-cli#installation) | Requires Google API key |
+
+Optional:
+- **gh CLI** - For posting reviews to GitHub PRs. Install via `brew install gh` and authenticate with `gh auth login`
+
 ## How It Works
 
 ACR spawns multiple parallel reviewers, each invoking your chosen LLM agent (Codex, Claude, or Gemini) independently. The parallel approach increases coverage: different reviewers may catch different issues. After all reviewers complete, ACR aggregates and clusters similar findings using an LLM summarizer, filters out likely false positives, then presents a consolidated report.
@@ -38,11 +65,6 @@ brew install richhaase/tap/acr
 ```bash
 go install github.com/richhaase/agentic-code-reviewer/cmd/acr@latest
 ```
-
-### Prerequisites
-
-- **codex CLI** - Required for running reviews. Install via `npm install -g @openai/codex-cli`
-- **gh CLI** - Optional, for posting comments/approvals to GitHub PRs
 
 ## Usage
 
