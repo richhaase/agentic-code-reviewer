@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"os/exec"
 	"strings"
 	"testing"
@@ -73,5 +74,15 @@ func TestRemoveRemote_NotExists(t *testing.T) {
 	err := RemoveRemote(repoDir, "nonexistent-remote")
 	if err == nil {
 		t.Error("expected error when removing non-existent remote")
+	}
+}
+
+func TestFetchBranch_InvalidRemote(t *testing.T) {
+	repoDir := setupTestRepo(t)
+
+	ctx := context.Background()
+	err := FetchBranch(ctx, repoDir, "nonexistent-remote", "main")
+	if err == nil {
+		t.Error("expected error when fetching from non-existent remote")
 	}
 }
