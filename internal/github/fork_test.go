@@ -50,3 +50,24 @@ func TestParseForkNotation_MultipleColons(t *testing.T) {
 		t.Errorf("expected branch 'feat/with:colon', got %q", branch)
 	}
 }
+
+func TestBuildForkRef(t *testing.T) {
+	// Test the ForkRef construction logic (not the gh CLI call)
+	ref := buildForkRef("yunidbauza", "feat/branch", "agentic-code-reviewer", 83)
+
+	if ref.Username != "yunidbauza" {
+		t.Errorf("expected username 'yunidbauza', got %q", ref.Username)
+	}
+	if ref.Branch != "feat/branch" {
+		t.Errorf("expected branch 'feat/branch', got %q", ref.Branch)
+	}
+	if ref.RepoURL != "https://github.com/yunidbauza/agentic-code-reviewer.git" {
+		t.Errorf("expected RepoURL with .git suffix, got %q", ref.RepoURL)
+	}
+	if ref.RemoteName != "fork-yunidbauza" {
+		t.Errorf("expected RemoteName 'fork-yunidbauza', got %q", ref.RemoteName)
+	}
+	if ref.PRNumber != 83 {
+		t.Errorf("expected PRNumber 83, got %d", ref.PRNumber)
+	}
+}
