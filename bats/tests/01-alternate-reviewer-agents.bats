@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# multi-agent.bats - Test ACR with different reviewer agents (experimental)
+# multi-agent.bats - Test ACR with different reviewer agents
 
 load '../lib/test_helper'
 

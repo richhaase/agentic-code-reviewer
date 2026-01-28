@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# custom-summarizer.bats - Test ACR with different summarizer agents (experimental)
+# custom-summarizer.bats - Test ACR with different summarizer agents
 
 load '../lib/test_helper'
 
