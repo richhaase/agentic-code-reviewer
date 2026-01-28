@@ -100,9 +100,9 @@ Exit codes:
 	rootCmd.Flags().BoolVar(&noConfig, "no-config", false,
 		"Skip loading .acr.yaml config file")
 	rootCmd.Flags().StringVarP(&agentName, "reviewer-agent", "a", "codex",
-		"[experimental] Agent(s) for reviews (comma-separated): codex, claude, gemini (env: ACR_REVIEWER_AGENT)")
+		"Agent(s) for reviews (comma-separated): codex, claude, gemini (env: ACR_REVIEWER_AGENT)")
 	rootCmd.Flags().StringVarP(&summarizerAgentName, "summarizer-agent", "s", "codex",
-		"[experimental] Agent to use for summarization: codex, claude, gemini (env: ACR_SUMMARIZER_AGENT)")
+		"Agent to use for summarization: codex, claude, gemini (env: ACR_SUMMARIZER_AGENT)")
 	rootCmd.Flags().BoolVar(&refFile, "ref-file", false,
 		"Write diff to a temp file instead of embedding in prompt (auto-enabled for large diffs)")
 	rootCmd.Flags().BoolVar(&noFPFilter, "no-fp-filter", false,
