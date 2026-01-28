@@ -112,8 +112,8 @@ acr --verbose
 | `--fp-threshold`    |       | 75      | False positive confidence threshold 1-100 |
 | `--exclude-pattern` |       |         | Exclude findings matching regex (repeat)  |
 | `--no-config`       |       | false   | Skip loading .acr.yaml config file        |
-| `--reviewer-agent`  | `-a`  | codex   | [experimental] Agent(s) for reviews, comma-separated (codex, claude, gemini) |
-| `--summarizer-agent`| `-s`  | codex   | [experimental] Agent for summarization (codex, claude, gemini) |
+| `--reviewer-agent`  | `-a`  | codex   | Agent(s) for reviews, comma-separated (codex, claude, gemini) |
+| `--summarizer-agent`| `-s`  | codex   | Agent for summarization (codex, claude, gemini) |
 | `--prompt`          |       |         | [experimental] Custom review prompt (inline) |
 | `--prompt-file`     |       |         | [experimental] Path to file containing review prompt |
 
@@ -149,7 +149,7 @@ ACR will:
 
 This requires an open PR from the fork to the current repository. The `gh` CLI must be authenticated.
 
-### Agent Selection (Experimental)
+### Agent Selection
 
 ACR supports multiple AI backends for code review:
 
@@ -206,8 +206,8 @@ The git diff is automatically appended to your prompt.
 | `ACR_FETCH`               | Fetch base ref from origin (true/false)  |
 | `ACR_FP_FILTER`           | Enable false positive filtering (true/false) |
 | `ACR_FP_THRESHOLD`        | False positive confidence threshold 1-100 |
-| `ACR_REVIEWER_AGENT`      | [experimental] Default reviewer agent(s), comma-separated |
-| `ACR_SUMMARIZER_AGENT`    | [experimental] Default summarizer agent  |
+| `ACR_REVIEWER_AGENT`      | Default reviewer agent(s), comma-separated |
+| `ACR_SUMMARIZER_AGENT`    | Default summarizer agent  |
 | `ACR_REVIEW_PROMPT`       | [experimental] Default review prompt     |
 | `ACR_REVIEW_PROMPT_FILE`  | [experimental] Path to default review prompt file |
 
@@ -224,7 +224,7 @@ timeout: 10m              # Timeout per reviewer (supports "5m", "300s", or 300)
 retries: 1                # Retry failed reviewers N times
 fetch: true               # Fetch base ref from origin before diff
 
-# Experimental: Agent selection
+# Agent selection
 # reviewer_agent: codex   # Single agent for reviews (codex, claude, gemini)
 # reviewer_agents:        # Multiple agents for round-robin assignment
 #   - codex
