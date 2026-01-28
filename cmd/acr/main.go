@@ -305,10 +305,11 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		// Fetch the base ref from the remote so it exists locally
 		if err := git.FetchBaseRef(prRepoRoot, prRemote, baseRef); err != nil {
 			logger.Logf(terminal.StyleWarning, "Could not fetch base ref: %v", err)
-			// Continue anyway - the ref might already exist locally
+			// Don't qualify - keep original ref so git diff can try it directly
+		} else {
+			// Only qualify the base ref if fetch succeeded
+			baseRef = git.QualifyBaseRef(prRemote, baseRef)
 		}
-		// Qualify the base ref with the remote prefix (e.g., "main" -> "origin/main")
-		baseRef = git.QualifyBaseRef(prRemote, baseRef)
 	}
 
 	// Validate resolved config
