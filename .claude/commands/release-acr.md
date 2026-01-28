@@ -36,8 +36,33 @@ Create a new version tag and trigger the release workflow.
 
    This triggers `.github/workflows/release.yml` which builds binaries for Linux/macOS (amd64/arm64), creates GitHub releases, and updates the Homebrew tap.
 
+7. Regenerate CHANGELOG.md from all tags and commit it:
+
+   ```bash
+   # Generate changelog from tag annotations
+   {
+     echo "# Changelog"
+     echo ""
+     echo "All notable changes to ACR are documented in this file."
+     echo ""
+     echo "This changelog is generated from git tag annotations."
+     echo ""
+     git for-each-ref --sort=-v:refname --format='## [%(refname:short)] - %(creatordate:short)
+
+%(contents)' refs/tags
+   } > CHANGELOG.md
+   ```
+
+   Review the generated CHANGELOG.md for formatting, then commit and push:
+   ```
+   git add CHANGELOG.md
+   git commit -m "docs: update CHANGELOG.md for <version>"
+   git push origin main
+   ```
+
 ## Important
 
 - Always wait for user approval before creating the tag
 - The tag message should summarize the changes since the previous version
 - Use conventional commit style for the tag message (list features, fixes, etc.)
+- The CHANGELOG.md is regenerated from tags after each release - it reflects released versions only
