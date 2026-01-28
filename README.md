@@ -51,7 +51,7 @@ acr --reviewers 10 --base develop --timeout 10m
 acr --worktree-branch feature/my-branch
 
 # Review a PR from a forked repository
-acr -B username:feature-branch
+acr --worktree-branch username:feature-branch
 
 # Local mode (don't post to PR)
 acr --local
@@ -106,7 +106,7 @@ Review pull requests from forked repositories using GitHub's `username:branch` n
 
 ```bash
 # Review a PR from user "contributor" on branch "fix-bug"
-acr -B contributor:fix-bug
+acr --worktree-branch contributor:fix-bug
 ```
 
 ACR will:
