@@ -41,3 +41,37 @@ func TestAddRemote_AlreadyExists(t *testing.T) {
 		t.Error("expected error when adding duplicate remote")
 	}
 }
+
+func TestRemoveRemote_Success(t *testing.T) {
+	repoDir := setupTestRepo(t)
+
+	// Add remote first
+	err := AddRemote(repoDir, "fork-testuser", "https://github.com/testuser/repo.git")
+	if err != nil {
+		t.Fatalf("AddRemote failed: %v", err)
+	}
+
+	// Remove it
+	err = RemoveRemote(repoDir, "fork-testuser")
+	if err != nil {
+		t.Fatalf("RemoveRemote failed: %v", err)
+	}
+
+	// Verify remote was removed
+	cmd := exec.Command("git", "remote", "-v")
+	cmd.Dir = repoDir
+	out, _ := cmd.Output()
+	if strings.Contains(string(out), "fork-testuser") {
+		t.Error("remote 'fork-testuser' should have been removed")
+	}
+}
+
+func TestRemoveRemote_NotExists(t *testing.T) {
+	repoDir := setupTestRepo(t)
+
+	// Remove non-existent remote should fail
+	err := RemoveRemote(repoDir, "nonexistent-remote")
+	if err == nil {
+		t.Error("expected error when removing non-existent remote")
+	}
+}
