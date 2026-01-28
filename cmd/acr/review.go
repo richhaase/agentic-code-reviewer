@@ -13,7 +13,7 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
-func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, reviewerAgentNames []string, summarizerAgentName string, useRefFile bool, fpFilterEnabled bool, fpThreshold int, logger *terminal.Logger) domain.ExitCode {
+func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, reviewerAgentNames []string, summarizerAgentName string, fetchRemote bool, useRefFile bool, fpFilterEnabled bool, fpThreshold int, logger *terminal.Logger) domain.ExitCode {
 	if concurrency < reviewers {
 		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, %d concurrent, base=%s)%s",
 			terminal.Color(terminal.Dim), reviewers, concurrency, baseRef, terminal.Color(terminal.Reset))
@@ -53,11 +53,25 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 			terminal.Color(terminal.Dim), reviewerAgentNames[0], terminal.Color(terminal.Reset))
 	}
 
+	// Resolve the base ref once before launching parallel reviewers.
+	// This ensures all reviewers compare against the same ref, avoiding
+	// inconsistent results if network conditions vary during parallel execution.
+	resolvedBaseRef := baseRef
+	if fetchRemote {
+		result := agent.FetchRemoteRef(ctx, baseRef, workDir)
+		resolvedBaseRef = result.ResolvedRef
+		if result.FetchAttempted && !result.RefResolved {
+			logger.Logf(terminal.StyleWarning, "Failed to fetch %s from origin, comparing against local %s (may be stale)", baseRef, resolvedBaseRef)
+		} else if verbose && result.FetchAttempted && result.RefResolved {
+			logger.Logf(terminal.StyleDim, "Comparing against %s (fetched from origin)", resolvedBaseRef)
+		}
+	}
+
 	// Run reviewers
 	r, err := runner.New(runner.Config{
 		Reviewers:    reviewers,
 		Concurrency:  concurrency,
-		BaseRef:      baseRef,
+		BaseRef:      resolvedBaseRef,
 		Timeout:      timeout,
 		Retries:      retries,
 		Verbose:      verbose,
