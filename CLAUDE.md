@@ -50,6 +50,8 @@ internal/
     exitcode.go          # Exit code constants
   filter/                # Finding filtering
     filter.go            # Exclude findings by regex pattern matching
+  fpfilter/              # False positive filtering
+    fpfilter.go          # LLM-based false positive detection and removal
   runner/                # Review execution engine
     runner.go            # Parallel reviewer orchestration
     report.go            # Report rendering (terminal + markdown)
@@ -74,9 +76,10 @@ internal/
 
 3. **Parallel Execution**: Reviewers run concurrently via goroutines. Results collected via channels with context cancellation support.
 
-4. **Finding Aggregation**: Two-phase process:
+4. **Finding Aggregation**: Three-phase process:
    - First: Exact-match deduplication in `domain.AggregateFindings()`
    - Then: Semantic clustering via LLM in `summarizer.Summarize()`
+   - Finally: LLM-based false positive filtering in `fpfilter.Filter()` (enabled by default, configurable threshold)
 
 5. **Exit Codes**: Semantic exit codes (0=clean, 1=findings, 2=error, 130=interrupted) for CI integration.
 

@@ -4,7 +4,7 @@ A CLI tool that runs parallel AI-powered code reviews using [Codex CLI](https://
 
 ## How It Works
 
-ACR spawns multiple parallel reviewers, each running `codex exec review` independently. The parallel approach increases coverage: different reviewers may catch different issues. After all reviewers complete, ACR aggregates and clusters similar findings using an LLM summarizer, then presents a consolidated report.
+ACR spawns multiple parallel reviewers, each running `codex exec review` independently. The parallel approach increases coverage: different reviewers may catch different issues. After all reviewers complete, ACR aggregates and clusters similar findings using an LLM summarizer, filters out likely false positives, then presents a consolidated report.
 
 ```
 ┌─────────────┐
@@ -20,6 +20,10 @@ ACR spawns multiple parallel reviewers, each running `codex exec review` indepen
                 ▼
         ┌───────────────┐
         │  Summarizer   │  (clusters & deduplicates)
+        └───────┬───────┘
+                ▼
+        ┌───────────────┐
+        │  FP Filter    │  (removes likely false positives)
         └───────┬───────┘
                 ▼
         ┌───────────────┐
@@ -82,8 +86,11 @@ acr --verbose
 | `--local`           | `-l`  | false   | Skip posting to GitHub PR                |
 | `--worktree-branch` | `-B`  |         | Review a branch in a temp worktree       |
 | `--yes`             | `-y`  | false   | Auto-submit without prompting            |
-| `--exclude-pattern` |       |         | Exclude findings matching regex (repeat) |
-| `--no-config`       |       | false   | Skip loading .acr.yaml config file       |
+| `--fetch/--no-fetch`|       | true    | Fetch base ref from origin before diff   |
+| `--no-fp-filter`    |       | false   | Disable false positive filtering          |
+| `--fp-threshold`    |       | 75      | False positive confidence threshold 1-100 |
+| `--exclude-pattern` |       |         | Exclude findings matching regex (repeat)  |
+| `--no-config`       |       | false   | Skip loading .acr.yaml config file        |
 | `--reviewer-agent`  | `-a`  | codex   | [experimental] Agent(s) for reviews, comma-separated (codex, claude, gemini) |
 | `--summarizer-agent`| `-s`  | codex   | [experimental] Agent for summarization (codex, claude, gemini) |
 | `--prompt`          |       |         | [experimental] Custom review prompt (inline) |
@@ -157,6 +164,9 @@ The git diff is automatically appended to your prompt.
 | `ACR_BASE_REF`            | Default base ref                         |
 | `ACR_TIMEOUT`             | Default timeout (e.g., "5m" or "300")    |
 | `ACR_RETRIES`             | Default retry count                      |
+| `ACR_FETCH`               | Fetch base ref from origin (true/false)  |
+| `ACR_FP_FILTER`           | Enable false positive filtering (true/false) |
+| `ACR_FP_THRESHOLD`        | False positive confidence threshold 1-100 |
 | `ACR_REVIEWER_AGENT`      | [experimental] Default reviewer agent(s), comma-separated |
 | `ACR_SUMMARIZER_AGENT`    | [experimental] Default summarizer agent  |
 | `ACR_REVIEW_PROMPT`       | [experimental] Default review prompt     |
@@ -173,6 +183,7 @@ concurrency: 5            # Max concurrent reviewers (defaults to reviewers)
 base: main                # Base ref for diff comparison
 timeout: 10m              # Timeout per reviewer (supports "5m", "300s", or 300)
 retries: 1                # Retry failed reviewers N times
+fetch: true               # Fetch base ref from origin before diff
 
 # Experimental: Agent selection
 # reviewer_agent: codex   # Single agent for reviews (codex, claude, gemini)
@@ -193,6 +204,10 @@ filters:
     - "Next\\.js forbids"
     - "deprecated API"
     - "consider using"
+
+fp_filter:
+  enabled: true           # Enable LLM-based false positive filtering
+  threshold: 75           # Confidence threshold 1-100 (100 = definitely false positive)
 ```
 
 ### Precedence
