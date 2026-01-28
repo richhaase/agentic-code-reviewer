@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -32,6 +33,7 @@ var (
 	verbose             bool
 	local               bool
 	worktreeBranch      string
+	prNumber            string
 	autoYes             bool
 	excludePatterns     []string
 	noConfig            bool
@@ -90,6 +92,8 @@ Exit codes:
 		"Skip posting findings to a PR")
 	rootCmd.Flags().StringVarP(&worktreeBranch, "worktree-branch", "B", "",
 		"Review a branch in a temporary worktree")
+	rootCmd.Flags().StringVar(&prNumber, "pr", "",
+		"Review a PR by number (fetches into temp worktree)")
 
 	rootCmd.Flags().BoolVarP(&autoYes, "yes", "y", false,
 		"Automatically submit review without prompting")
@@ -146,7 +150,76 @@ func runReview(cmd *cobra.Command, _ []string) error {
 
 	// Handle worktree-based review
 	var workDir string
-	if worktreeBranch != "" {
+	var baseAutoDetected bool // Track if base was auto-detected from PR
+	var prRemote string       // Track remote for PR mode (used to qualify base ref)
+	var prRepoRoot string     // Track repo root for PR mode (used to fetch base ref)
+
+	// Validate mutual exclusivity
+	if prNumber != "" && worktreeBranch != "" {
+		logger.Log("--pr and --worktree-branch are mutually exclusive", terminal.StyleError)
+		return exitCode(domain.ExitError)
+	}
+
+	// Handle PR-based review
+	if prNumber != "" {
+		if err := github.CheckGHAvailable(); err != nil {
+			logger.Logf(terminal.StyleError, "--pr requires gh CLI: %v", err)
+			return exitCode(domain.ExitError)
+		}
+
+		// Early validation: check PR exists and auth is valid
+		if err := github.ValidatePR(ctx, prNumber); err != nil {
+			if errors.Is(err, github.ErrNoPRFound) {
+				logger.Logf(terminal.StyleError, "PR #%s not found", prNumber)
+			} else if errors.Is(err, github.ErrAuthFailed) {
+				logger.Logf(terminal.StyleError, "GitHub authentication failed. Run 'gh auth login' to authenticate.")
+			} else {
+				logger.Logf(terminal.StyleError, "Failed to access PR #%s: %v", prNumber, err)
+			}
+			return exitCode(domain.ExitError)
+		}
+
+		logger.Logf(terminal.StyleInfo, "Fetching PR %s#%s%s",
+			terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset))
+
+		// Auto-detect base ref only if not explicitly set via flag OR env var
+		// This respects user's intentional base configuration
+		explicitBaseSet := cmd.Flags().Changed("base") || os.Getenv("ACR_BASE_REF") != ""
+		if !explicitBaseSet {
+			if detectedBase, err := github.GetPRBaseRef(ctx, prNumber); err == nil && detectedBase != "" {
+				baseRef = detectedBase
+				baseAutoDetected = true // Ensures config.Resolve won't override it
+				logger.Logf(terminal.StyleDim, "Auto-detected base: %s", baseRef)
+			}
+		}
+
+		// Get repo root for worktree creation
+		repoRoot, err := git.GetRoot()
+		if err != nil {
+			logger.Logf(terminal.StyleError, "Error: %v", err)
+			return exitCode(domain.ExitError)
+		}
+		prRepoRoot = repoRoot
+
+		// Detect the correct remote for PR refs (handles fork workflows)
+		remote := github.GetRepoRemote(ctx)
+		prRemote = remote
+
+		// Create worktree from PR - uses FETCH_HEAD to avoid branch conflicts
+		wt, err := git.CreateWorktreeFromPR(repoRoot, remote, prNumber)
+		if err != nil {
+			logger.Logf(terminal.StyleError, "Error: %v", err)
+			return exitCode(domain.ExitError)
+		}
+		defer func() {
+			logger.Log("Cleaning up worktree", terminal.StyleDim)
+			_ = wt.Remove()
+		}()
+
+		logger.Logf(terminal.StyleSuccess, "Worktree ready %s(%s)%s",
+			terminal.Color(terminal.Dim), wt.Path, terminal.Color(terminal.Reset))
+		workDir = wt.Path
+	} else if worktreeBranch != "" {
 		logger.Logf(terminal.StyleInfo, "Creating worktree for %s%s%s",
 			terminal.Color(terminal.Bold), worktreeBranch, terminal.Color(terminal.Reset))
 
@@ -248,7 +321,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	flagState := config.FlagState{
 		ReviewersSet:        cmd.Flags().Changed("reviewers"),
 		ConcurrencySet:      cmd.Flags().Changed("concurrency"),
-		BaseSet:             cmd.Flags().Changed("base"),
+		BaseSet:             cmd.Flags().Changed("base") || baseAutoDetected,
 		TimeoutSet:          cmd.Flags().Changed("timeout"),
 		RetriesSet:          cmd.Flags().Changed("retries"),
 		FetchSet:            fetchFlagSet,
@@ -291,6 +364,20 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	timeout = resolved.Timeout
 	retries = resolved.Retries
 	summarizerAgentName = resolved.SummarizerAgent
+
+	// For PR mode: fetch and qualify the base ref so git diff works in the detached worktree
+	// Only do this for unqualified branch names - skip for SHAs, tags, HEAD, or already-qualified refs
+	// When baseAutoDetected is true, always qualify (PR base refs are always unqualified branches)
+	if prRemote != "" && git.ShouldQualifyBaseRef(baseRef, baseAutoDetected) {
+		// Fetch the base ref from the remote so it exists locally
+		if err := git.FetchBaseRef(prRepoRoot, prRemote, baseRef); err != nil {
+			logger.Logf(terminal.StyleWarning, "Could not fetch base ref: %v", err)
+			// Don't qualify - keep original ref so git diff can try it directly
+		} else {
+			// Only qualify the base ref if fetch succeeded
+			baseRef = git.QualifyBaseRef(prRemote, baseRef)
+		}
+	}
 
 	// Validate resolved config
 	if reviewers < 1 {

@@ -361,3 +361,96 @@ func TestClassifyGHError_NonExitError(t *testing.T) {
 		t.Errorf("expected wrapped error for non-ExitError, got %v", err)
 	}
 }
+
+func TestParsePRViewJSON_ValidResponse(t *testing.T) {
+	json := `{"headRefName": "feature-branch", "baseRefName": "main"}`
+
+	head, base, err := parsePRViewJSON([]byte(json))
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if head != "feature-branch" {
+		t.Errorf("expected head 'feature-branch', got %q", head)
+	}
+	if base != "main" {
+		t.Errorf("expected base 'main', got %q", base)
+	}
+}
+
+func TestParsePRViewJSON_InvalidJSON(t *testing.T) {
+	_, _, err := parsePRViewJSON([]byte(`not valid json`))
+
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestParsePRViewJSON_MissingFields(t *testing.T) {
+	json := `{"headRefName": "feature-branch"}`
+
+	head, base, err := parsePRViewJSON([]byte(json))
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if head != "feature-branch" {
+		t.Errorf("expected head 'feature-branch', got %q", head)
+	}
+	if base != "" {
+		t.Errorf("expected empty base, got %q", base)
+	}
+}
+
+// Tests for urlMatches - Issue 2: SSH URL format not normalized
+
+func TestUrlMatches_HTTPSFormat(t *testing.T) {
+	result := urlMatches("https://github.com/owner/repo.git", "https://github.com/owner/repo")
+	if !result {
+		t.Error("expected true for HTTPS URLs with/without .git suffix")
+	}
+}
+
+func TestUrlMatches_SSHShorthandFormat(t *testing.T) {
+	result := urlMatches("git@github.com:owner/repo.git", "https://github.com/owner/repo")
+	if !result {
+		t.Error("expected true for SSH shorthand vs HTTPS")
+	}
+}
+
+func TestUrlMatches_SSHURLFormat(t *testing.T) {
+	// This is the bug: ssh:// URL format is not handled
+	result := urlMatches("ssh://git@github.com/owner/repo.git", "https://github.com/owner/repo")
+	if !result {
+		t.Error("expected true for ssh:// URL vs HTTPS")
+	}
+}
+
+func TestUrlMatches_SSHURLFormatNoUser(t *testing.T) {
+	// ssh://github.com/owner/repo format (less common but valid)
+	result := urlMatches("ssh://github.com/owner/repo", "https://github.com/owner/repo")
+	if !result {
+		t.Error("expected true for ssh:// URL without user vs HTTPS")
+	}
+}
+
+func TestUrlMatches_SSHURLVsSSHShorthand(t *testing.T) {
+	result := urlMatches("ssh://git@github.com/owner/repo.git", "git@github.com:owner/repo.git")
+	if !result {
+		t.Error("expected true for ssh:// URL vs SSH shorthand")
+	}
+}
+
+func TestUrlMatches_DifferentRepos(t *testing.T) {
+	result := urlMatches("https://github.com/owner/repo1", "https://github.com/owner/repo2")
+	if result {
+		t.Error("expected false for different repos")
+	}
+}
+
+func TestUrlMatches_CaseInsensitive(t *testing.T) {
+	result := urlMatches("https://github.com/OWNER/REPO", "https://github.com/owner/repo")
+	if !result {
+		t.Error("expected true for case-insensitive comparison")
+	}
+}
