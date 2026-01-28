@@ -27,7 +27,10 @@ You need **at least one** of the following LLM CLIs installed and authenticated:
 | Gemini CLI | [github.com/google-gemini/gemini-cli](https://github.com/google-gemini/gemini-cli) |
 
 Optional:
-- **gh CLI** - For posting reviews to GitHub PRs. Install via `brew install gh` and authenticate with `gh auth login`
+
+| Tool | Installation | Purpose |
+|------|--------------|---------|
+| gh CLI | [cli.github.com](https://cli.github.com) | Post reviews to GitHub PRs |
 
 ## How It Works
 
