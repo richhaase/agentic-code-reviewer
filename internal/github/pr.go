@@ -82,6 +82,93 @@ func GetPRBaseRef(ctx context.Context, prNumber string) (string, error) {
 	return base, err
 }
 
+// ValidatePR checks that a PR exists and is accessible.
+// Returns nil if the PR exists, or a descriptive error:
+// - ErrNoPRFound if the PR doesn't exist
+// - ErrAuthFailed if authentication failed
+// - Other error for unexpected failures
+func ValidatePR(ctx context.Context, prNumber string) error {
+	// Use gh pr view with minimal fields to validate the PR exists
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "number")
+	_, err := cmd.Output()
+	if err != nil {
+		return classifyGHError(err)
+	}
+	return nil
+}
+
+// GetRepoRemote returns the git remote name that corresponds to the current gh repo.
+// This handles fork workflows where "origin" may point to a fork, not the base repo.
+// Falls back to "origin" if detection fails.
+func GetRepoRemote(ctx context.Context) string {
+	// Get the current repo's SSH and HTTPS URLs from gh
+	cmd := exec.CommandContext(ctx, "gh", "repo", "view", "--json", "url,sshUrl")
+	out, err := cmd.Output()
+	if err != nil {
+		return "origin" // fallback
+	}
+
+	var repoInfo struct {
+		URL    string `json:"url"`
+		SSHUrl string `json:"sshUrl"`
+	}
+	if err := json.Unmarshal(out, &repoInfo); err != nil {
+		return "origin"
+	}
+
+	// Get git remotes
+	remoteCmd := exec.CommandContext(ctx, "git", "remote", "-v")
+	remoteOut, err := remoteCmd.Output()
+	if err != nil {
+		return "origin"
+	}
+
+	// Parse remotes and find matching one
+	// Format: "origin	git@github.com:owner/repo.git (fetch)"
+	lines := strings.Split(string(remoteOut), "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		remoteName := fields[0]
+		remoteURL := fields[1]
+
+		// Check if this remote matches either URL (normalized)
+		if urlMatches(remoteURL, repoInfo.URL) || urlMatches(remoteURL, repoInfo.SSHUrl) {
+			return remoteName
+		}
+	}
+
+	return "origin"
+}
+
+// urlMatches checks if two git URLs refer to the same repository.
+// Handles HTTPS, SSH shorthand (git@host:path), and SSH URL (ssh://host/path) variations.
+func urlMatches(url1, url2 string) bool {
+	// Normalize URLs for comparison
+	normalize := func(url string) string {
+		url = strings.TrimSuffix(url, ".git")
+		url = strings.TrimPrefix(url, "https://")
+		url = strings.TrimPrefix(url, "http://")
+		// Handle SSH URL format: ssh://git@github.com/owner/repo -> github.com/owner/repo
+		if strings.HasPrefix(url, "ssh://") {
+			url = strings.TrimPrefix(url, "ssh://")
+			// Remove user@ if present (e.g., git@github.com -> github.com)
+			if idx := strings.Index(url, "@"); idx != -1 {
+				url = url[idx+1:]
+			}
+		}
+		// Handle SSH shorthand format: git@github.com:owner/repo -> github.com/owner/repo
+		if strings.HasPrefix(url, "git@") {
+			url = strings.TrimPrefix(url, "git@")
+			url = strings.Replace(url, ":", "/", 1)
+		}
+		return strings.ToLower(url)
+	}
+	return normalize(url1) == normalize(url2)
+}
+
 // classifyGHError examines a gh CLI error and returns a typed error.
 func classifyGHError(err error) error {
 	var exitErr *exec.ExitError

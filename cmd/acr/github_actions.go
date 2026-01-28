@@ -24,17 +24,29 @@ type prContext struct {
 }
 
 // getPRContext retrieves PR number and self-review status for the current branch.
+// If --pr flag was used, uses that PR number directly instead of looking it up.
 func getPRContext(ctx context.Context) prContext {
 	if local || !github.IsGHAvailable() {
 		return prContext{}
 	}
-	prNumber, err := github.GetCurrentPRNumber(ctx, worktreeBranch)
+
+	// If --pr flag was used, we already have the PR number
+	// This is important for detached worktrees where branch lookup would fail
+	if prNumber != "" {
+		return prContext{
+			number:       prNumber,
+			isSelfReview: github.IsSelfReview(ctx, prNumber),
+		}
+	}
+
+	// Otherwise, look up PR from branch
+	foundPR, err := github.GetCurrentPRNumber(ctx, worktreeBranch)
 	if err != nil {
 		return prContext{err: err}
 	}
 	return prContext{
-		number:       prNumber,
-		isSelfReview: github.IsSelfReview(ctx, prNumber),
+		number:       foundPR,
+		isSelfReview: github.IsSelfReview(ctx, foundPR),
 	}
 }
 
