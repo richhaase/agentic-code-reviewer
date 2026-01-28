@@ -15,6 +15,7 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/config"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/git"
+	"github.com/richhaase/agentic-code-reviewer/internal/github"
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
@@ -149,11 +150,64 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		logger.Logf(terminal.StyleInfo, "Creating worktree for %s%s%s",
 			terminal.Color(terminal.Bold), worktreeBranch, terminal.Color(terminal.Reset))
 
-		wt, err := git.CreateWorktree(worktreeBranch)
+		// Check if this is fork notation (username:branch)
+		var actualRef string
+		var cleanupRemote func()
+
+		forkRef, err := github.ResolveForkRef(ctx, worktreeBranch)
 		if err != nil {
 			logger.Logf(terminal.StyleError, "Error: %v", err)
 			return exitCode(domain.ExitError)
 		}
+
+		if forkRef != nil {
+			// Fork flow: add remote, fetch, set ref
+			logger.Logf(terminal.StyleInfo, "Resolved fork PR #%d from %s",
+				forkRef.PRNumber, forkRef.Username)
+
+			repoRoot, err := git.GetRoot()
+			if err != nil {
+				logger.Logf(terminal.StyleError, "Error getting repo root: %v", err)
+				return exitCode(domain.ExitError)
+			}
+
+			// Add temporary remote
+			if err := git.AddRemote(repoRoot, forkRef.RemoteName, forkRef.RepoURL); err != nil {
+				logger.Logf(terminal.StyleError, "Error adding remote: %v", err)
+				return exitCode(domain.ExitError)
+			}
+			cleanupRemote = func() {
+				_ = git.RemoveRemote(repoRoot, forkRef.RemoteName)
+			}
+
+			// Fetch the branch
+			logger.Logf(terminal.StyleDim, "Fetching %s from %s", forkRef.Branch, forkRef.RepoURL)
+			if err := git.FetchBranch(ctx, repoRoot, forkRef.RemoteName, forkRef.Branch); err != nil {
+				cleanupRemote()
+				logger.Logf(terminal.StyleError, "Error fetching fork branch: %v", err)
+				return exitCode(domain.ExitError)
+			}
+
+			actualRef = fmt.Sprintf("%s/%s", forkRef.RemoteName, forkRef.Branch)
+		} else {
+			// Normal branch
+			actualRef = worktreeBranch
+		}
+
+		wt, err := git.CreateWorktree(actualRef)
+		if err != nil {
+			if cleanupRemote != nil {
+				cleanupRemote()
+			}
+			logger.Logf(terminal.StyleError, "Error: %v", err)
+			return exitCode(domain.ExitError)
+		}
+
+		// Cleanup remote after worktree is created (worktree has the files, remote no longer needed)
+		if cleanupRemote != nil {
+			cleanupRemote()
+		}
+
 		defer func() {
 			logger.Log("Cleaning up worktree", terminal.StyleDim)
 			_ = wt.Remove()
