@@ -50,6 +50,9 @@ acr --reviewers 10 --base develop --timeout 10m
 # Review a specific branch in a temporary worktree
 acr --worktree-branch feature/my-branch
 
+# Review a PR from a forked repository
+acr --worktree-branch username:feature-branch
+
 # Local mode (don't post to PR)
 acr --local
 
@@ -71,7 +74,7 @@ acr --verbose
 | `--retries`         | `-R`  | 1       | Retry failed reviewers N times           |
 | `--verbose`         | `-v`  | false   | Print agent messages in real-time        |
 | `--local`           | `-l`  | false   | Skip posting to GitHub PR                |
-| `--worktree-branch` | `-B`  |         | Review a branch in a temp worktree       |
+| `--worktree-branch` | `-B`  |         | Review a branch in a temp worktree (supports `user:branch` for forks) |
 | `--yes`             | `-y`  | false   | Auto-submit without prompting            |
 | `--fetch/--no-fetch`|       | true    | Fetch base ref from origin before diff   |
 | `--no-fp-filter`    |       | false   | Disable false positive filtering          |
@@ -96,6 +99,24 @@ acr -r 10 -R 3 -c 3
 ```
 
 By default, concurrency equals the reviewer count (all run in parallel).
+
+### Fork PR Support
+
+Review pull requests from forked repositories using GitHub's `username:branch` notation:
+
+```bash
+# Review a PR from user "contributor" on branch "fix-bug"
+acr --worktree-branch contributor:fix-bug
+```
+
+ACR will:
+1. Query GitHub to find the open PR from that user's branch
+2. Add a temporary remote pointing to the fork
+3. Fetch the branch
+4. Create a worktree and run the review
+5. Clean up the temporary remote
+
+This requires an open PR from the fork to the current repository. The `gh` CLI must be authenticated.
 
 ### Agent Selection (Experimental)
 
