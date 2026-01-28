@@ -17,6 +17,12 @@ graph TD
     B & C & D --> E[Summarizer]
     E -->|clusters & deduplicates| F[FP Filter]
     F -->|removes false positives| G[Consolidated Report]
+    G --> H{Post to PR?}
+    H -->|--local| I[Done]
+    H -->|findings| J[Request Changes / Comment]
+    H -->|no findings| K[Approve / Comment]
+    J --> I
+    K --> I
 ```
 
 ## Installation
