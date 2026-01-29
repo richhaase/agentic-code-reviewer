@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -14,6 +13,11 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
+
+// maxFindingPreviewLength is the maximum characters shown for a finding in
+// verbose output. Longer findings are truncated with "..." to prevent
+// excessive terminal output while preserving enough context for debugging.
+const maxFindingPreviewLength = 120
 
 // Config holds the runner configuration.
 type Config struct {
@@ -193,42 +197,36 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	}
 
 	// Execute the review
-	reader, err := selectedAgent.ExecuteReview(timeoutCtx, reviewConfig)
+	execResult, err := selectedAgent.ExecuteReview(timeoutCtx, reviewConfig)
 	if err != nil {
 		result.ExitCode = -1
 		result.Duration = time.Since(start)
 		return result
 	}
-
-	// closeReader closes the reader and returns the process exit code if available
-	closeReader := func() int {
-		if closer, ok := reader.(io.Closer); ok {
-			_ = closer.Close()
+	// Ensure cleanup on all exit paths
+	defer func() {
+		if closeErr := execResult.Close(); closeErr != nil && r.verbose() {
+			r.logger.Logf(terminal.StyleWarning, "Reviewer #%d: close error (non-fatal): %v", reviewerID, closeErr)
 		}
-		if exitCoder, ok := reader.(agent.ExitCoder); ok {
-			return exitCoder.ExitCode()
-		}
-		return 0
-	}
+	}()
 
 	// Create parser for this agent's output
 	parser, err := agent.NewReviewParser(selectedAgent.Name(), reviewerID)
 	if err != nil {
-		closeReader()
 		result.ExitCode = -1
 		result.Duration = time.Since(start)
 		return result
 	}
 
 	// Configure scanner
-	scanner := bufio.NewScanner(reader)
+	scanner := bufio.NewScanner(execResult)
 	agent.ConfigureScanner(scanner)
 
 	// Parse output
 	for {
 		// Check for timeout
 		if timeoutCtx.Err() == context.DeadlineExceeded {
-			closeReader()
+			result.ParseErrors += parser.ParseErrors()
 			result.TimedOut = true
 			result.ExitCode = -1
 			result.Duration = time.Since(start)
@@ -237,7 +235,15 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 
 		finding, err := parser.ReadFinding(scanner)
 		if err != nil {
-			// Scanner error is permanent - break to avoid infinite loop
+			if agent.IsRecoverable(err) {
+				// Recoverable error - log and continue parsing
+				// Parse error count tracked by parser.ParseErrors()
+				if r.verbose() {
+					r.logger.Logf(terminal.StyleWarning, "Reviewer #%d: %v", reviewerID, err)
+				}
+				continue
+			}
+			// Fatal error - break to avoid infinite loop
 			result.ParseErrors++
 			break
 		}
@@ -251,8 +257,8 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 
 		if r.verbose() {
 			text := finding.Text
-			if len(text) > 120 {
-				text = text[:120] + "..."
+			if len(text) > maxFindingPreviewLength {
+				text = text[:maxFindingPreviewLength] + "..."
 			}
 			r.logger.Logf(terminal.StyleDim, "%s#%d:%s %s%s%s",
 				terminal.Color(terminal.Dim), reviewerID, terminal.Color(terminal.Reset),
@@ -263,8 +269,12 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	// Capture parse errors tracked by the parser
 	result.ParseErrors += parser.ParseErrors()
 
-	// Close reader and capture exit code
-	exitCode := closeReader()
+	// Close to wait for process and get exit code
+	// (defer will be a no-op due to sync.Once in ExecutionResult)
+	if closeErr := execResult.Close(); closeErr != nil && r.verbose() {
+		r.logger.Logf(terminal.StyleWarning, "Reviewer #%d: close error (non-fatal): %v", reviewerID, closeErr)
+	}
+	result.ExitCode = execResult.ExitCode()
 
 	// Record duration after process fully exits
 	result.Duration = time.Since(start)
@@ -275,9 +285,6 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		result.ExitCode = -1
 		return result
 	}
-
-	// Use the actual agent exit code
-	result.ExitCode = exitCode
 
 	return result
 }

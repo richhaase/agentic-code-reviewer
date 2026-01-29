@@ -3,7 +3,6 @@ package runner
 import (
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
@@ -302,14 +301,6 @@ func formatRawFindings(aggregated []domain.AggregatedFinding, indices []int, tot
 	}
 
 	return strings.Join(lines, "\n")
-}
-
-func joinInts(nums []int) string {
-	strs := make([]string, len(nums))
-	for i, n := range nums {
-		strs[i] = strconv.Itoa(n)
-	}
-	return strings.Join(strs, ", ")
 }
 
 // formatReviewersWithAgents formats reviewer IDs with their agent names.

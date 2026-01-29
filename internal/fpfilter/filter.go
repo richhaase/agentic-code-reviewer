@@ -5,12 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
+// DefaultThreshold is the minimum confidence score (0-100) for a finding to
+// be considered a true positive. Findings below this threshold are filtered
+// as likely false positives. 75 was chosen based on empirical testing to
+// balance precision (fewer false positives) with recall (keeping real issues).
 const DefaultThreshold = 75
 
 type EvaluatedFinding struct {
@@ -30,15 +35,19 @@ type Result struct {
 type Filter struct {
 	agentName string
 	threshold int
+	verbose   bool
 }
 
-func New(agentName string, threshold int) *Filter {
+// New creates a new false positive filter.
+// If verbose is true, non-fatal errors (like Close failures) are logged.
+func New(agentName string, threshold int, verbose bool) *Filter {
 	if threshold < 1 || threshold > 100 {
 		threshold = DefaultThreshold
 	}
 	return &Filter{
 		agentName: agentName,
 		threshold: threshold,
+		verbose:   verbose,
 	}
 }
 
@@ -95,7 +104,7 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 		return nil, err
 	}
 
-	reader, err := ag.ExecuteSummary(ctx, fpEvaluationPrompt, payload)
+	execResult, err := ag.ExecuteSummary(ctx, fpEvaluationPrompt, payload)
 	if err != nil {
 		if ctx.Err() != nil {
 			return &Result{
@@ -105,12 +114,15 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 		}
 		return nil, err
 	}
-
-	output, err := io.ReadAll(reader)
-	if err != nil {
-		if closer, ok := reader.(io.Closer); ok {
-			_ = closer.Close()
+	// Close errors are non-fatal; they only occur on process cleanup issues.
+	defer func() {
+		if err := execResult.Close(); err != nil && f.verbose {
+			log.Printf("[fpfilter] close error (non-fatal): %v", err)
 		}
+	}()
+
+	output, err := io.ReadAll(execResult)
+	if err != nil {
 		if ctx.Err() != nil {
 			return &Result{
 				Grouped:  grouped,
@@ -118,10 +130,6 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 			}, nil
 		}
 		return nil, err
-	}
-
-	if closer, ok := reader.(io.Closer); ok {
-		_ = closer.Close()
 	}
 
 	cleanedOutput := agent.StripMarkdownCodeFence(string(output))

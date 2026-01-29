@@ -92,6 +92,10 @@ func TestCodexOutputParser_ReadFinding(t *testing.T) {
 			for {
 				finding, err := parser.ReadFinding(scanner)
 				if err != nil {
+					if IsRecoverable(err) {
+						// Recoverable error - continue parsing
+						continue
+					}
 					t.Fatalf("ReadFinding() error = %v", err)
 				}
 				if finding == nil {
@@ -170,6 +174,10 @@ also invalid
 			for {
 				finding, err := parser.ReadFinding(scanner)
 				if err != nil {
+					if IsRecoverable(err) {
+						// Recoverable error - continue parsing
+						continue
+					}
 					t.Fatalf("ReadFinding() error = %v", err)
 				}
 				if finding == nil {
@@ -247,6 +255,9 @@ func BenchmarkCodexOutputParser_ReadFinding(b *testing.B) {
 		for {
 			finding, err := parser.ReadFinding(scanner)
 			if err != nil {
+				if IsRecoverable(err) {
+					continue
+				}
 				b.Fatal(err)
 			}
 			if finding == nil {

@@ -10,28 +10,6 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
-func TestJoinInts(t *testing.T) {
-	tests := []struct {
-		name     string
-		nums     []int
-		expected string
-	}{
-		{"empty", nil, ""},
-		{"single", []int{42}, "42"},
-		{"multiple", []int{1, 2, 3}, "1, 2, 3"},
-		{"large numbers", []int{100, 200, 300}, "100, 200, 300"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := joinInts(tt.nums)
-			if got != tt.expected {
-				t.Errorf("joinInts(%v) = %q, want %q", tt.nums, got, tt.expected)
-			}
-		})
-	}
-}
-
 func TestCollectSourceIndices_DeduplicatesAcrossGroups(t *testing.T) {
 	groups := []domain.FindingGroup{
 		{Sources: []int{1, 2, 3}},

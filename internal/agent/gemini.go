@@ -7,8 +7,10 @@ import (
 	"io"
 	"os/exec"
 	"strings"
-	"syscall"
 )
+
+// Compile-time interface check
+var _ Agent = (*GeminiAgent)(nil)
 
 // BuildGeminiRefFilePrompt constructs the review prompt for ref-file mode.
 // If customPrompt is provided, it appends ref-file instructions to it.
@@ -43,13 +45,13 @@ func (g *GeminiAgent) IsAvailable() error {
 }
 
 // ExecuteReview runs a code review using the gemini CLI.
-// Returns an io.Reader for streaming the JSON output.
+// Returns an ExecutionResult for streaming the JSON output.
 //
 // Uses 'gemini -o json -' with the prompt piped to stdin.
 // If config.CustomPrompt is empty, uses DefaultGeminiPrompt.
 // The git diff is either appended to the prompt (default) or written to a
 // reference file when the diff is large or UseRefFile is set.
-func (g *GeminiAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (io.Reader, error) {
+func (g *GeminiAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (*ExecutionResult, error) {
 	if err := g.IsAvailable(); err != nil {
 		return nil, err
 	}
@@ -85,40 +87,15 @@ func (g *GeminiAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 
 	// Build command: gemini -o json -
 	args := []string{"-o", "json", "-"}
-	cmd := exec.CommandContext(ctx, "gemini", args...)
-	cmd.Stdin = bytes.NewReader([]byte(prompt))
+	stdin := bytes.NewReader([]byte(prompt))
 
-	if config.WorkDir != "" {
-		cmd.Dir = config.WorkDir
-	}
-
-	// Set process group for proper signal handling
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	// Capture stderr for error diagnostics
-	stderr := &bytes.Buffer{}
-	cmd.Stderr = stderr
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		CleanupTempFile(tempFilePath)
-		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		CleanupTempFile(tempFilePath)
-		return nil, fmt.Errorf("failed to start gemini: %w", err)
-	}
-
-	// Return a reader that will also wait for the command to complete
-	// and clean up the temp file when done
-	return &cmdReader{
-		Reader:       stdout,
-		cmd:          cmd,
-		ctx:          ctx,
-		stderr:       stderr,
-		tempFilePath: tempFilePath,
-	}, nil
+	return executeCommand(ctx, executeOptions{
+		Command:      "gemini",
+		Args:         args,
+		Stdin:        stdin,
+		WorkDir:      config.WorkDir,
+		TempFilePath: tempFilePath,
+	})
 }
 
 // ExecuteSummary runs a summarization task using the gemini CLI.
@@ -126,7 +103,7 @@ func (g *GeminiAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 // Gemini CLI has file reading capabilities via its ReadFile tool, but for
 // summary inputs we embed the JSON directly since they are typically small
 // (aggregated findings rather than raw diffs).
-func (g *GeminiAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (io.Reader, error) {
+func (g *GeminiAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (*ExecutionResult, error) {
 	if err := g.IsAvailable(); err != nil {
 		return nil, err
 	}
@@ -134,35 +111,17 @@ func (g *GeminiAgent) ExecuteSummary(ctx context.Context, prompt string, input [
 	// Build command: gemini -o json -
 	// -: Explicitly read prompt from stdin
 	args := []string{"-o", "json", "-"}
-	cmd := exec.CommandContext(ctx, "gemini", args...)
 	// Use MultiReader to avoid copying large input byte slice
-	cmd.Stdin = io.MultiReader(
+	stdin := io.MultiReader(
 		strings.NewReader(prompt),
 		strings.NewReader("\n\nINPUT JSON:\n"),
 		bytes.NewReader(input),
 		strings.NewReader("\n"),
 	)
 
-	// Set process group for proper signal handling
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	// Capture stderr for error diagnostics
-	stderr := &bytes.Buffer{}
-	cmd.Stderr = stderr
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start gemini: %w", err)
-	}
-
-	return &cmdReader{
-		Reader: stdout,
-		cmd:    cmd,
-		ctx:    ctx,
-		stderr: stderr,
-	}, nil
+	return executeCommand(ctx, executeOptions{
+		Command: "gemini",
+		Args:    args,
+		Stdin:   stdin,
+	})
 }

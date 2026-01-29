@@ -337,7 +337,9 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	envState := config.LoadEnvState()
 
 	// Build flag values struct
-	// If --no-fetch is set, it overrides --fetch
+	// noFetch exists for shell alias ergonomics where --fetch=false is awkward.
+	// Example: alias acr-nofetch='acr --no-fetch'
+	// When both flags are set (unlikely), noFetch takes precedence.
 	fetchValue := fetch && !noFetch
 	flagValues := config.ResolvedConfig{
 		Reviewers:        reviewers,

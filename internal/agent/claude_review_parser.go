@@ -33,17 +33,11 @@ func (p *ClaudeOutputParser) ReadFinding(scanner *bufio.Scanner) (*domain.Findin
 			continue
 		}
 
-		// Skip common non-finding lines
-		lower := strings.ToLower(line)
+		// Skip formatting lines and non-finding content
 		if strings.HasPrefix(line, "#") ||
 			strings.HasPrefix(line, "---") ||
 			strings.HasPrefix(line, "```") ||
-			strings.Contains(lower, "no issues") ||
-			strings.Contains(lower, "no findings") ||
-			strings.Contains(lower, "looks good") ||
-			strings.Contains(lower, "code looks clean") ||
-			strings.Contains(lower, "no problems") ||
-			strings.Contains(lower, "review complete") {
+			IsNonFindingText(line) {
 			continue
 		}
 

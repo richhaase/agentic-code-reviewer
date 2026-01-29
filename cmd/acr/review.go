@@ -122,7 +122,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		close(spinnerDone)
 	}()
 
-	summaryResult, err := summarizer.Summarize(ctx, summarizerAgentName, aggregated)
+	summaryResult, err := summarizer.Summarize(ctx, summarizerAgentName, aggregated, verbose)
 	spinnerCancel()
 	<-spinnerDone
 
@@ -143,7 +143,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 			close(fpSpinnerDone)
 		}()
 
-		fpFilter := fpfilter.New(summarizerAgentName, fpThreshold)
+		fpFilter := fpfilter.New(summarizerAgentName, fpThreshold, verbose)
 		fpResult, err := fpFilter.Apply(ctx, summaryResult.Grouped)
 		fpSpinnerCancel()
 		<-fpSpinnerDone

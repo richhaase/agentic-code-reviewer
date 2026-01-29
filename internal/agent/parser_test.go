@@ -1,6 +1,9 @@
 package agent
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestStripMarkdownCodeFence(t *testing.T) {
 	tests := []struct {
@@ -65,6 +68,55 @@ func TestStripMarkdownCodeFence(t *testing.T) {
 			got := StripMarkdownCodeFence(tt.input)
 			if got != tt.want {
 				t.Errorf("StripMarkdownCodeFence() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRecoverableParseError(t *testing.T) {
+	err := &RecoverableParseError{
+		Line:    42,
+		Message: "invalid JSON: unexpected token",
+	}
+
+	want := "parse error at line 42: invalid JSON: unexpected token"
+	if got := err.Error(); got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+}
+
+func TestIsRecoverable(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "recoverable parse error",
+			err:  &RecoverableParseError{Line: 1, Message: "test"},
+			want: true,
+		},
+		{
+			name: "wrapped recoverable error",
+			err:  errors.Join(errors.New("context"), &RecoverableParseError{Line: 1, Message: "test"}),
+			want: true,
+		},
+		{
+			name: "regular error",
+			err:  errors.New("some error"),
+			want: false,
+		},
+		{
+			name: "nil error",
+			err:  nil,
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsRecoverable(tt.err); got != tt.want {
+				t.Errorf("IsRecoverable() = %v, want %v", got, tt.want)
 			}
 		})
 	}

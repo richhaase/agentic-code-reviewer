@@ -8,8 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"syscall"
 )
+
+// Compile-time interface check
+var _ Agent = (*CodexAgent)(nil)
 
 // BuildCodexRefFilePrompt constructs the review prompt for ref-file mode.
 // If customPrompt is provided, it appends ref-file instructions to it.
@@ -44,18 +46,18 @@ func (c *CodexAgent) IsAvailable() error {
 }
 
 // ExecuteReview runs a code review using the codex CLI.
-// Returns an io.Reader for streaming the JSONL output.
+// Returns an ExecutionResult for streaming the JSONL output.
 //
 // If config.CustomPrompt is provided, uses 'codex exec -' with the prompt on stdin.
 // The git diff is either appended to the prompt (default) or written to a
 // reference file when the diff is large or UseRefFile is set.
 // Otherwise, uses 'codex exec review --base X' for the built-in review behavior.
-func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (io.Reader, error) {
+func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (*ExecutionResult, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
 	}
 
-	var cmd *exec.Cmd
+	var stdin io.Reader
 	var args []string
 	var tempFilePath string
 
@@ -83,8 +85,7 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (i
 		}
 
 		args = []string{"exec", "--json", "--color", "never", "-"}
-		cmd = exec.CommandContext(ctx, "codex", args...)
-		cmd.Stdin = bytes.NewReader([]byte(prompt))
+		stdin = bytes.NewReader([]byte(prompt))
 	} else {
 		// Default mode: use built-in 'codex exec review'
 		// This mode handles diffs internally
@@ -92,40 +93,15 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (i
 			fmt.Fprintln(os.Stderr, "Note: --ref-file flag has no effect in Codex default mode (requires custom prompt)")
 		}
 		args = []string{"exec", "--json", "--color", "never", "review", "--base", config.BaseRef}
-		cmd = exec.CommandContext(ctx, "codex", args...)
 	}
 
-	if config.WorkDir != "" {
-		cmd.Dir = config.WorkDir
-	}
-
-	// Set process group for proper signal handling
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	// Capture stderr for error diagnostics
-	stderr := &bytes.Buffer{}
-	cmd.Stderr = stderr
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		CleanupTempFile(tempFilePath)
-		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		CleanupTempFile(tempFilePath)
-		return nil, fmt.Errorf("failed to start codex: %w", err)
-	}
-
-	// Return a reader that will also wait for the command to complete
-	// and clean up the temp file when done
-	return &cmdReader{
-		Reader:       stdout,
-		cmd:          cmd,
-		ctx:          ctx,
-		stderr:       stderr,
-		tempFilePath: tempFilePath,
-	}, nil
+	return executeCommand(ctx, executeOptions{
+		Command:      "codex",
+		Args:         args,
+		Stdin:        stdin,
+		WorkDir:      config.WorkDir,
+		TempFilePath: tempFilePath,
+	})
 }
 
 // ExecuteSummary runs a summarization task using the codex CLI.
@@ -135,41 +111,23 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (i
 // embeds the input directly in the prompt for simplicity. Very large inputs
 // (>100KB) may hit prompt length limits, but summary inputs are typically
 // much smaller since they contain aggregated findings rather than raw diffs.
-func (c *CodexAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (io.Reader, error) {
+func (c *CodexAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (*ExecutionResult, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
 	}
 
 	args := []string{"exec", "--json", "--color", "never", "-"}
-	cmd := exec.CommandContext(ctx, "codex", args...)
 	// Use MultiReader to avoid copying large input byte slice
-	cmd.Stdin = io.MultiReader(
+	stdin := io.MultiReader(
 		strings.NewReader(prompt),
 		strings.NewReader("\n\nINPUT JSON:\n"),
 		bytes.NewReader(input),
 		strings.NewReader("\n"),
 	)
 
-	// Set process group for proper signal handling
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	// Capture stderr for error diagnostics
-	stderr := &bytes.Buffer{}
-	cmd.Stderr = stderr
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start codex: %w", err)
-	}
-
-	return &cmdReader{
-		Reader: stdout,
-		cmd:    cmd,
-		ctx:    ctx,
-		stderr: stderr,
-	}, nil
+	return executeCommand(ctx, executeOptions{
+		Command: "codex",
+		Args:    args,
+		Stdin:   stdin,
+	})
 }

@@ -9,6 +9,9 @@ import (
 	"syscall"
 )
 
+// Compile-time interface check
+var _ io.Closer = (*cmdReader)(nil)
+
 // cmdReader wraps an io.Reader and ensures the command is waited on when closed.
 // It implements io.Closer, ExitCoder, and StderrProvider to provide process exit
 // code and stderr output after Close().
@@ -38,9 +41,13 @@ func (r *cmdReader) Close() error {
 
 		// Kill the process group if context was canceled or timed out
 		if r.cmd != nil && r.cmd.Process != nil {
+			// Capture PID before any state changes to prevent race condition
+			pid := r.cmd.Process.Pid
+
 			if r.ctx != nil && r.ctx.Err() != nil {
 				// Kill the entire process group (negative PID)
-				_ = syscall.Kill(-r.cmd.Process.Pid, syscall.SIGKILL)
+				// Ignore errors - process may have already exited
+				_ = syscall.Kill(-pid, syscall.SIGKILL)
 			}
 
 			// Wait for command to complete and capture exit code
@@ -76,4 +83,14 @@ func (r *cmdReader) Stderr() string {
 		return ""
 	}
 	return r.stderr.String()
+}
+
+// ToExecutionResult wraps this cmdReader in an ExecutionResult.
+// This provides a clean API for callers without requiring type assertions.
+func (r *cmdReader) ToExecutionResult() *ExecutionResult {
+	return NewExecutionResult(
+		r,
+		func() int { return r.ExitCode() },
+		func() string { return r.Stderr() },
+	)
 }

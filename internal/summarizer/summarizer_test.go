@@ -12,7 +12,7 @@ import (
 )
 
 func TestSummarize_EmptyInput(t *testing.T) {
-	result, err := Summarize(context.Background(), "codex", nil)
+	result, err := Summarize(context.Background(), "codex", nil, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestSummarize_EmptyInput(t *testing.T) {
 }
 
 func TestSummarize_EmptySlice(t *testing.T) {
-	result, err := Summarize(context.Background(), "codex", []domain.AggregatedFinding{})
+	result, err := Summarize(context.Background(), "codex", []domain.AggregatedFinding{}, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestSummarize_ContextCanceled(t *testing.T) {
 		{Text: "Test finding", Reviewers: []int{1}},
 	}
 
-	result, err := Summarize(ctx, "codex", findings)
+	result, err := Summarize(ctx, "codex", findings, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -107,7 +107,7 @@ EOF
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result, err := Summarize(ctx, "codex", findings)
+	result, err := Summarize(ctx, "codex", findings, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -147,7 +147,7 @@ echo "this is not valid JSON"
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result, err := Summarize(ctx, "codex", findings)
+	result, err := Summarize(ctx, "codex", findings, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestSummarize_EmptyOutput(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result, err := Summarize(ctx, "codex", findings)
+	result, err := Summarize(ctx, "codex", findings, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -224,7 +224,7 @@ exit 42
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result, err := Summarize(ctx, "codex", findings)
+	result, err := Summarize(ctx, "codex", findings, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -265,7 +265,7 @@ EOF
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result, err := Summarize(ctx, "codex", findings)
+	result, err := Summarize(ctx, "codex", findings, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

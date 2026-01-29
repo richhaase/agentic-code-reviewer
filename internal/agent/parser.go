@@ -2,17 +2,40 @@ package agent
 
 import (
 	"bufio"
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
+// RecoverableParseError indicates a parse error that allows continued parsing.
+// The scanner can continue to the next line/item after this error.
+type RecoverableParseError struct {
+	Line    int
+	Message string
+}
+
+func (e *RecoverableParseError) Error() string {
+	return fmt.Sprintf("parse error at line %d: %s", e.Line, e.Message)
+}
+
+// IsRecoverable returns true if err is a RecoverableParseError.
+func IsRecoverable(err error) bool {
+	var rpe *RecoverableParseError
+	return errors.As(err, &rpe)
+}
+
 // ReviewParser parses streaming review output into findings.
 // Each agent implementation provides its own parser to handle its specific output format.
 type ReviewParser interface {
 	// ReadFinding reads and parses the next finding from the output stream.
-	// Returns nil when the stream is exhausted or if no finding is available.
-	// Returns an error if parsing fails.
+	//
+	// Returns:
+	//   - (finding, nil): finding parsed successfully
+	//   - (nil, nil): stream exhausted, no more findings
+	//   - (nil, RecoverableParseError): parse error, caller should continue reading
+	//   - (nil, error): fatal error, stop parsing
 	ReadFinding(scanner *bufio.Scanner) (*domain.Finding, error)
 
 	// ParseErrors returns the number of recoverable parse errors encountered.

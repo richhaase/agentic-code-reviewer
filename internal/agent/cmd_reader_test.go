@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"context"
 	"io"
 	"os/exec"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -136,5 +138,46 @@ func TestCmdReader_Close_Idempotent(t *testing.T) {
 	}
 	if err := reader.Close(); err != nil {
 		t.Errorf("Second Close() error = %v, want nil", err)
+	}
+}
+
+func TestCmdReader_CloseWithNilProcess(t *testing.T) {
+	// cmdReader with cmd set but Process is nil (Start() was never called)
+	cmd := exec.Command("true") // Don't start it
+
+	reader := &cmdReader{
+		Reader: strings.NewReader(""),
+		cmd:    cmd,
+		ctx:    context.Background(),
+	}
+
+	// Should not panic
+	err := reader.Close()
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCmdReader_CloseWithContextCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	// Create a long-running command
+	cmd := exec.CommandContext(ctx, "sleep", "10")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	stdout, _ := cmd.StdoutPipe()
+	_ = cmd.Start()
+
+	reader := &cmdReader{
+		Reader: stdout,
+		cmd:    cmd,
+		ctx:    ctx,
+	}
+
+	// Should kill process group and not panic
+	err := reader.Close()
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
 	}
 }

@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"io"
 )
 
 // Agent represents a backend that can execute code reviews and summarizations.
@@ -16,17 +15,18 @@ type Agent interface {
 	IsAvailable() error
 
 	// ExecuteReview runs a code review with the given configuration.
-	// Returns an io.Reader for streaming output and an error if execution fails.
-	// The caller is responsible for closing the reader if it implements io.Closer.
-	// If the reader implements ExitCoder, the caller can retrieve the process exit code.
-	ExecuteReview(ctx context.Context, config *ReviewConfig) (io.Reader, error)
+	// Returns an ExecutionResult for streaming output and an error if execution fails.
+	// The caller MUST call Close() on the result to ensure proper resource cleanup.
+	// After Close(), ExitCode() and Stderr() return valid values.
+	ExecuteReview(ctx context.Context, config *ReviewConfig) (*ExecutionResult, error)
 
 	// ExecuteSummary runs a summarization task with the given prompt and input data.
 	// The prompt contains the summarization instructions.
 	// The input contains the data to summarize (typically JSON-encoded aggregated findings).
-	// Returns an io.Reader for the output.
-	// The caller is responsible for closing the reader if it implements io.Closer.
-	ExecuteSummary(ctx context.Context, prompt string, input []byte) (io.Reader, error)
+	// Returns an ExecutionResult for streaming output.
+	// The caller MUST call Close() on the result to ensure proper resource cleanup.
+	// After Close(), ExitCode() and Stderr() return valid values.
+	ExecuteSummary(ctx context.Context, prompt string, input []byte) (*ExecutionResult, error)
 }
 
 // ExitCoder is an optional interface for readers that can report process exit codes.
