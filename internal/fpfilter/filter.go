@@ -23,6 +23,10 @@ func logVerbose(format string, args ...interface{}) {
 	}
 }
 
+// DefaultThreshold is the minimum confidence score (0-100) for a finding to
+// be considered a true positive. Findings below this threshold are filtered
+// as likely false positives. 75 was chosen based on empirical testing to
+// balance precision (fewer false positives) with recall (keeping real issues).
 const DefaultThreshold = 75
 
 type EvaluatedFinding struct {

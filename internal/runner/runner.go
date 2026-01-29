@@ -14,6 +14,11 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
+// maxFindingPreviewLength is the maximum characters shown for a finding in
+// verbose output. Longer findings are truncated with "..." to prevent
+// excessive terminal output while preserving enough context for debugging.
+const maxFindingPreviewLength = 120
+
 // Config holds the runner configuration.
 type Config struct {
 	Reviewers    int
@@ -251,8 +256,8 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 
 		if r.verbose() {
 			text := finding.Text
-			if len(text) > 120 {
-				text = text[:120] + "..."
+			if len(text) > maxFindingPreviewLength {
+				text = text[:maxFindingPreviewLength] + "..."
 			}
 			r.logger.Logf(terminal.StyleDim, "%s#%d:%s %s%s%s",
 				terminal.Color(terminal.Dim), reviewerID, terminal.Color(terminal.Reset),
