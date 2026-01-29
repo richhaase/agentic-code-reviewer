@@ -3,6 +3,7 @@ package agent
 import (
 	"io"
 	"sync"
+	"sync/atomic"
 )
 
 // ExecutionResult wraps command execution output with lifecycle management.
@@ -19,7 +20,7 @@ type ExecutionResult struct {
 	stderr       string
 	stderrFunc   func() string
 	closeOnce    sync.Once
-	closed       bool
+	closed       atomic.Bool
 }
 
 // NewExecutionResult creates a new ExecutionResult wrapping the given reader.
@@ -52,7 +53,7 @@ func (r *ExecutionResult) Close() error {
 		if r.stderrFunc != nil {
 			r.stderr = r.stderrFunc()
 		}
-		r.closed = true
+		r.closed.Store(true)
 	})
 	return closeErr
 }
@@ -72,6 +73,7 @@ func (r *ExecutionResult) Stderr() string {
 }
 
 // IsClosed returns true if Close() has been called.
+// Safe for concurrent use.
 func (r *ExecutionResult) IsClosed() bool {
-	return r.closed
+	return r.closed.Load()
 }
