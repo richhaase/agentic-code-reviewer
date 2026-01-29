@@ -26,8 +26,10 @@ Create a new version tag and trigger the release workflow.
 5. Once approved, create an annotated tag with the changelog summary:
 
    ```
-   git tag -a <version> -m "<summary of changes>"
+   git tag -a <version> --cleanup=whitespace -m "<summary of changes>"
    ```
+
+   **Important**: The `--cleanup=whitespace` flag is required to preserve markdown headers (lines starting with `#`) in the tag message. Without it, git strips them as comments.
 
 6. Push the tag to trigger the release workflow:
    ```
