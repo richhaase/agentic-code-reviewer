@@ -70,7 +70,7 @@ func (p *GeminiOutputParser) parseFullOutput(scanner *bufio.Scanner) error {
 		// Not valid JSON - treat entire output as plain text finding
 		p.parseErrors++
 		text := strings.TrimSpace(fullOutput)
-		if text != "" && !p.isNonFinding(text) {
+		if text != "" && !IsNonFindingText(text) {
 			p.findings = append(p.findings, domain.Finding{
 				Text:       text,
 				ReviewerID: p.reviewerID,
@@ -97,7 +97,7 @@ func (p *GeminiOutputParser) parseFullOutput(scanner *bufio.Scanner) error {
 	// The response may contain the full review as a single text block
 	// Return it as one finding (aggregation/summarization handles grouping)
 	responseText = strings.TrimSpace(responseText)
-	if responseText != "" && !p.isNonFinding(responseText) {
+	if responseText != "" && !IsNonFindingText(responseText) {
 		p.findings = append(p.findings, domain.Finding{
 			Text:       responseText,
 			ReviewerID: p.reviewerID,
@@ -105,16 +105,6 @@ func (p *GeminiOutputParser) parseFullOutput(scanner *bufio.Scanner) error {
 	}
 
 	return nil
-}
-
-// isNonFinding returns true if the text looks like a non-finding response.
-func (p *GeminiOutputParser) isNonFinding(text string) bool {
-	lower := strings.ToLower(text)
-	return strings.Contains(lower, "no issues") ||
-		strings.Contains(lower, "no bugs") ||
-		strings.Contains(lower, "no problems") ||
-		strings.Contains(lower, "looks good") ||
-		strings.Contains(lower, "code looks correct")
 }
 
 // ParseErrors returns the number of recoverable parse errors encountered.
