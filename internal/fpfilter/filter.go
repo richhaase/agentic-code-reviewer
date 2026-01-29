@@ -5,11 +5,23 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
+
+// Verbose enables debug logging for the fpfilter package.
+// Set this to true to log non-fatal errors like Close() failures.
+var Verbose bool
+
+// logVerbose logs a message if Verbose is enabled.
+func logVerbose(format string, args ...interface{}) {
+	if Verbose {
+		log.Printf("[fpfilter] "+format, args...)
+	}
+}
 
 const DefaultThreshold = 75
 
@@ -105,7 +117,12 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 		}
 		return nil, err
 	}
-	defer execResult.Close()
+	// Close errors are non-fatal; they only occur on process cleanup issues.
+	defer func() {
+		if err := execResult.Close(); err != nil {
+			logVerbose("close error (non-fatal): %v", err)
+		}
+	}()
 
 	output, err := io.ReadAll(execResult)
 	if err != nil {

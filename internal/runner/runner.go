@@ -199,7 +199,11 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		return result
 	}
 	// Ensure cleanup on all exit paths
-	defer execResult.Close()
+	defer func() {
+		if closeErr := execResult.Close(); closeErr != nil && r.verbose() {
+			r.logger.Logf(terminal.StyleWarning, "Reviewer #%d: close error (non-fatal): %v", reviewerID, closeErr)
+		}
+	}()
 
 	// Create parser for this agent's output
 	parser, err := agent.NewReviewParser(selectedAgent.Name(), reviewerID)
@@ -261,7 +265,9 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 
 	// Close to wait for process and get exit code
 	// (defer will be a no-op due to sync.Once in ExecutionResult)
-	_ = execResult.Close()
+	if closeErr := execResult.Close(); closeErr != nil && r.verbose() {
+		r.logger.Logf(terminal.StyleWarning, "Reviewer #%d: close error (non-fatal): %v", reviewerID, closeErr)
+	}
 	result.ExitCode = execResult.ExitCode()
 
 	// Record duration after process fully exits

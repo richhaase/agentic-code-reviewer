@@ -5,11 +5,23 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
+
+// Verbose enables debug logging for the summarizer package.
+// Set this to true to log non-fatal errors like Close() failures.
+var Verbose bool
+
+// logVerbose logs a message if Verbose is enabled.
+func logVerbose(format string, args ...interface{}) {
+	if Verbose {
+		log.Printf("[summarizer] "+format, args...)
+	}
+}
 
 const groupPrompt = `# Code Review Summarizer
 
@@ -129,7 +141,13 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 		}
 		return nil, err
 	}
-	defer execResult.Close()
+	// Close errors are non-fatal; defer ensures cleanup on all exit paths.
+	// The explicit Close() below handles the primary close; this is a safety net.
+	defer func() {
+		if err := execResult.Close(); err != nil {
+			logVerbose("close error (non-fatal): %v", err)
+		}
+	}()
 
 	// Read all output
 	output, err := io.ReadAll(execResult)
@@ -145,8 +163,11 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 		return nil, err
 	}
 
-	// Close to get exit code and stderr (defer will be a no-op due to sync.Once)
-	_ = execResult.Close()
+	// Close to get exit code and stderr (defer will be a no-op due to sync.Once).
+	// Close errors are non-fatal; they only occur on process cleanup issues.
+	if err := execResult.Close(); err != nil {
+		logVerbose("close error (non-fatal): %v", err)
+	}
 	exitCode := execResult.ExitCode()
 	stderr := execResult.Stderr()
 	duration := time.Since(start)
