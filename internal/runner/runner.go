@@ -226,6 +226,7 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	for {
 		// Check for timeout
 		if timeoutCtx.Err() == context.DeadlineExceeded {
+			result.ParseErrors += parser.ParseErrors()
 			result.TimedOut = true
 			result.ExitCode = -1
 			result.Duration = time.Since(start)
