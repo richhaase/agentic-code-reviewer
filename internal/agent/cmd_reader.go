@@ -9,6 +9,9 @@ import (
 	"syscall"
 )
 
+// Compile-time interface check
+var _ io.Closer = (*cmdReader)(nil)
+
 // cmdReader wraps an io.Reader and ensures the command is waited on when closed.
 // It implements io.Closer, ExitCoder, and StderrProvider to provide process exit
 // code and stderr output after Close().
