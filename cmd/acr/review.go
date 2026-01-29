@@ -14,10 +14,6 @@ import (
 )
 
 func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, reviewerAgentNames []string, summarizerAgentName string, fetchRemote bool, useRefFile bool, fpFilterEnabled bool, fpThreshold int, logger *terminal.Logger) domain.ExitCode {
-	// Enable verbose logging in packages that use it
-	summarizer.Verbose = verbose
-	fpfilter.Verbose = verbose
-
 	if concurrency < reviewers {
 		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, %d concurrent, base=%s)%s",
 			terminal.Color(terminal.Dim), reviewers, concurrency, baseRef, terminal.Color(terminal.Reset))
@@ -126,7 +122,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		close(spinnerDone)
 	}()
 
-	summaryResult, err := summarizer.Summarize(ctx, summarizerAgentName, aggregated)
+	summaryResult, err := summarizer.Summarize(ctx, summarizerAgentName, aggregated, verbose)
 	spinnerCancel()
 	<-spinnerDone
 
@@ -147,7 +143,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 			close(fpSpinnerDone)
 		}()
 
-		fpFilter := fpfilter.New(summarizerAgentName, fpThreshold)
+		fpFilter := fpfilter.New(summarizerAgentName, fpThreshold, verbose)
 		fpResult, err := fpFilter.Apply(ctx, summaryResult.Grouped)
 		fpSpinnerCancel()
 		<-fpSpinnerDone

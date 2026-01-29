@@ -12,17 +12,6 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
-// Verbose enables debug logging for the fpfilter package.
-// Set this to true to log non-fatal errors like Close() failures.
-var Verbose bool
-
-// logVerbose logs a message if Verbose is enabled.
-func logVerbose(format string, args ...interface{}) {
-	if Verbose {
-		log.Printf("[fpfilter] "+format, args...)
-	}
-}
-
 // DefaultThreshold is the minimum confidence score (0-100) for a finding to
 // be considered a true positive. Findings below this threshold are filtered
 // as likely false positives. 75 was chosen based on empirical testing to
@@ -46,15 +35,19 @@ type Result struct {
 type Filter struct {
 	agentName string
 	threshold int
+	verbose   bool
 }
 
-func New(agentName string, threshold int) *Filter {
+// New creates a new false positive filter.
+// If verbose is true, non-fatal errors (like Close failures) are logged.
+func New(agentName string, threshold int, verbose bool) *Filter {
 	if threshold < 1 || threshold > 100 {
 		threshold = DefaultThreshold
 	}
 	return &Filter{
 		agentName: agentName,
 		threshold: threshold,
+		verbose:   verbose,
 	}
 }
 
@@ -123,8 +116,8 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 	}
 	// Close errors are non-fatal; they only occur on process cleanup issues.
 	defer func() {
-		if err := execResult.Close(); err != nil {
-			logVerbose("close error (non-fatal): %v", err)
+		if err := execResult.Close(); err != nil && f.verbose {
+			log.Printf("[fpfilter] close error (non-fatal): %v", err)
 		}
 	}()
 

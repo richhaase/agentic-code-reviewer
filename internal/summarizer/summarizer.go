@@ -12,17 +12,6 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
-// Verbose enables debug logging for the summarizer package.
-// Set this to true to log non-fatal errors like Close() failures.
-var Verbose bool
-
-// logVerbose logs a message if Verbose is enabled.
-func logVerbose(format string, args ...interface{}) {
-	if Verbose {
-		log.Printf("[summarizer] "+format, args...)
-	}
-}
-
 const groupPrompt = `# Code Review Summarizer
 
 You are grouping results from repeated code review runs.
@@ -88,7 +77,8 @@ type inputItem struct {
 
 // Summarize summarizes the aggregated findings using an LLM.
 // The agentName parameter specifies which agent to use for summarization.
-func Summarize(ctx context.Context, agentName string, aggregated []domain.AggregatedFinding) (*Result, error) {
+// If verbose is true, non-fatal errors (like Close failures) are logged.
+func Summarize(ctx context.Context, agentName string, aggregated []domain.AggregatedFinding, verbose bool) (*Result, error) {
 	start := time.Now()
 
 	if len(aggregated) == 0 {
@@ -144,8 +134,8 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 	// Close errors are non-fatal; defer ensures cleanup on all exit paths.
 	// The explicit Close() below handles the primary close; this is a safety net.
 	defer func() {
-		if err := execResult.Close(); err != nil {
-			logVerbose("close error (non-fatal): %v", err)
+		if err := execResult.Close(); err != nil && verbose {
+			log.Printf("[summarizer] close error (non-fatal): %v", err)
 		}
 	}()
 
@@ -165,8 +155,8 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 
 	// Close to get exit code and stderr (defer will be a no-op due to sync.Once).
 	// Close errors are non-fatal; they only occur on process cleanup issues.
-	if err := execResult.Close(); err != nil {
-		logVerbose("close error (non-fatal): %v", err)
+	if err := execResult.Close(); err != nil && verbose {
+		log.Printf("[summarizer] close error (non-fatal): %v", err)
 	}
 	exitCode := execResult.ExitCode()
 	stderr := execResult.Stderr()
