@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
-	"syscall"
 )
 
 // Compile-time interface check
@@ -94,43 +94,15 @@ func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 	// --print: Output response only (non-interactive)
 	// -: Read prompt from stdin (avoids ARG_MAX limits on large diffs)
 	args := []string{"--print", "-"}
-	cmd := exec.CommandContext(ctx, "claude", args...)
+	stdin := bytes.NewReader([]byte(prompt))
 
-	// Pipe prompt via stdin
-	cmd.Stdin = bytes.NewReader([]byte(prompt))
-
-	if config.WorkDir != "" {
-		cmd.Dir = config.WorkDir
-	}
-
-	// Set process group for proper signal handling
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	// Capture stderr for error diagnostics
-	stderr := &bytes.Buffer{}
-	cmd.Stderr = stderr
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		CleanupTempFile(tempFilePath)
-		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		CleanupTempFile(tempFilePath)
-		return nil, fmt.Errorf("failed to start claude: %w", err)
-	}
-
-	// Return an ExecutionResult that will also wait for the command to complete
-	// and clean up the temp file when done
-	reader := &cmdReader{
-		Reader:       stdout,
-		cmd:          cmd,
-		ctx:          ctx,
-		stderr:       stderr,
-		tempFilePath: tempFilePath,
-	}
-	return reader.ToExecutionResult(), nil
+	return executeCommand(ctx, executeOptions{
+		Command:      "claude",
+		Args:         args,
+		Stdin:        stdin,
+		WorkDir:      config.WorkDir,
+		TempFilePath: tempFilePath,
+	})
 }
 
 // ExecuteSummary runs a summarization task using the claude CLI.
@@ -143,7 +115,7 @@ func (c *ClaudeAgent) ExecuteSummary(ctx context.Context, prompt string, input [
 		return nil, err
 	}
 
-	var fullPrompt string
+	var stdin io.Reader
 	var tempFilePath string
 
 	// Check if input is large enough to warrant ref-file mode
@@ -155,44 +127,22 @@ func (c *ClaudeAgent) ExecuteSummary(ctx context.Context, prompt string, input [
 			return nil, err
 		}
 		tempFilePath = absPath
-		fullPrompt = fmt.Sprintf("%s\n\nThe input JSON is in file: %s\nUse the Read tool to examine it.", prompt, absPath)
+		fullPrompt := fmt.Sprintf("%s\n\nThe input JSON is in file: %s\nUse the Read tool to examine it.", prompt, absPath)
+		stdin = bytes.NewReader([]byte(fullPrompt))
 	} else {
 		// Standard mode: embed input in prompt
-		fullPrompt = prompt + "\n\nINPUT JSON:\n" + string(input) + "\n"
+		fullPrompt := prompt + "\n\nINPUT JSON:\n" + string(input) + "\n"
+		stdin = bytes.NewReader([]byte(fullPrompt))
 	}
 
 	// Build command with JSON schema for structured output
 	// -: Read prompt from stdin (avoids ARG_MAX limits on large inputs)
 	args := []string{"--print", "--output-format", "json", "--json-schema", claudeSummarySchema, "-"}
-	cmd := exec.CommandContext(ctx, "claude", args...)
 
-	// Pipe prompt via stdin
-	cmd.Stdin = bytes.NewReader([]byte(fullPrompt))
-
-	// Set process group for proper signal handling
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	// Capture stderr for error diagnostics
-	stderr := &bytes.Buffer{}
-	cmd.Stderr = stderr
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		CleanupTempFile(tempFilePath)
-		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		CleanupTempFile(tempFilePath)
-		return nil, fmt.Errorf("failed to start claude: %w", err)
-	}
-
-	reader := &cmdReader{
-		Reader:       stdout,
-		cmd:          cmd,
-		ctx:          ctx,
-		stderr:       stderr,
-		tempFilePath: tempFilePath,
-	}
-	return reader.ToExecutionResult(), nil
+	return executeCommand(ctx, executeOptions{
+		Command:      "claude",
+		Args:         args,
+		Stdin:        stdin,
+		TempFilePath: tempFilePath,
+	})
 }
