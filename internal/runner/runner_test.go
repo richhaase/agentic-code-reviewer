@@ -4,11 +4,13 @@ import (
 	"context"
 	"io"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
+	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
 func TestBuildStats_CategorizesResults(t *testing.T) {
@@ -254,4 +256,80 @@ func (m *mockAgent) ExecuteReview(_ context.Context, _ *agent.ReviewConfig) (io.
 
 func (m *mockAgent) ExecuteSummary(_ context.Context, _ string, _ []byte) (io.Reader, error) {
 	return nil, nil
+}
+
+// mockStreamingAgent implements agent.Agent for testing streaming output parsing.
+type mockStreamingAgent struct {
+	name   string
+	output string
+}
+
+func (m *mockStreamingAgent) Name() string {
+	if m.name == "" {
+		return "codex"
+	}
+	return m.name
+}
+
+func (m *mockStreamingAgent) IsAvailable() error {
+	return nil
+}
+
+func (m *mockStreamingAgent) ExecuteReview(_ context.Context, _ *agent.ReviewConfig) (io.Reader, error) {
+	return strings.NewReader(m.output), nil
+}
+
+func (m *mockStreamingAgent) ExecuteSummary(_ context.Context, _ string, _ []byte) (io.Reader, error) {
+	return nil, nil
+}
+
+func TestRunReviewer_ParserErrorRecovery(t *testing.T) {
+	// Create mock agent that returns JSONL with one bad line in the middle
+	// Format matches Codex output: {"item":{"type":"agent_message","text":"..."}}
+	mockAgent := &mockStreamingAgent{
+		output: `{"item":{"type":"agent_message","text":"finding 1"}}
+invalid json line here
+{"item":{"type":"agent_message","text":"finding 2"}}`,
+	}
+
+	r := &Runner{
+		config:    Config{Reviewers: 1, Timeout: 10 * time.Second},
+		agents:    []agent.Agent{mockAgent},
+		logger:    terminal.NewLogger(),
+		completed: new(atomic.Int32),
+	}
+
+	result := r.runReviewer(context.Background(), 1)
+
+	// Should have 2 findings despite 1 parse error
+	if len(result.Findings) != 2 {
+		t.Errorf("expected 2 findings, got %d", len(result.Findings))
+	}
+	if result.ParseErrors != 1 {
+		t.Errorf("expected 1 parse error, got %d", result.ParseErrors)
+	}
+}
+
+func TestRunReviewer_RecoverableParseError(t *testing.T) {
+	// Test that runner continues parsing when parser returns RecoverableParseError
+	// This tests the explicit contract between parser and runner
+	mockAgent := &mockStreamingAgent{
+		name:   "codex", // Use codex parser
+		output: "line1\nline2\nline3\n",
+	}
+
+	r := &Runner{
+		config:    Config{Reviewers: 1, Timeout: 10 * time.Second},
+		agents:    []agent.Agent{mockAgent},
+		logger:    terminal.NewLogger(),
+		completed: new(atomic.Int32),
+	}
+
+	result := r.runReviewer(context.Background(), 1)
+
+	// The codex parser will treat all non-JSON lines as parse errors but continue.
+	// This verifies the parser continues after recoverable errors.
+	if result.ParseErrors != 3 {
+		t.Errorf("expected 3 parse errors for non-JSON lines, got %d", result.ParseErrors)
+	}
 }

@@ -237,7 +237,15 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 
 		finding, err := parser.ReadFinding(scanner)
 		if err != nil {
-			// Scanner error is permanent - break to avoid infinite loop
+			if agent.IsRecoverable(err) {
+				// Recoverable error - log and continue parsing
+				// Parse error count tracked by parser.ParseErrors()
+				if r.verbose() {
+					r.logger.Logf(terminal.StyleWarning, "Reviewer #%d: %v", reviewerID, err)
+				}
+				continue
+			}
+			// Fatal error - break to avoid infinite loop
 			result.ParseErrors++
 			break
 		}

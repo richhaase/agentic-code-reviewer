@@ -263,7 +263,6 @@ func isHexString(s string) bool {
 	return len(s) > 0
 }
 
-
 // fetchPRRef fetches a PR ref from the specified remote to FETCH_HEAD.
 // This avoids creating a named local branch, preventing collisions with
 // existing branches or checked-out branches.

@@ -3,6 +3,7 @@ package agent
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
@@ -17,6 +18,7 @@ const (
 // CodexOutputParser parses JSONL output from the codex CLI.
 type CodexOutputParser struct {
 	reviewerID  int
+	lineNum     int
 	parseErrors int
 }
 
@@ -32,10 +34,16 @@ func NewCodexOutputParser(reviewerID int) *CodexOutputParser {
 //
 //	{"item": {"type": "agent_message", "text": "finding description"}}
 //
-// Returns nil when no more findings are available.
+// Returns a finding when one is found.
+// Returns (nil, nil) when no more findings are available (end of stream).
+// Returns (nil, RecoverableParseError) for malformed lines - caller should continue.
+// Returns (nil, error) for fatal scanner errors - caller should stop.
 func (p *CodexOutputParser) ReadFinding(scanner *bufio.Scanner) (*domain.Finding, error) {
 	for scanner.Scan() {
+		p.lineNum++
 		line := scanner.Text()
+
+		// Skip empty lines
 		if line == "" {
 			continue
 		}
@@ -49,9 +57,11 @@ func (p *CodexOutputParser) ReadFinding(scanner *bufio.Scanner) (*domain.Finding
 		}
 
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			// Track parse errors but continue processing
 			p.parseErrors++
-			continue
+			return nil, &RecoverableParseError{
+				Line:    p.lineNum,
+				Message: fmt.Sprintf("invalid JSON: %v", err),
+			}
 		}
 
 		// Only process agent_message items with non-empty text
@@ -61,6 +71,7 @@ func (p *CodexOutputParser) ReadFinding(scanner *bufio.Scanner) (*domain.Finding
 				ReviewerID: p.reviewerID,
 			}, nil
 		}
+		// Valid JSON but not a finding - continue to next line
 	}
 
 	// Check for scanner error
