@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"io"
 	"testing"
 )
 
@@ -255,10 +254,10 @@ func (m *mockAgent) IsAvailable() error {
 	return nil
 }
 
-func (m *mockAgent) ExecuteReview(_ context.Context, _ *ReviewConfig) (io.Reader, error) {
+func (m *mockAgent) ExecuteReview(_ context.Context, _ *ReviewConfig) (*ExecutionResult, error) {
 	return nil, nil
 }
 
-func (m *mockAgent) ExecuteSummary(_ context.Context, _ string, _ []byte) (io.Reader, error) {
+func (m *mockAgent) ExecuteSummary(_ context.Context, _ string, _ []byte) (*ExecutionResult, error) {
 	return nil, nil
 }

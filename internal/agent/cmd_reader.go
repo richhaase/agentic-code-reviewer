@@ -81,3 +81,13 @@ func (r *cmdReader) Stderr() string {
 	}
 	return r.stderr.String()
 }
+
+// ToExecutionResult wraps this cmdReader in an ExecutionResult.
+// This provides a clean API for callers without requiring type assertions.
+func (r *cmdReader) ToExecutionResult() *ExecutionResult {
+	return NewExecutionResult(
+		r,
+		func() int { return r.ExitCode() },
+		func() string { return r.Stderr() },
+	)
+}

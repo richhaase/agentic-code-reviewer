@@ -10,6 +10,9 @@ import (
 	"syscall"
 )
 
+// Compile-time interface check
+var _ Agent = (*GeminiAgent)(nil)
+
 // BuildGeminiRefFilePrompt constructs the review prompt for ref-file mode.
 // If customPrompt is provided, it appends ref-file instructions to it.
 // Otherwise, it uses DefaultGeminiRefFilePrompt.
@@ -43,13 +46,13 @@ func (g *GeminiAgent) IsAvailable() error {
 }
 
 // ExecuteReview runs a code review using the gemini CLI.
-// Returns an io.Reader for streaming the JSON output.
+// Returns an ExecutionResult for streaming the JSON output.
 //
 // Uses 'gemini -o json -' with the prompt piped to stdin.
 // If config.CustomPrompt is empty, uses DefaultGeminiPrompt.
 // The git diff is either appended to the prompt (default) or written to a
 // reference file when the diff is large or UseRefFile is set.
-func (g *GeminiAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (io.Reader, error) {
+func (g *GeminiAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (*ExecutionResult, error) {
 	if err := g.IsAvailable(); err != nil {
 		return nil, err
 	}
@@ -110,15 +113,16 @@ func (g *GeminiAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 		return nil, fmt.Errorf("failed to start gemini: %w", err)
 	}
 
-	// Return a reader that will also wait for the command to complete
+	// Return an ExecutionResult that will also wait for the command to complete
 	// and clean up the temp file when done
-	return &cmdReader{
+	reader := &cmdReader{
 		Reader:       stdout,
 		cmd:          cmd,
 		ctx:          ctx,
 		stderr:       stderr,
 		tempFilePath: tempFilePath,
-	}, nil
+	}
+	return reader.ToExecutionResult(), nil
 }
 
 // ExecuteSummary runs a summarization task using the gemini CLI.
@@ -126,7 +130,7 @@ func (g *GeminiAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 // Gemini CLI has file reading capabilities via its ReadFile tool, but for
 // summary inputs we embed the JSON directly since they are typically small
 // (aggregated findings rather than raw diffs).
-func (g *GeminiAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (io.Reader, error) {
+func (g *GeminiAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (*ExecutionResult, error) {
 	if err := g.IsAvailable(); err != nil {
 		return nil, err
 	}
@@ -159,10 +163,11 @@ func (g *GeminiAgent) ExecuteSummary(ctx context.Context, prompt string, input [
 		return nil, fmt.Errorf("failed to start gemini: %w", err)
 	}
 
-	return &cmdReader{
+	reader := &cmdReader{
 		Reader: stdout,
 		cmd:    cmd,
 		ctx:    ctx,
 		stderr: stderr,
-	}, nil
+	}
+	return reader.ToExecutionResult(), nil
 }

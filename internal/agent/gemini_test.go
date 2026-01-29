@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -61,12 +60,10 @@ func TestGeminiAgent_ExecuteReview_GeminiNotAvailable(t *testing.T) {
 		WorkDir: ".",
 	}
 
-	reader, err := agent.ExecuteReview(ctx, config)
+	result, err := agent.ExecuteReview(ctx, config)
 	if err == nil {
-		if reader != nil {
-			if closer, ok := reader.(io.Closer); ok {
-				closer.Close()
-			}
+		if result != nil {
+			result.Close()
 		}
 		t.Error("ExecuteReview() should return error when gemini is not available")
 	}
@@ -89,12 +86,10 @@ func TestGeminiAgent_ExecuteSummary_GeminiNotAvailable(t *testing.T) {
 	agent := NewGeminiAgent()
 	ctx := context.Background()
 
-	reader, err := agent.ExecuteSummary(ctx, "test prompt", []byte(`{"findings":[]}`))
+	result, err := agent.ExecuteSummary(ctx, "test prompt", []byte(`{"findings":[]}`))
 	if err == nil {
-		if reader != nil {
-			if closer, ok := reader.(io.Closer); ok {
-				closer.Close()
-			}
+		if result != nil {
+			result.Close()
 		}
 		t.Error("ExecuteSummary() should return error when gemini is not available")
 	}

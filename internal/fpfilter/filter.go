@@ -95,7 +95,7 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 		return nil, err
 	}
 
-	reader, err := ag.ExecuteSummary(ctx, fpEvaluationPrompt, payload)
+	execResult, err := ag.ExecuteSummary(ctx, fpEvaluationPrompt, payload)
 	if err != nil {
 		if ctx.Err() != nil {
 			return &Result{
@@ -105,12 +105,10 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 		}
 		return nil, err
 	}
+	defer execResult.Close()
 
-	output, err := io.ReadAll(reader)
+	output, err := io.ReadAll(execResult)
 	if err != nil {
-		if closer, ok := reader.(io.Closer); ok {
-			_ = closer.Close()
-		}
 		if ctx.Err() != nil {
 			return &Result{
 				Grouped:  grouped,
@@ -118,10 +116,6 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 			}, nil
 		}
 		return nil, err
-	}
-
-	if closer, ok := reader.(io.Closer); ok {
-		_ = closer.Close()
 	}
 
 	cleanedOutput := agent.StripMarkdownCodeFence(string(output))

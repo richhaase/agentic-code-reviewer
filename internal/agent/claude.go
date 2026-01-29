@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os/exec"
 	"syscall"
 )
+
+// Compile-time interface check
+var _ Agent = (*ClaudeAgent)(nil)
 
 // claudeSummarySchema is the JSON schema for Claude's structured summary output.
 // This ensures Claude returns properly formatted JSON without markdown wrapping.
@@ -46,13 +48,13 @@ func (c *ClaudeAgent) IsAvailable() error {
 }
 
 // ExecuteReview runs a code review using the claude CLI.
-// Returns an io.Reader for streaming the output.
+// Returns an ExecutionResult for streaming the output.
 //
 // Uses 'claude --print -' with the prompt piped via stdin.
 // If config.CustomPrompt is empty, uses DefaultClaudePrompt.
 // The git diff is either appended to the prompt (default) or written to a
 // reference file when the diff is large or UseRefFile is set.
-func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (io.Reader, error) {
+func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (*ExecutionResult, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
 	}
@@ -119,15 +121,16 @@ func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 		return nil, fmt.Errorf("failed to start claude: %w", err)
 	}
 
-	// Return a reader that will also wait for the command to complete
+	// Return an ExecutionResult that will also wait for the command to complete
 	// and clean up the temp file when done
-	return &cmdReader{
+	reader := &cmdReader{
 		Reader:       stdout,
 		cmd:          cmd,
 		ctx:          ctx,
 		stderr:       stderr,
 		tempFilePath: tempFilePath,
-	}, nil
+	}
+	return reader.ToExecutionResult(), nil
 }
 
 // ExecuteSummary runs a summarization task using the claude CLI.
@@ -135,7 +138,7 @@ func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 // with the prompt piped via stdin.
 // For large inputs (>100KB), writes input to a temp file and instructs Claude
 // to read it using the Read tool to avoid prompt length errors.
-func (c *ClaudeAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (io.Reader, error) {
+func (c *ClaudeAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (*ExecutionResult, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
 	}
@@ -184,11 +187,12 @@ func (c *ClaudeAgent) ExecuteSummary(ctx context.Context, prompt string, input [
 		return nil, fmt.Errorf("failed to start claude: %w", err)
 	}
 
-	return &cmdReader{
+	reader := &cmdReader{
 		Reader:       stdout,
 		cmd:          cmd,
 		ctx:          ctx,
 		stderr:       stderr,
 		tempFilePath: tempFilePath,
-	}, nil
+	}
+	return reader.ToExecutionResult(), nil
 }

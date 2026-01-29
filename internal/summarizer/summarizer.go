@@ -117,7 +117,7 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 	}
 
 	// Execute summary via agent
-	reader, err := ag.ExecuteSummary(ctx, groupPrompt, payload)
+	execResult, err := ag.ExecuteSummary(ctx, groupPrompt, payload)
 	if err != nil {
 		// Handle context cancellation
 		if ctx.Err() != nil {
@@ -129,14 +129,11 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 		}
 		return nil, err
 	}
+	defer execResult.Close()
 
 	// Read all output
-	output, err := io.ReadAll(reader)
+	output, err := io.ReadAll(execResult)
 	if err != nil {
-		// Close reader before returning
-		if closer, ok := reader.(io.Closer); ok {
-			_ = closer.Close()
-		}
 		// Handle context cancellation
 		if ctx.Err() != nil {
 			return &Result{
@@ -148,24 +145,11 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 		return nil, err
 	}
 
-	// Close reader and get exit code
-	// Exit code and stderr are only valid after Close() has been called
-	if closer, ok := reader.(io.Closer); ok {
-		_ = closer.Close()
-	}
-
+	// Close to get exit code and stderr (defer will be a no-op due to sync.Once)
+	_ = execResult.Close()
+	exitCode := execResult.ExitCode()
+	stderr := execResult.Stderr()
 	duration := time.Since(start)
-
-	exitCode := 0
-	if exitCoder, ok := reader.(agent.ExitCoder); ok {
-		exitCode = exitCoder.ExitCode()
-	}
-
-	// Capture stderr for diagnostics (valid after Close)
-	var stderr string
-	if stderrProvider, ok := reader.(agent.StderrProvider); ok {
-		stderr = stderrProvider.Stderr()
-	}
 
 	if len(output) == 0 {
 		return &Result{

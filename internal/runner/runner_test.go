@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	"io"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -12,6 +11,15 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
+
+// stringReadCloser wraps strings.Reader to implement io.ReadCloser
+type stringReadCloser struct {
+	*strings.Reader
+}
+
+func (s *stringReadCloser) Close() error {
+	return nil
+}
 
 func TestBuildStats_CategorizesResults(t *testing.T) {
 	results := []domain.ReviewerResult{
@@ -250,11 +258,11 @@ func (m *mockAgent) IsAvailable() error {
 	return nil
 }
 
-func (m *mockAgent) ExecuteReview(_ context.Context, _ *agent.ReviewConfig) (io.Reader, error) {
+func (m *mockAgent) ExecuteReview(_ context.Context, _ *agent.ReviewConfig) (*agent.ExecutionResult, error) {
 	return nil, nil
 }
 
-func (m *mockAgent) ExecuteSummary(_ context.Context, _ string, _ []byte) (io.Reader, error) {
+func (m *mockAgent) ExecuteSummary(_ context.Context, _ string, _ []byte) (*agent.ExecutionResult, error) {
 	return nil, nil
 }
 
@@ -275,11 +283,12 @@ func (m *mockStreamingAgent) IsAvailable() error {
 	return nil
 }
 
-func (m *mockStreamingAgent) ExecuteReview(_ context.Context, _ *agent.ReviewConfig) (io.Reader, error) {
-	return strings.NewReader(m.output), nil
+func (m *mockStreamingAgent) ExecuteReview(_ context.Context, _ *agent.ReviewConfig) (*agent.ExecutionResult, error) {
+	reader := &stringReadCloser{strings.NewReader(m.output)}
+	return agent.NewExecutionResult(reader, func() int { return 0 }, func() string { return "" }), nil
 }
 
-func (m *mockStreamingAgent) ExecuteSummary(_ context.Context, _ string, _ []byte) (io.Reader, error) {
+func (m *mockStreamingAgent) ExecuteSummary(_ context.Context, _ string, _ []byte) (*agent.ExecutionResult, error) {
 	return nil, nil
 }
 

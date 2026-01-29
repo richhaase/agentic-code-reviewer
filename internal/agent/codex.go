@@ -11,6 +11,9 @@ import (
 	"syscall"
 )
 
+// Compile-time interface check
+var _ Agent = (*CodexAgent)(nil)
+
 // BuildCodexRefFilePrompt constructs the review prompt for ref-file mode.
 // If customPrompt is provided, it appends ref-file instructions to it.
 // Otherwise, it uses DefaultCodexRefFilePrompt.
@@ -44,13 +47,13 @@ func (c *CodexAgent) IsAvailable() error {
 }
 
 // ExecuteReview runs a code review using the codex CLI.
-// Returns an io.Reader for streaming the JSONL output.
+// Returns an ExecutionResult for streaming the JSONL output.
 //
 // If config.CustomPrompt is provided, uses 'codex exec -' with the prompt on stdin.
 // The git diff is either appended to the prompt (default) or written to a
 // reference file when the diff is large or UseRefFile is set.
 // Otherwise, uses 'codex exec review --base X' for the built-in review behavior.
-func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (io.Reader, error) {
+func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (*ExecutionResult, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
 	}
@@ -117,15 +120,16 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (i
 		return nil, fmt.Errorf("failed to start codex: %w", err)
 	}
 
-	// Return a reader that will also wait for the command to complete
+	// Return an ExecutionResult that will also wait for the command to complete
 	// and clean up the temp file when done
-	return &cmdReader{
+	reader := &cmdReader{
 		Reader:       stdout,
 		cmd:          cmd,
 		ctx:          ctx,
 		stderr:       stderr,
 		tempFilePath: tempFilePath,
-	}, nil
+	}
+	return reader.ToExecutionResult(), nil
 }
 
 // ExecuteSummary runs a summarization task using the codex CLI.
@@ -135,7 +139,7 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (i
 // embeds the input directly in the prompt for simplicity. Very large inputs
 // (>100KB) may hit prompt length limits, but summary inputs are typically
 // much smaller since they contain aggregated findings rather than raw diffs.
-func (c *CodexAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (io.Reader, error) {
+func (c *CodexAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (*ExecutionResult, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
 	}
@@ -166,10 +170,11 @@ func (c *CodexAgent) ExecuteSummary(ctx context.Context, prompt string, input []
 		return nil, fmt.Errorf("failed to start codex: %w", err)
 	}
 
-	return &cmdReader{
+	reader := &cmdReader{
 		Reader: stdout,
 		cmd:    cmd,
 		ctx:    ctx,
 		stderr: stderr,
-	}, nil
+	}
+	return reader.ToExecutionResult(), nil
 }

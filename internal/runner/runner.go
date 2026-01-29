@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -193,42 +192,31 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	}
 
 	// Execute the review
-	reader, err := selectedAgent.ExecuteReview(timeoutCtx, reviewConfig)
+	execResult, err := selectedAgent.ExecuteReview(timeoutCtx, reviewConfig)
 	if err != nil {
 		result.ExitCode = -1
 		result.Duration = time.Since(start)
 		return result
 	}
-
-	// closeReader closes the reader and returns the process exit code if available
-	closeReader := func() int {
-		if closer, ok := reader.(io.Closer); ok {
-			_ = closer.Close()
-		}
-		if exitCoder, ok := reader.(agent.ExitCoder); ok {
-			return exitCoder.ExitCode()
-		}
-		return 0
-	}
+	// Ensure cleanup on all exit paths
+	defer execResult.Close()
 
 	// Create parser for this agent's output
 	parser, err := agent.NewReviewParser(selectedAgent.Name(), reviewerID)
 	if err != nil {
-		closeReader()
 		result.ExitCode = -1
 		result.Duration = time.Since(start)
 		return result
 	}
 
 	// Configure scanner
-	scanner := bufio.NewScanner(reader)
+	scanner := bufio.NewScanner(execResult)
 	agent.ConfigureScanner(scanner)
 
 	// Parse output
 	for {
 		// Check for timeout
 		if timeoutCtx.Err() == context.DeadlineExceeded {
-			closeReader()
 			result.TimedOut = true
 			result.ExitCode = -1
 			result.Duration = time.Since(start)
@@ -271,8 +259,10 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	// Capture parse errors tracked by the parser
 	result.ParseErrors += parser.ParseErrors()
 
-	// Close reader and capture exit code
-	exitCode := closeReader()
+	// Close to wait for process and get exit code
+	// (defer will be a no-op due to sync.Once in ExecutionResult)
+	_ = execResult.Close()
+	result.ExitCode = execResult.ExitCode()
 
 	// Record duration after process fully exits
 	result.Duration = time.Since(start)
@@ -283,9 +273,6 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		result.ExitCode = -1
 		return result
 	}
-
-	// Use the actual agent exit code
-	result.ExitCode = exitCode
 
 	return result
 }
