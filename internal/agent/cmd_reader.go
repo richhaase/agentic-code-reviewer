@@ -38,9 +38,13 @@ func (r *cmdReader) Close() error {
 
 		// Kill the process group if context was canceled or timed out
 		if r.cmd != nil && r.cmd.Process != nil {
+			// Capture PID before any state changes to prevent race condition
+			pid := r.cmd.Process.Pid
+
 			if r.ctx != nil && r.ctx.Err() != nil {
 				// Kill the entire process group (negative PID)
-				_ = syscall.Kill(-r.cmd.Process.Pid, syscall.SIGKILL)
+				// Ignore errors - process may have already exited
+				_ = syscall.Kill(-pid, syscall.SIGKILL)
 			}
 
 			// Wait for command to complete and capture exit code
