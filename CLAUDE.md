@@ -52,6 +52,9 @@ internal/
     filter.go            # Exclude findings by regex pattern matching
   fpfilter/              # False positive filtering
     fpfilter.go          # LLM-based false positive detection and removal
+  feedback/              # PR feedback summarization
+    fetch.go             # Fetch PR description and comments via gh CLI
+    summarizer.go        # LLM-based summarization of prior PR discussion
   runner/                # Review execution engine
     runner.go            # Parallel reviewer orchestration
     report.go            # Report rendering (terminal + markdown)
