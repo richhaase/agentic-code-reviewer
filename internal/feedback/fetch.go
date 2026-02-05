@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 )
@@ -131,6 +132,7 @@ func fetchPRComments(ctx context.Context, prNumber string) ([]Comment, error) {
 }
 
 // parseNDJSON parses newline-delimited JSON (one object per line) into comments.
+// NDJSON is a stream of top-level JSON objects, so we decode until io.EOF.
 func parseNDJSON(data []byte) ([]prCommentResponse, error) {
 	if len(data) == 0 {
 		return nil, nil
@@ -138,9 +140,12 @@ func parseNDJSON(data []byte) ([]prCommentResponse, error) {
 
 	var results []prCommentResponse
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
-	for decoder.More() {
+	for {
 		var item prCommentResponse
 		if err := decoder.Decode(&item); err != nil {
+			if err == io.EOF {
+				break
+			}
 			return nil, err
 		}
 		results = append(results, item)
