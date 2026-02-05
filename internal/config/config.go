@@ -65,13 +65,20 @@ type Config struct {
 	SummarizerAgent  *string        `yaml:"summarizer_agent"`
 	ReviewPrompt     *string        `yaml:"review_prompt"`
 	ReviewPromptFile *string        `yaml:"review_prompt_file"`
-	Filters          FilterConfig   `yaml:"filters"`
-	FPFilter         FPFilterConfig `yaml:"fp_filter"`
+	Filters          FilterConfig     `yaml:"filters"`
+	FPFilter         FPFilterConfig   `yaml:"fp_filter"`
+	PRFeedback       PRFeedbackConfig `yaml:"pr_feedback"`
 }
 
 type FPFilterConfig struct {
 	Enabled   *bool `yaml:"enabled"`
 	Threshold *int  `yaml:"threshold"`
+}
+
+// PRFeedbackConfig holds PR feedback summarization settings.
+type PRFeedbackConfig struct {
+	Enabled *bool   `yaml:"enabled"`
+	Agent   *string `yaml:"agent"`
 }
 
 // FilterConfig holds filter-related configuration.
@@ -151,9 +158,11 @@ func (c *Config) validatePatterns() error {
 	return nil
 }
 
-var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "fetch", "reviewer_agent", "reviewer_agents", "summarizer_agent", "review_prompt", "review_prompt_file", "filters", "fp_filter"}
+var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "fetch", "reviewer_agent", "reviewer_agents", "summarizer_agent", "review_prompt", "review_prompt_file", "filters", "fp_filter", "pr_feedback"}
 
 var knownFPFilterKeys = []string{"enabled", "threshold"}
+
+var knownPRFeedbackKeys = []string{"enabled", "agent"}
 
 // knownFilterKeys are the valid keys under the "filters" section.
 var knownFilterKeys = []string{"exclude_patterns"}
@@ -197,6 +206,18 @@ func checkUnknownKeys(data []byte) []string {
 			if !slices.Contains(knownFPFilterKeys, key) {
 				warning := fmt.Sprintf("unknown key %q in fp_filter section of %s", key, ConfigFileName)
 				if suggestion := findSimilar(key, knownFPFilterKeys); suggestion != "" {
+					warning += fmt.Sprintf(" (did you mean %q?)", suggestion)
+				}
+				warnings = append(warnings, warning)
+			}
+		}
+	}
+
+	if prFeedback, ok := raw["pr_feedback"].(map[string]any); ok {
+		for key := range prFeedback {
+			if !slices.Contains(knownPRFeedbackKeys, key) {
+				warning := fmt.Sprintf("unknown key %q in pr_feedback section of %s", key, ConfigFileName)
+				if suggestion := findSimilar(key, knownPRFeedbackKeys); suggestion != "" {
 					warning += fmt.Sprintf(" (did you mean %q?)", suggestion)
 				}
 				warnings = append(warnings, warning)
@@ -334,8 +355,10 @@ var Defaults = ResolvedConfig{
 	Fetch:           true,
 	ReviewerAgents:  []string{agent.DefaultAgent},
 	SummarizerAgent: agent.DefaultSummarizerAgent,
-	FPFilterEnabled: true,
-	FPThreshold:     75,
+	FPFilterEnabled:   true,
+	FPThreshold:       75,
+	PRFeedbackEnabled: true,
+	PRFeedbackAgent:   "", // empty means use summarizer agent
 }
 
 type ResolvedConfig struct {
@@ -347,10 +370,12 @@ type ResolvedConfig struct {
 	Fetch            bool
 	ReviewerAgents   []string
 	SummarizerAgent  string
-	ReviewPrompt     string
-	ReviewPromptFile string
-	FPFilterEnabled  bool
-	FPThreshold      int
+	ReviewPrompt      string
+	ReviewPromptFile  string
+	FPFilterEnabled   bool
+	FPThreshold       int
+	PRFeedbackEnabled bool
+	PRFeedbackAgent   string
 }
 
 type FlagState struct {
@@ -366,6 +391,8 @@ type FlagState struct {
 	ReviewPromptFileSet bool
 	NoFPFilterSet       bool
 	FPThresholdSet      bool
+	NoPRFeedbackSet     bool
+	PRFeedbackAgentSet  bool
 }
 
 type EnvState struct {
@@ -389,10 +416,14 @@ type EnvState struct {
 	ReviewPromptSet     bool
 	ReviewPromptFile    string
 	ReviewPromptFileSet bool
-	FPFilterEnabled     bool
-	FPFilterSet         bool
-	FPThreshold         int
-	FPThresholdSet      bool
+	FPFilterEnabled      bool
+	FPFilterSet          bool
+	FPThreshold          int
+	FPThresholdSet       bool
+	PRFeedbackEnabled    bool
+	PRFeedbackEnabledSet bool
+	PRFeedbackAgent      string
+	PRFeedbackAgentSet   bool
 }
 
 // LoadEnvState reads environment variables and returns their state.
@@ -477,6 +508,22 @@ func LoadEnvState() EnvState {
 		}
 	}
 
+	if v := os.Getenv("ACR_PR_FEEDBACK"); v != "" {
+		switch v {
+		case "true", "1":
+			state.PRFeedbackEnabled = true
+			state.PRFeedbackEnabledSet = true
+		case "false", "0":
+			state.PRFeedbackEnabled = false
+			state.PRFeedbackEnabledSet = true
+		}
+	}
+
+	if v := os.Getenv("ACR_PR_FEEDBACK_AGENT"); v != "" {
+		state.PRFeedbackAgent = v
+		state.PRFeedbackAgentSet = true
+	}
+
 	return state
 }
 
@@ -526,6 +573,12 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 		if cfg.FPFilter.Threshold != nil {
 			result.FPThreshold = *cfg.FPFilter.Threshold
 		}
+		if cfg.PRFeedback.Enabled != nil {
+			result.PRFeedbackEnabled = *cfg.PRFeedback.Enabled
+		}
+		if cfg.PRFeedback.Agent != nil {
+			result.PRFeedbackAgent = *cfg.PRFeedback.Agent
+		}
 	}
 
 	// Apply env var values (if set)
@@ -565,6 +618,12 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	if envState.FPThresholdSet {
 		result.FPThreshold = envState.FPThreshold
 	}
+	if envState.PRFeedbackEnabledSet {
+		result.PRFeedbackEnabled = envState.PRFeedbackEnabled
+	}
+	if envState.PRFeedbackAgentSet {
+		result.PRFeedbackAgent = envState.PRFeedbackAgent
+	}
 
 	if flagState.ReviewersSet {
 		result.Reviewers = flagValues.Reviewers
@@ -601,6 +660,12 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	}
 	if flagState.FPThresholdSet {
 		result.FPThreshold = flagValues.FPThreshold
+	}
+	if flagState.NoPRFeedbackSet {
+		result.PRFeedbackEnabled = flagValues.PRFeedbackEnabled
+	}
+	if flagState.PRFeedbackAgentSet {
+		result.PRFeedbackAgent = flagValues.PRFeedbackAgent
 	}
 
 	return result
