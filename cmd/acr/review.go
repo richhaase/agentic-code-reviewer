@@ -97,6 +97,8 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 	var priorFeedback string
 	var feedbackWg sync.WaitGroup
 	if prFeedbackEnabled && prNumber != "" {
+		logger.Logf(terminal.StyleInfo, "Summarizing PR #%s feedback %s(in parallel)%s",
+			prNumber, terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
 		feedbackWg.Add(1)
 		go func() {
 			defer feedbackWg.Done()
@@ -110,10 +112,13 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 			summarizer := feedback.NewSummarizer(feedbackAgentName, verbose)
 			summary, err := summarizer.Summarize(ctx, prNumber)
 			if err != nil {
-				if verbose {
-					logger.Logf(terminal.StyleWarning, "PR feedback summarizer: %v", err)
-				}
+				logger.Logf(terminal.StyleWarning, "PR feedback summarizer failed: %v", err)
 				return
+			}
+			if summary != "" {
+				logger.Log("PR feedback summarized", terminal.StyleSuccess)
+			} else {
+				logger.Log("No relevant PR feedback found", terminal.StyleDim)
 			}
 			priorFeedback = summary
 		}()
@@ -161,11 +166,8 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 
 	stats.SummarizerDuration = summaryResult.Duration
 
-	// Wait for PR feedback summarizer
+	// Wait for PR feedback summarizer to complete
 	feedbackWg.Wait()
-	if priorFeedback != "" && verbose {
-		logger.Logf(terminal.StyleDim, "PR feedback context available")
-	}
 
 	var fpFilteredCount int
 	if fpFilterEnabled && summaryResult.ExitCode == 0 && len(summaryResult.Grouped.Findings) > 0 && ctx.Err() == nil {
