@@ -42,6 +42,8 @@ var (
 	refFile             bool
 	noFPFilter          bool
 	fpThreshold         int
+	noPRFeedback        bool
+	prFeedbackAgent     string
 )
 
 func main() {
@@ -113,6 +115,10 @@ Exit codes:
 		"Disable false positive filtering (env: ACR_FP_FILTER=false to disable)")
 	rootCmd.Flags().IntVar(&fpThreshold, "fp-threshold", 75,
 		"False positive confidence threshold 1-100 (default: 75, env: ACR_FP_THRESHOLD)")
+	rootCmd.Flags().BoolVar(&noPRFeedback, "no-pr-feedback", false,
+		"Disable reading PR comments for feedback context (env: ACR_PR_FEEDBACK=false)")
+	rootCmd.Flags().StringVar(&prFeedbackAgent, "pr-feedback-agent", "",
+		"Agent for PR feedback summarization (default: same as --summarizer-agent, env: ACR_PR_FEEDBACK_AGENT)")
 
 	if err := rootCmd.Execute(); err != nil {
 		// Check if this is an exit code wrapper (not a real error)
@@ -331,6 +337,8 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		ReviewPromptFileSet: cmd.Flags().Changed("prompt-file"),
 		NoFPFilterSet:       cmd.Flags().Changed("no-fp-filter"),
 		FPThresholdSet:      cmd.Flags().Changed("fp-threshold"),
+		NoPRFeedbackSet:     cmd.Flags().Changed("no-pr-feedback"),
+		PRFeedbackAgentSet:  cmd.Flags().Changed("pr-feedback-agent"),
 	}
 
 	// Load env var state
@@ -352,8 +360,10 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		SummarizerAgent:  summarizerAgentName,
 		ReviewPrompt:     prompt,
 		ReviewPromptFile: promptFile,
-		FPFilterEnabled:  !noFPFilter,
-		FPThreshold:      fpThreshold,
+		FPFilterEnabled:   !noFPFilter,
+		FPThreshold:       fpThreshold,
+		PRFeedbackEnabled: !noPRFeedback,
+		PRFeedbackAgent:   prFeedbackAgent,
 	}
 
 	// Resolve final configuration (precedence: flags > env vars > config file > defaults)
