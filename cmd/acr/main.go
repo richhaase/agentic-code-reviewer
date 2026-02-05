@@ -417,8 +417,9 @@ func runReview(cmd *cobra.Command, _ []string) error {
 
 	// Auto-detect PR for current branch if not explicitly specified and not in local mode
 	// This enables PR feedback summarization even without --pr flag
+	// Skip auto-detection if PR feedback is disabled since the PR number is only used for feedback
 	detectedPR := prNumber
-	if detectedPR == "" && !local && github.IsGHAvailable() {
+	if detectedPR == "" && !local && resolved.PRFeedbackEnabled && github.IsGHAvailable() {
 		if detected, err := github.GetCurrentPRNumber(ctx, worktreeBranch); err == nil {
 			detectedPR = detected
 			if verbose {

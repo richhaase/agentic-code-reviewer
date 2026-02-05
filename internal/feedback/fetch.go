@@ -82,15 +82,17 @@ func fetchPRComments(ctx context.Context, prNumber string) ([]Comment, error) {
 	var comments []Comment
 
 	// Fetch review comments (comments on code) with pagination
+	// Use --jq '.[]' to output each item as NDJSON (one JSON object per line)
+	// This handles multi-page output which would otherwise concatenate arrays
 	endpoint := "repos/{owner}/{repo}/pulls/" + prNumber + "/comments"
-	cmd := exec.CommandContext(ctx, "gh", "api", "--paginate", endpoint)
+	cmd := exec.CommandContext(ctx, "gh", "api", "--paginate", "--jq", ".[]", endpoint)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch review comments: %w", err)
 	}
 
-	var reviewComments []prCommentResponse
-	if err := json.Unmarshal(out, &reviewComments); err != nil {
+	reviewComments, err := parseNDJSON(out)
+	if err != nil {
 		return nil, fmt.Errorf("failed to parse review comments: %w", err)
 	}
 
@@ -105,14 +107,14 @@ func fetchPRComments(ctx context.Context, prNumber string) ([]Comment, error) {
 
 	// Also fetch issue comments (general PR comments) with pagination
 	endpoint = "repos/{owner}/{repo}/issues/" + prNumber + "/comments"
-	cmd = exec.CommandContext(ctx, "gh", "api", "--paginate", endpoint)
+	cmd = exec.CommandContext(ctx, "gh", "api", "--paginate", "--jq", ".[]", endpoint)
 	out, err = cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch issue comments: %w", err)
 	}
 
-	var issueComments []prCommentResponse
-	if err := json.Unmarshal(out, &issueComments); err != nil {
+	issueComments, err := parseNDJSON(out)
+	if err != nil {
 		return nil, fmt.Errorf("failed to parse issue comments: %w", err)
 	}
 
@@ -126,4 +128,22 @@ func fetchPRComments(ctx context.Context, prNumber string) ([]Comment, error) {
 	}
 
 	return comments, nil
+}
+
+// parseNDJSON parses newline-delimited JSON (one object per line) into comments.
+func parseNDJSON(data []byte) ([]prCommentResponse, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+
+	var results []prCommentResponse
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	for decoder.More() {
+		var item prCommentResponse
+		if err := decoder.Decode(&item); err != nil {
+			return nil, err
+		}
+		results = append(results, item)
+	}
+	return results, nil
 }

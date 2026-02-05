@@ -93,10 +93,11 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		logger.Logf(terminal.StyleDim, "Ref-file mode enabled")
 	}
 
-	// Start PR feedback summarizer in parallel with reviewers (if enabled and reviewing a PR)
+	// Start PR feedback summarizer in parallel with reviewers (if enabled, reviewing a PR, and FP filter is on)
+	// Skip if FP filter is disabled since the feedback summary is only consumed by the FP filter
 	var priorFeedback string
 	var feedbackWg sync.WaitGroup
-	if prFeedbackEnabled && prNumber != "" {
+	if prFeedbackEnabled && prNumber != "" && fpFilterEnabled {
 		logger.Logf(terminal.StyleInfo, "Summarizing PR #%s feedback %s(in parallel)%s",
 			prNumber, terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
 		feedbackWg.Add(1)
