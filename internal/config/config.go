@@ -343,6 +343,9 @@ func (c *Config) Validate() error {
 	if c.FPFilter.Threshold != nil && (*c.FPFilter.Threshold < 1 || *c.FPFilter.Threshold > 100) {
 		return fmt.Errorf("fp_filter.threshold must be 1-100, got %d", *c.FPFilter.Threshold)
 	}
+	if c.PRFeedback.Agent != nil && !slices.Contains(agent.SupportedAgents, *c.PRFeedback.Agent) {
+		return fmt.Errorf("pr_feedback.agent must be one of %v, got %q", agent.SupportedAgents, *c.PRFeedback.Agent)
+	}
 	return nil
 }
 

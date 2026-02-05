@@ -128,6 +128,29 @@ func fetchPRComments(ctx context.Context, prNumber string) ([]Comment, error) {
 		}
 	}
 
+	// Fetch review summaries (the body text submitted with "Review changes")
+	// These are stored separately from inline comments and issue comments
+	endpoint = "repos/{owner}/{repo}/pulls/" + prNumber + "/reviews"
+	cmd = exec.CommandContext(ctx, "gh", "api", "--paginate", "--jq", ".[]", endpoint)
+	out, err = cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch review summaries: %w", err)
+	}
+
+	reviewSummaries, err := parseNDJSON(out)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse review summaries: %w", err)
+	}
+
+	for _, r := range reviewSummaries {
+		if r.Body != "" {
+			comments = append(comments, Comment{
+				Author: r.User.Login,
+				Body:   r.Body,
+			})
+		}
+	}
+
 	return comments, nil
 }
 
