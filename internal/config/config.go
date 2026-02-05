@@ -54,17 +54,17 @@ func (d Duration) AsDuration() time.Duration {
 }
 
 type Config struct {
-	Reviewers        *int           `yaml:"reviewers"`
-	Concurrency      *int           `yaml:"concurrency"`
-	Base             *string        `yaml:"base"`
-	Timeout          *Duration      `yaml:"timeout"`
-	Retries          *int           `yaml:"retries"`
-	Fetch            *bool          `yaml:"fetch"`
-	ReviewerAgent    *string        `yaml:"reviewer_agent"`
-	ReviewerAgents   []string       `yaml:"reviewer_agents"`
-	SummarizerAgent  *string        `yaml:"summarizer_agent"`
-	ReviewPrompt     *string        `yaml:"review_prompt"`
-	ReviewPromptFile *string        `yaml:"review_prompt_file"`
+	Reviewers        *int             `yaml:"reviewers"`
+	Concurrency      *int             `yaml:"concurrency"`
+	Base             *string          `yaml:"base"`
+	Timeout          *Duration        `yaml:"timeout"`
+	Retries          *int             `yaml:"retries"`
+	Fetch            *bool            `yaml:"fetch"`
+	ReviewerAgent    *string          `yaml:"reviewer_agent"`
+	ReviewerAgents   []string         `yaml:"reviewer_agents"`
+	SummarizerAgent  *string          `yaml:"summarizer_agent"`
+	ReviewPrompt     *string          `yaml:"review_prompt"`
+	ReviewPromptFile *string          `yaml:"review_prompt_file"`
 	Filters          FilterConfig     `yaml:"filters"`
 	FPFilter         FPFilterConfig   `yaml:"fp_filter"`
 	PRFeedback       PRFeedbackConfig `yaml:"pr_feedback"`
@@ -347,14 +347,14 @@ func (c *Config) Validate() error {
 }
 
 var Defaults = ResolvedConfig{
-	Reviewers:       5,
-	Concurrency:     0,
-	Base:            "main",
-	Timeout:         10 * time.Minute,
-	Retries:         1,
-	Fetch:           true,
-	ReviewerAgents:  []string{agent.DefaultAgent},
-	SummarizerAgent: agent.DefaultSummarizerAgent,
+	Reviewers:         5,
+	Concurrency:       0,
+	Base:              "main",
+	Timeout:           10 * time.Minute,
+	Retries:           1,
+	Fetch:             true,
+	ReviewerAgents:    []string{agent.DefaultAgent},
+	SummarizerAgent:   agent.DefaultSummarizerAgent,
 	FPFilterEnabled:   true,
 	FPThreshold:       75,
 	PRFeedbackEnabled: true,
@@ -362,14 +362,14 @@ var Defaults = ResolvedConfig{
 }
 
 type ResolvedConfig struct {
-	Reviewers        int
-	Concurrency      int
-	Base             string
-	Timeout          time.Duration
-	Retries          int
-	Fetch            bool
-	ReviewerAgents   []string
-	SummarizerAgent  string
+	Reviewers         int
+	Concurrency       int
+	Base              string
+	Timeout           time.Duration
+	Retries           int
+	Fetch             bool
+	ReviewerAgents    []string
+	SummarizerAgent   string
 	ReviewPrompt      string
 	ReviewPromptFile  string
 	FPFilterEnabled   bool
@@ -396,26 +396,26 @@ type FlagState struct {
 }
 
 type EnvState struct {
-	Reviewers           int
-	ReviewersSet        bool
-	Concurrency         int
-	ConcurrencySet      bool
-	Base                string
-	BaseSet             bool
-	Timeout             time.Duration
-	TimeoutSet          bool
-	Retries             int
-	RetriesSet          bool
-	Fetch               bool
-	FetchSet            bool
-	ReviewerAgents      []string
-	ReviewerAgentsSet   bool
-	SummarizerAgent     string
-	SummarizerAgentSet  bool
-	ReviewPrompt        string
-	ReviewPromptSet     bool
-	ReviewPromptFile    string
-	ReviewPromptFileSet bool
+	Reviewers            int
+	ReviewersSet         bool
+	Concurrency          int
+	ConcurrencySet       bool
+	Base                 string
+	BaseSet              bool
+	Timeout              time.Duration
+	TimeoutSet           bool
+	Retries              int
+	RetriesSet           bool
+	Fetch                bool
+	FetchSet             bool
+	ReviewerAgents       []string
+	ReviewerAgentsSet    bool
+	SummarizerAgent      string
+	SummarizerAgentSet   bool
+	ReviewPrompt         string
+	ReviewPromptSet      bool
+	ReviewPromptFile     string
+	ReviewPromptFileSet  bool
 	FPFilterEnabled      bool
 	FPFilterSet          bool
 	FPThreshold          int
