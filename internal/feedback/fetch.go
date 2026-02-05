@@ -79,21 +79,22 @@ type prCommentResponse struct {
 }
 
 func fetchPRComments(ctx context.Context, prNumber string) ([]Comment, error) {
-	// Fetch review comments (comments on code)
+	var comments []Comment
+
+	// Fetch review comments (comments on code) with pagination
 	endpoint := "repos/{owner}/{repo}/pulls/" + prNumber + "/comments"
-	cmd := exec.CommandContext(ctx, "gh", "api", endpoint)
+	cmd := exec.CommandContext(ctx, "gh", "api", "--paginate", endpoint)
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, nil // No comments is not an error
+		return nil, fmt.Errorf("failed to fetch review comments: %w", err)
 	}
 
-	var responses []prCommentResponse
-	if err := json.Unmarshal(out, &responses); err != nil {
-		return nil, nil // Parse error, treat as no comments
+	var reviewComments []prCommentResponse
+	if err := json.Unmarshal(out, &reviewComments); err != nil {
+		return nil, fmt.Errorf("failed to parse review comments: %w", err)
 	}
 
-	comments := make([]Comment, 0, len(responses))
-	for _, r := range responses {
+	for _, r := range reviewComments {
 		if r.Body != "" {
 			comments = append(comments, Comment{
 				Author: r.User.Login,
@@ -102,21 +103,25 @@ func fetchPRComments(ctx context.Context, prNumber string) ([]Comment, error) {
 		}
 	}
 
-	// Also fetch issue comments (general PR comments)
+	// Also fetch issue comments (general PR comments) with pagination
 	endpoint = "repos/{owner}/{repo}/issues/" + prNumber + "/comments"
-	cmd = exec.CommandContext(ctx, "gh", "api", endpoint)
+	cmd = exec.CommandContext(ctx, "gh", "api", "--paginate", endpoint)
 	out, err = cmd.Output()
-	if err == nil {
-		var issueComments []prCommentResponse
-		if json.Unmarshal(out, &issueComments) == nil {
-			for _, r := range issueComments {
-				if r.Body != "" {
-					comments = append(comments, Comment{
-						Author: r.User.Login,
-						Body:   r.Body,
-					})
-				}
-			}
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch issue comments: %w", err)
+	}
+
+	var issueComments []prCommentResponse
+	if err := json.Unmarshal(out, &issueComments); err != nil {
+		return nil, fmt.Errorf("failed to parse issue comments: %w", err)
+	}
+
+	for _, r := range issueComments {
+		if r.Body != "" {
+			comments = append(comments, Comment{
+				Author: r.User.Login,
+				Body:   r.Body,
+			})
 		}
 	}
 
