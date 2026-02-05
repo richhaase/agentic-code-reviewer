@@ -415,7 +415,19 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		return exitCode(domain.ExitError)
 	}
 
+	// Auto-detect PR for current branch if not explicitly specified and not in local mode
+	// This enables PR feedback summarization even without --pr flag
+	detectedPR := prNumber
+	if detectedPR == "" && !local && github.IsGHAvailable() {
+		if detected, err := github.GetCurrentPRNumber(ctx, worktreeBranch); err == nil {
+			detectedPR = detected
+			if verbose {
+				logger.Logf(terminal.StyleDim, "Auto-detected PR #%s for current branch", detectedPR)
+			}
+		}
+	}
+
 	// Run the review
-	code := executeReview(ctx, workDir, allExcludePatterns, customPrompt, resolved.ReviewerAgents, resolved.SummarizerAgent, resolved.Fetch, refFile, resolved.FPFilterEnabled, resolved.FPThreshold, resolved.PRFeedbackEnabled, resolved.PRFeedbackAgent, prNumber, logger)
+	code := executeReview(ctx, workDir, allExcludePatterns, customPrompt, resolved.ReviewerAgents, resolved.SummarizerAgent, resolved.Fetch, refFile, resolved.FPFilterEnabled, resolved.FPThreshold, resolved.PRFeedbackEnabled, resolved.PRFeedbackAgent, detectedPR, logger)
 	return exitCode(code)
 }
