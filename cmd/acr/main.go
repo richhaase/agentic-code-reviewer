@@ -416,6 +416,6 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Run the review
-	code := executeReview(ctx, workDir, allExcludePatterns, customPrompt, resolved.ReviewerAgents, resolved.SummarizerAgent, resolved.Fetch, refFile, resolved.FPFilterEnabled, resolved.FPThreshold, logger)
+	code := executeReview(ctx, workDir, allExcludePatterns, customPrompt, resolved.ReviewerAgents, resolved.SummarizerAgent, resolved.Fetch, refFile, resolved.FPFilterEnabled, resolved.FPThreshold, resolved.PRFeedbackEnabled, resolved.PRFeedbackAgent, prNumber, logger)
 	return exitCode(code)
 }
