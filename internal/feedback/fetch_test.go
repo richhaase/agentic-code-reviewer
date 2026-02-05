@@ -1,6 +1,17 @@
 package feedback
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
+
+func TestFetchPRContext_NoPRNumber(t *testing.T) {
+	ctx := context.Background()
+	_, err := FetchPRContext(ctx, "")
+	if err == nil {
+		t.Error("expected error for empty PR number")
+	}
+}
 
 func TestPRContext_HasContent(t *testing.T) {
 	tests := []struct {
