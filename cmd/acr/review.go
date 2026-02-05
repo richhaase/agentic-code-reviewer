@@ -144,7 +144,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		}()
 
 		fpFilter := fpfilter.New(summarizerAgentName, fpThreshold, verbose)
-		fpResult, err := fpFilter.Apply(ctx, summaryResult.Grouped)
+		fpResult, err := fpFilter.Apply(ctx, summaryResult.Grouped, "")
 		fpSpinnerCancel()
 		<-fpSpinnerDone
 
