@@ -4,6 +4,28 @@ All notable changes to ACR are documented in this file.
 
 This changelog is generated from git tag annotations.
 
+## [v0.11.0] - 2026-02-06
+
+# v0.11.0
+
+## Breaking Changes
+
+- Remove `--prompt` / `--prompt-file` flags and `ACR_REVIEW_PROMPT` / `ACR_REVIEW_PROMPT_FILE` env vars
+- Remove `review_prompt` / `review_prompt_file` from `.acr.yaml` config
+
+## Features
+
+- Add `--guidance` / `--guidance-file` flags for steering review focus without replacing built-in prompts
+- Add `ACR_GUIDANCE` / `ACR_GUIDANCE_FILE` env vars and `guidance_file` config key
+- Add `{{guidance}}` placeholder to all default prompt templates with `RenderPrompt()` for clean injection
+- Codex agent now always uses `codex exec review` built-in mode with optional guidance via stdin
+
+## Refactoring
+
+- Simplify Claude and Gemini agents: remove custom prompt branching, always use default templates
+- Replace `ResolvePrompt()` with `ResolveGuidance()` in config system
+- Delete `BuildRefFilePrompt`, `BuildGeminiRefFilePrompt`, `BuildCodexRefFilePrompt` helper functions
+
 ## [v0.10.2] - 2026-02-06
 
 # v0.10.2
