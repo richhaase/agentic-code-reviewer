@@ -4,6 +4,21 @@ All notable changes to ACR are documented in this file.
 
 This changelog is generated from git tag annotations.
 
+## [v0.10.2] - 2026-02-06
+
+# v0.10.2
+
+### Features
+- **fpfilter:** fail-open design — on errors, returns original findings unfiltered with a warning instead of blocking the review pipeline (closes #75)
+
+### Fixes
+- Revert spinner context to use parent ctx (respects Ctrl-C)
+- Add nil guard for fpResult before dereferencing
+- Suppress skip warning when context was canceled
+
+### Refactor
+- Remove vestigial error return from fpfilter.Apply for a cleaner API contract
+
 ## [v0.10.1] - 2026-02-06
 
 v0.10.1
