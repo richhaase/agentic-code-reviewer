@@ -71,10 +71,7 @@ func TestSkippedResult(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			start := time.Now()
-			result, err := skippedResult(grouped, start, tt.reason)
-			if err != nil {
-				t.Fatalf("skippedResult returned error: %v", err)
-			}
+			result := skippedResult(grouped, start, tt.reason)
 			if !result.Skipped {
 				t.Error("expected Skipped to be true")
 			}
