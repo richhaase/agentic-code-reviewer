@@ -33,6 +33,15 @@ func TestBuildPromptWithoutFeedback(t *testing.T) {
 	}
 }
 
+func TestFPPrompt_IncludesReviewerCountGuidance(t *testing.T) {
+	if !strings.Contains(fpEvaluationPrompt, "reviewer_count") {
+		t.Error("prompt should reference reviewer_count field")
+	}
+	if !strings.Contains(fpEvaluationPrompt, "Reviewer Agreement") {
+		t.Error("prompt should contain Reviewer Agreement section")
+	}
+}
+
 func TestFindingInput_IncludesReviewerCount(t *testing.T) {
 	tests := []struct {
 		name          string
