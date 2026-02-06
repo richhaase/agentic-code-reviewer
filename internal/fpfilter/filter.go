@@ -72,7 +72,7 @@ type findingEvaluation struct {
 	Reasoning string `json:"reasoning"`
 }
 
-func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Result, error) {
+func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, priorFeedback string) (*Result, error) {
 	start := time.Now()
 
 	if len(grouped.Findings) == 0 {
@@ -104,7 +104,8 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings) (*Re
 		return nil, err
 	}
 
-	execResult, err := ag.ExecuteSummary(ctx, fpEvaluationPrompt, payload)
+	prompt := buildPromptWithFeedback(fpEvaluationPrompt, priorFeedback)
+	execResult, err := ag.ExecuteSummary(ctx, prompt, payload)
 	if err != nil {
 		if ctx.Err() != nil {
 			return &Result{

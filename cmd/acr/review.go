@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
+	"github.com/richhaase/agentic-code-reviewer/internal/feedback"
 	"github.com/richhaase/agentic-code-reviewer/internal/filter"
 	"github.com/richhaase/agentic-code-reviewer/internal/fpfilter"
 	"github.com/richhaase/agentic-code-reviewer/internal/runner"
@@ -13,7 +15,7 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
-func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, reviewerAgentNames []string, summarizerAgentName string, fetchRemote bool, useRefFile bool, fpFilterEnabled bool, fpThreshold int, logger *terminal.Logger) domain.ExitCode {
+func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, reviewerAgentNames []string, summarizerAgentName string, fetchRemote bool, useRefFile bool, fpFilterEnabled bool, fpThreshold int, prFeedbackEnabled bool, prFeedbackAgent string, prNumber string, logger *terminal.Logger) domain.ExitCode {
 	if concurrency < reviewers {
 		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, %d concurrent, base=%s)%s",
 			terminal.Color(terminal.Dim), reviewers, concurrency, baseRef, terminal.Color(terminal.Reset))
@@ -91,6 +93,38 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		logger.Logf(terminal.StyleDim, "Ref-file mode enabled")
 	}
 
+	// Start PR feedback summarizer in parallel with reviewers (if enabled, reviewing a PR, and FP filter is on)
+	// Skip if FP filter is disabled since the feedback summary is only consumed by the FP filter
+	var priorFeedback string
+	var feedbackWg sync.WaitGroup
+	if prFeedbackEnabled && prNumber != "" && fpFilterEnabled {
+		logger.Logf(terminal.StyleInfo, "Summarizing PR #%s feedback %s(in parallel)%s",
+			prNumber, terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
+		feedbackWg.Add(1)
+		go func() {
+			defer feedbackWg.Done()
+
+			// Determine which agent to use for feedback summarization
+			feedbackAgentName := prFeedbackAgent
+			if feedbackAgentName == "" {
+				feedbackAgentName = summarizerAgentName
+			}
+
+			summarizer := feedback.NewSummarizer(feedbackAgentName, verbose)
+			summary, err := summarizer.Summarize(ctx, prNumber)
+			if err != nil {
+				logger.Logf(terminal.StyleWarning, "PR feedback summarizer failed: %v", err)
+				return
+			}
+			if summary != "" {
+				logger.Log("PR feedback summarized", terminal.StyleSuccess)
+			} else {
+				logger.Log("No relevant PR feedback found", terminal.StyleDim)
+			}
+			priorFeedback = summary
+		}()
+	}
+
 	results, wallClock, err := r.Run(ctx)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -133,6 +167,9 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 
 	stats.SummarizerDuration = summaryResult.Duration
 
+	// Wait for PR feedback summarizer to complete
+	feedbackWg.Wait()
+
 	var fpFilteredCount int
 	if fpFilterEnabled && summaryResult.ExitCode == 0 && len(summaryResult.Grouped.Findings) > 0 && ctx.Err() == nil {
 		fpSpinner := terminal.NewPhaseSpinner("Filtering false positives")
@@ -144,7 +181,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		}()
 
 		fpFilter := fpfilter.New(summarizerAgentName, fpThreshold, verbose)
-		fpResult, err := fpFilter.Apply(ctx, summaryResult.Grouped)
+		fpResult, err := fpFilter.Apply(ctx, summaryResult.Grouped, priorFeedback)
 		fpSpinnerCancel()
 		<-fpSpinnerDone
 

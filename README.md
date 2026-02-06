@@ -44,6 +44,8 @@ graph TD
         C[Reviewer 2]
         D[Reviewer N]
     end
+    A -->|if PR detected| P[PR Feedback Summarizer]
+    P -->|summarizes prior discussion| F
     B & C & D --> E[Summarizer]
     E -->|clusters & deduplicates| F[FP Filter]
     F -->|removes false positives| G[Consolidated Report]
@@ -110,6 +112,8 @@ acr --verbose
 | `--fetch/--no-fetch`|       | true    | Fetch base ref from origin before diff   |
 | `--no-fp-filter`    |       | false   | Disable false positive filtering          |
 | `--fp-threshold`    |       | 75      | False positive confidence threshold 1-100 |
+| `--no-pr-feedback`  |       | false   | Disable PR feedback summarization         |
+| `--pr-feedback-agent`|      |         | Agent for PR feedback summarization       |
 | `--exclude-pattern` |       |         | Exclude findings matching regex (repeat)  |
 | `--no-config`       |       | false   | Skip loading .acr.yaml config file        |
 | `--reviewer-agent`  | `-a`  | codex   | Agent(s) for reviews, comma-separated (codex, claude, gemini) |
@@ -194,6 +198,30 @@ Effective prompts should:
 
 The git diff is automatically appended to your prompt.
 
+### PR Feedback Summarization
+
+When reviewing a PR (via `--pr` flag or auto-detected from the current branch), ACR can summarize prior PR discussion to improve false positive filtering. This helps avoid re-surfacing issues that have already been discussed and dismissed.
+
+The summarizer fetches:
+- PR description
+- Review comments (inline code comments)
+- Issue comments (general PR discussion)
+- Review summaries (approve/request-changes/comment bodies)
+
+This context is passed to the false positive filter, which can then recognize findings that were previously acknowledged as intentional or already addressed.
+
+```bash
+# Disable PR feedback summarization
+acr --no-pr-feedback
+
+# Use a specific agent for feedback summarization
+acr --pr-feedback-agent claude
+```
+
+PR feedback summarization runs in parallel with the reviewers and is enabled by default. It only activates when:
+1. A PR is detected (via `--pr` flag or auto-detection)
+2. The false positive filter is enabled
+
 ### Environment Variables
 
 | Variable                  | Description                              |
@@ -206,6 +234,8 @@ The git diff is automatically appended to your prompt.
 | `ACR_FETCH`               | Fetch base ref from origin (true/false)  |
 | `ACR_FP_FILTER`           | Enable false positive filtering (true/false) |
 | `ACR_FP_THRESHOLD`        | False positive confidence threshold 1-100 |
+| `ACR_PR_FEEDBACK`         | Enable PR feedback summarization (true/false) |
+| `ACR_PR_FEEDBACK_AGENT`   | Agent for PR feedback summarization |
 | `ACR_REVIEWER_AGENT`      | Default reviewer agent(s), comma-separated |
 | `ACR_SUMMARIZER_AGENT`    | Default summarizer agent  |
 | `ACR_REVIEW_PROMPT`       | [experimental] Default review prompt     |
@@ -247,6 +277,10 @@ filters:
 fp_filter:
   enabled: true           # Enable LLM-based false positive filtering
   threshold: 75           # Confidence threshold 1-100 (100 = definitely false positive)
+
+pr_feedback:
+  enabled: true           # Summarize prior PR comments to improve FP filtering
+  # agent: claude         # Agent for summarization (defaults to summarizer_agent)
 ```
 
 ### Precedence

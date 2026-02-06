@@ -1,5 +1,30 @@
 package fpfilter
 
+import "fmt"
+
+const priorFeedbackSection = `
+
+## Prior Feedback Context
+
+The following feedback has been gathered from the PR discussion:
+
+%s
+
+Consider this context when scoring findings. If a finding matches something
+that has been explicitly dismissed or explained as intentional, weight that
+heavily toward false positive (higher fp_score). If feedback indicates an
+issue was acknowledged as valid ("good catch, will fix"), weight toward
+true positive (lower fp_score).
+`
+
+// buildPromptWithFeedback appends prior feedback context to the base prompt if provided.
+func buildPromptWithFeedback(basePrompt, priorFeedback string) string {
+	if priorFeedback == "" {
+		return basePrompt
+	}
+	return basePrompt + fmt.Sprintf(priorFeedbackSection, priorFeedback)
+}
+
 const fpEvaluationPrompt = `# False Positive Evaluator
 
 You are an expert code reviewer evaluating findings to determine which are likely false positives.
