@@ -28,7 +28,7 @@ type Config struct {
 	Retries      int
 	Verbose      bool
 	WorkDir      string
-	CustomPrompt string
+	Guidance     string
 	UseRefFile   bool
 }
 
@@ -191,7 +191,7 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		Timeout:      r.config.Timeout,
 		WorkDir:      r.config.WorkDir,
 		Verbose:      r.config.Verbose,
-		CustomPrompt: r.config.CustomPrompt,
+		Guidance:     r.config.Guidance,
 		ReviewerID:   strconv.Itoa(reviewerID),
 		UseRefFile:   r.config.UseRefFile,
 	}

@@ -16,9 +16,9 @@ type ReviewConfig struct {
 	// Verbose enables verbose output from the agent.
 	Verbose bool
 
-	// CustomPrompt is an optional custom prompt to pass to the agent.
-	// If empty, the agent uses its default review prompt.
-	CustomPrompt string
+	// Guidance is optional steering context appended to the agent's default prompt.
+	// If empty, the agent uses its default prompt as-is.
+	Guidance string
 
 	// ReviewerID is a unique identifier for this reviewer instance (e.g., "reviewer-1").
 	ReviewerID string
