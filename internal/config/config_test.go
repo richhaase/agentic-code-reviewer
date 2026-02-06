@@ -622,6 +622,7 @@ concurrency: 3
 base: main
 timeout: 5m
 retries: 2
+guidance_file: guidance.md
 filters:
   exclude_patterns:
     - "test"
@@ -720,20 +721,20 @@ func durationPtr(d time.Duration) *Duration {
 	return &dur
 }
 
-func TestResolvePrompt(t *testing.T) {
-	// Create temp files for prompt file tests
+func TestResolveGuidance(t *testing.T) {
+	// Create temp files for guidance file tests
 	dir := t.TempDir()
-	flagPromptFile := filepath.Join(dir, "flag_prompt.txt")
-	envPromptFile := filepath.Join(dir, "env_prompt.txt")
-	configPromptFile := filepath.Join(dir, "config_prompt.txt")
+	flagGuidanceFile := filepath.Join(dir, "flag_guidance.txt")
+	envGuidanceFile := filepath.Join(dir, "env_guidance.txt")
+	configGuidanceFile := filepath.Join(dir, "config_guidance.txt")
 
-	if err := os.WriteFile(flagPromptFile, []byte("prompt from flag file"), 0644); err != nil {
+	if err := os.WriteFile(flagGuidanceFile, []byte("guidance from flag file"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(envPromptFile, []byte("prompt from env file"), 0644); err != nil {
+	if err := os.WriteFile(envGuidanceFile, []byte("guidance from env file"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(configPromptFile, []byte("prompt from config file"), 0644); err != nil {
+	if err := os.WriteFile(configGuidanceFile, []byte("guidance from config file"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -747,136 +748,123 @@ func TestResolvePrompt(t *testing.T) {
 		wantErr    bool
 	}{
 		{
-			name: "flag prompt has highest priority",
+			name: "flag guidance text wins over all",
 			cfg: &Config{
-				ReviewPrompt:     strPtr("config prompt"),
-				ReviewPromptFile: strPtr(configPromptFile),
+				GuidanceFile: strPtr(configGuidanceFile),
 			},
 			envState: EnvState{
-				ReviewPromptSet:     true,
-				ReviewPrompt:        "env prompt",
-				ReviewPromptFileSet: true,
-				ReviewPromptFile:    envPromptFile,
+				GuidanceSet:     true,
+				Guidance:        "env guidance",
+				GuidanceFileSet: true,
+				GuidanceFile:    envGuidanceFile,
 			},
 			flagState: FlagState{
-				ReviewPromptSet:     true,
-				ReviewPromptFileSet: true,
+				GuidanceSet:     true,
+				GuidanceFileSet: true,
 			},
 			flagValues: ResolvedConfig{
-				ReviewPrompt:     "flag prompt",
-				ReviewPromptFile: flagPromptFile,
+				Guidance:     "flag guidance",
+				GuidanceFile: flagGuidanceFile,
 			},
-			want: "flag prompt",
+			want: "flag guidance",
 		},
 		{
-			name: "flag file has second priority",
+			name: "flag guidance-file wins over env/config",
 			cfg: &Config{
-				ReviewPrompt:     strPtr("config prompt"),
-				ReviewPromptFile: strPtr(configPromptFile),
+				GuidanceFile: strPtr(configGuidanceFile),
 			},
 			envState: EnvState{
-				ReviewPromptSet:     true,
-				ReviewPrompt:        "env prompt",
-				ReviewPromptFileSet: true,
-				ReviewPromptFile:    envPromptFile,
+				GuidanceSet:     true,
+				Guidance:        "env guidance",
+				GuidanceFileSet: true,
+				GuidanceFile:    envGuidanceFile,
 			},
 			flagState: FlagState{
-				ReviewPromptFileSet: true,
+				GuidanceFileSet: true,
 			},
 			flagValues: ResolvedConfig{
-				ReviewPromptFile: flagPromptFile,
+				GuidanceFile: flagGuidanceFile,
 			},
-			want: "prompt from flag file",
+			want: "guidance from flag file",
 		},
 		{
-			name: "env prompt has third priority",
+			name: "env ACR_GUIDANCE wins over config",
 			cfg: &Config{
-				ReviewPrompt:     strPtr("config prompt"),
-				ReviewPromptFile: strPtr(configPromptFile),
+				GuidanceFile: strPtr(configGuidanceFile),
 			},
 			envState: EnvState{
-				ReviewPromptSet:     true,
-				ReviewPrompt:        "env prompt",
-				ReviewPromptFileSet: true,
-				ReviewPromptFile:    envPromptFile,
+				GuidanceSet:     true,
+				Guidance:        "env guidance",
+				GuidanceFileSet: true,
+				GuidanceFile:    envGuidanceFile,
 			},
-			want: "env prompt",
+			want: "env guidance",
 		},
 		{
-			name: "env file has fourth priority",
+			name: "env ACR_GUIDANCE_FILE wins over config",
 			cfg: &Config{
-				ReviewPrompt:     strPtr("config prompt"),
-				ReviewPromptFile: strPtr(configPromptFile),
+				GuidanceFile: strPtr(configGuidanceFile),
 			},
 			envState: EnvState{
-				ReviewPromptFileSet: true,
-				ReviewPromptFile:    envPromptFile,
+				GuidanceFileSet: true,
+				GuidanceFile:    envGuidanceFile,
 			},
-			want: "prompt from env file",
+			want: "guidance from env file",
 		},
 		{
-			name: "config prompt has fifth priority",
+			name: "config guidance_file works",
 			cfg: &Config{
-				ReviewPrompt:     strPtr("config prompt"),
-				ReviewPromptFile: strPtr(configPromptFile),
+				GuidanceFile: strPtr(configGuidanceFile),
 			},
-			want: "config prompt",
+			want: "guidance from config file",
 		},
 		{
-			name: "config file has sixth priority",
-			cfg: &Config{
-				ReviewPromptFile: strPtr(configPromptFile),
-			},
-			want: "prompt from config file",
-		},
-		{
-			name: "empty prompt when nothing is set",
+			name: "nothing set returns empty",
 			want: "",
 		},
 		{
-			name: "empty strings result in empty prompt",
+			name: "empty strings result in empty guidance",
 			cfg: &Config{
-				ReviewPrompt:     strPtr(""),
-				ReviewPromptFile: strPtr(""),
+				GuidanceFile: strPtr(""),
 			},
 			envState: EnvState{
-				ReviewPromptSet:     true,
-				ReviewPrompt:        "",
-				ReviewPromptFileSet: true,
-				ReviewPromptFile:    "",
+				GuidanceSet:     true,
+				Guidance:        "",
+				GuidanceFileSet: true,
+				GuidanceFile:    "",
 			},
 			flagState: FlagState{
-				ReviewPromptSet:     true,
-				ReviewPromptFileSet: true,
+				GuidanceSet:     true,
+				GuidanceFileSet: true,
 			},
 			flagValues: ResolvedConfig{
-				ReviewPrompt:     "",
-				ReviewPromptFile: "",
+				Guidance:     "",
+				GuidanceFile: "",
 			},
 			want: "",
 		},
 		{
-			name: "error reading flag prompt file",
+			name: "error reading flag guidance file",
 			flagState: FlagState{
-				ReviewPromptFileSet: true,
+				GuidanceFileSet: true,
 			},
 			flagValues: ResolvedConfig{
-				ReviewPromptFile: "/nonexistent/prompt.txt",
+				GuidanceFile: "/nonexistent/guidance.txt",
 			},
 			wantErr: true,
 		},
 		{
-			name: "error reading env prompt file",
+			name: "error reading env guidance file",
 			envState: EnvState{
-				ReviewPromptFileSet: true,
-				ReviewPromptFile:    "/nonexistent/prompt.txt",
+				GuidanceFileSet: true,
+				GuidanceFile:    "/nonexistent/guidance.txt",
 			},
 			wantErr: true,
 		},
 		{
-			name: "error reading config prompt file",
+			name: "error reading config guidance file",
 			cfg: &Config{
-				ReviewPromptFile: strPtr("/nonexistent/prompt.txt"),
+				GuidanceFile: strPtr("/nonexistent/guidance.txt"),
 			},
 			wantErr: true,
 		},
@@ -884,14 +872,14 @@ func TestResolvePrompt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ResolvePrompt(tt.cfg, tt.envState, tt.flagState, tt.flagValues, "")
+			got, err := ResolveGuidance(tt.cfg, tt.envState, tt.flagState, tt.flagValues, "")
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ResolvePrompt() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("ResolveGuidance() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !tt.wantErr {
 				if got != tt.want {
-					t.Errorf("ResolvePrompt() = %q, want %q", got, tt.want)
+					t.Errorf("ResolveGuidance() = %q, want %q", got, tt.want)
 				}
 			}
 		})
@@ -1042,101 +1030,100 @@ func TestLoadEnvState_ReviewerAgents_NotSet(t *testing.T) {
 	}
 }
 
-func TestResolvePrompt_Precedence(t *testing.T) {
+func TestResolveGuidance_Precedence(t *testing.T) {
 	// Test that verifies the exact precedence order
 	dir := t.TempDir()
-	promptFile := filepath.Join(dir, "prompt.txt")
-	if err := os.WriteFile(promptFile, []byte("file content"), 0644); err != nil {
+	guidanceFile := filepath.Join(dir, "guidance.txt")
+	if err := os.WriteFile(guidanceFile, []byte("file content"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	// All sources set, flag prompt should win
+	// All sources set, flag guidance text should win
 	cfg := &Config{
-		ReviewPrompt:     strPtr("config prompt"),
-		ReviewPromptFile: strPtr(promptFile),
+		GuidanceFile: strPtr(guidanceFile),
 	}
 	envState := EnvState{
-		ReviewPromptSet:     true,
-		ReviewPrompt:        "env prompt",
-		ReviewPromptFileSet: true,
-		ReviewPromptFile:    promptFile,
+		GuidanceSet:     true,
+		Guidance:        "env guidance",
+		GuidanceFileSet: true,
+		GuidanceFile:    guidanceFile,
 	}
 	flagState := FlagState{
-		ReviewPromptSet:     true,
-		ReviewPromptFileSet: false,
+		GuidanceSet:     true,
+		GuidanceFileSet: false,
 	}
 	flagValues := ResolvedConfig{
-		ReviewPrompt:     "flag prompt",
-		ReviewPromptFile: "",
+		Guidance:     "flag guidance",
+		GuidanceFile: "",
 	}
 
-	got, err := ResolvePrompt(cfg, envState, flagState, flagValues, "")
+	got, err := ResolveGuidance(cfg, envState, flagState, flagValues, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != "flag prompt" {
-		t.Errorf("expected 'flag prompt', got %q", got)
+	if got != "flag guidance" {
+		t.Errorf("expected 'flag guidance', got %q", got)
 	}
 }
 
-func TestResolvePrompt_ConfigFileRelativePath(t *testing.T) {
+func TestResolveGuidance_ConfigFileRelativePath(t *testing.T) {
 	// Create a temp directory structure:
 	// tempdir/
-	//   prompts/
+	//   guidance/
 	//     review.md
 	dir := t.TempDir()
-	promptsDir := filepath.Join(dir, "prompts")
-	if err := os.MkdirAll(promptsDir, 0755); err != nil {
-		t.Fatalf("failed to create prompts dir: %v", err)
+	guidanceDir := filepath.Join(dir, "guidance")
+	if err := os.MkdirAll(guidanceDir, 0755); err != nil {
+		t.Fatalf("failed to create guidance dir: %v", err)
 	}
-	promptFile := filepath.Join(promptsDir, "review.md")
-	promptContent := "custom review prompt from file"
-	if err := os.WriteFile(promptFile, []byte(promptContent), 0644); err != nil {
-		t.Fatalf("failed to write prompt file: %v", err)
+	guidanceFile := filepath.Join(guidanceDir, "review.md")
+	guidanceContent := "custom review guidance from file"
+	if err := os.WriteFile(guidanceFile, []byte(guidanceContent), 0644); err != nil {
+		t.Fatalf("failed to write guidance file: %v", err)
 	}
 
 	// Config with relative path
-	relativePath := "prompts/review.md"
+	relativePath := "guidance/review.md"
 	cfg := &Config{
-		ReviewPromptFile: &relativePath,
+		GuidanceFile: &relativePath,
 	}
 	envState := EnvState{}
 	flagState := FlagState{}
 	flagValues := ResolvedConfig{}
 
 	// Resolve with configDir set to temp directory
-	got, err := ResolvePrompt(cfg, envState, flagState, flagValues, dir)
+	got, err := ResolveGuidance(cfg, envState, flagState, flagValues, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != promptContent {
-		t.Errorf("ResolvePrompt() = %q, want %q", got, promptContent)
+	if got != guidanceContent {
+		t.Errorf("ResolveGuidance() = %q, want %q", got, guidanceContent)
 	}
 }
 
-func TestResolvePrompt_ConfigFileAbsolutePath(t *testing.T) {
-	// Create a temp file with prompt content
+func TestResolveGuidance_ConfigFileAbsolutePath(t *testing.T) {
+	// Create a temp file with guidance content
 	dir := t.TempDir()
-	promptFile := filepath.Join(dir, "prompt.md")
-	promptContent := "absolute path prompt"
-	if err := os.WriteFile(promptFile, []byte(promptContent), 0644); err != nil {
-		t.Fatalf("failed to write prompt file: %v", err)
+	guidanceFile := filepath.Join(dir, "guidance.md")
+	guidanceContent := "absolute path guidance"
+	if err := os.WriteFile(guidanceFile, []byte(guidanceContent), 0644); err != nil {
+		t.Fatalf("failed to write guidance file: %v", err)
 	}
 
 	// Config with absolute path - should work regardless of configDir
 	cfg := &Config{
-		ReviewPromptFile: &promptFile,
+		GuidanceFile: &guidanceFile,
 	}
 	envState := EnvState{}
 	flagState := FlagState{}
 	flagValues := ResolvedConfig{}
 
 	// Resolve with a different configDir - absolute path should still work
-	got, err := ResolvePrompt(cfg, envState, flagState, flagValues, "/some/other/dir")
+	got, err := ResolveGuidance(cfg, envState, flagState, flagValues, "/some/other/dir")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got != promptContent {
-		t.Errorf("ResolvePrompt() = %q, want %q", got, promptContent)
+	if got != guidanceContent {
+		t.Errorf("ResolveGuidance() = %q, want %q", got, guidanceContent)
 	}
 }

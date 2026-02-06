@@ -63,8 +63,7 @@ type Config struct {
 	ReviewerAgent    *string          `yaml:"reviewer_agent"`
 	ReviewerAgents   []string         `yaml:"reviewer_agents"`
 	SummarizerAgent  *string          `yaml:"summarizer_agent"`
-	ReviewPrompt     *string          `yaml:"review_prompt"`
-	ReviewPromptFile *string          `yaml:"review_prompt_file"`
+	GuidanceFile     *string          `yaml:"guidance_file"`
 	Filters          FilterConfig     `yaml:"filters"`
 	FPFilter         FPFilterConfig   `yaml:"fp_filter"`
 	PRFeedback       PRFeedbackConfig `yaml:"pr_feedback"`
@@ -158,7 +157,7 @@ func (c *Config) validatePatterns() error {
 	return nil
 }
 
-var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "fetch", "reviewer_agent", "reviewer_agents", "summarizer_agent", "review_prompt", "review_prompt_file", "filters", "fp_filter", "pr_feedback"}
+var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "fetch", "reviewer_agent", "reviewer_agents", "summarizer_agent", "guidance_file", "filters", "fp_filter", "pr_feedback"}
 
 var knownFPFilterKeys = []string{"enabled", "threshold"}
 
@@ -373,8 +372,8 @@ type ResolvedConfig struct {
 	Fetch             bool
 	ReviewerAgents    []string
 	SummarizerAgent   string
-	ReviewPrompt      string
-	ReviewPromptFile  string
+	Guidance          string
+	GuidanceFile      string
 	FPFilterEnabled   bool
 	FPThreshold       int
 	PRFeedbackEnabled bool
@@ -390,8 +389,8 @@ type FlagState struct {
 	FetchSet            bool
 	ReviewerAgentsSet   bool
 	SummarizerAgentSet  bool
-	ReviewPromptSet     bool
-	ReviewPromptFileSet bool
+	GuidanceSet        bool
+	GuidanceFileSet    bool
 	NoFPFilterSet       bool
 	FPThresholdSet      bool
 	NoPRFeedbackSet     bool
@@ -415,10 +414,10 @@ type EnvState struct {
 	ReviewerAgentsSet    bool
 	SummarizerAgent      string
 	SummarizerAgentSet   bool
-	ReviewPrompt         string
-	ReviewPromptSet      bool
-	ReviewPromptFile     string
-	ReviewPromptFileSet  bool
+	Guidance             string
+	GuidanceSet          bool
+	GuidanceFile         string
+	GuidanceFileSet      bool
 	FPFilterEnabled      bool
 	FPFilterSet          bool
 	FPThreshold          int
@@ -484,13 +483,13 @@ func LoadEnvState() EnvState {
 		state.SummarizerAgent = v
 		state.SummarizerAgentSet = true
 	}
-	if v := os.Getenv("ACR_REVIEW_PROMPT"); v != "" {
-		state.ReviewPrompt = v
-		state.ReviewPromptSet = true
+	if v := os.Getenv("ACR_GUIDANCE"); v != "" {
+		state.Guidance = v
+		state.GuidanceSet = true
 	}
-	if v := os.Getenv("ACR_REVIEW_PROMPT_FILE"); v != "" {
-		state.ReviewPromptFile = v
-		state.ReviewPromptFileSet = true
+	if v := os.Getenv("ACR_GUIDANCE_FILE"); v != "" {
+		state.GuidanceFile = v
+		state.GuidanceFileSet = true
 	}
 
 	if v := os.Getenv("ACR_FP_FILTER"); v != "" {
@@ -564,12 +563,6 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 		if cfg.SummarizerAgent != nil {
 			result.SummarizerAgent = *cfg.SummarizerAgent
 		}
-		if cfg.ReviewPrompt != nil {
-			result.ReviewPrompt = *cfg.ReviewPrompt
-		}
-		if cfg.ReviewPromptFile != nil {
-			result.ReviewPromptFile = *cfg.ReviewPromptFile
-		}
 		if cfg.FPFilter.Enabled != nil {
 			result.FPFilterEnabled = *cfg.FPFilter.Enabled
 		}
@@ -609,12 +602,6 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	if envState.SummarizerAgentSet {
 		result.SummarizerAgent = envState.SummarizerAgent
 	}
-	if envState.ReviewPromptSet {
-		result.ReviewPrompt = envState.ReviewPrompt
-	}
-	if envState.ReviewPromptFileSet {
-		result.ReviewPromptFile = envState.ReviewPromptFile
-	}
 	if envState.FPFilterSet {
 		result.FPFilterEnabled = envState.FPFilterEnabled
 	}
@@ -652,12 +639,6 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	if flagState.SummarizerAgentSet {
 		result.SummarizerAgent = flagValues.SummarizerAgent
 	}
-	if flagState.ReviewPromptSet {
-		result.ReviewPrompt = flagValues.ReviewPrompt
-	}
-	if flagState.ReviewPromptFileSet {
-		result.ReviewPromptFile = flagValues.ReviewPromptFile
-	}
 	if flagState.NoFPFilterSet {
 		result.FPFilterEnabled = flagValues.FPFilterEnabled
 	}
@@ -674,71 +655,47 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	return result
 }
 
-// ResolvePrompt resolves the final review prompt with custom precedence logic.
-// Unlike other config fields, prompts have a special precedence where prompt-file
-// sources are checked separately from prompt string sources.
-//
-// The configDir parameter is used to resolve relative paths in review_prompt_file
-// config field. Flag and env var paths are resolved relative to CWD as expected.
+// ResolveGuidance resolves the review guidance with custom precedence logic.
+// Guidance is steering context appended to the built-in prompt, not a replacement.
 //
 // Precedence (highest to lowest):
-// 1. --prompt flag
-// 2. --prompt-file flag
-// 3. ACR_REVIEW_PROMPT env var
-// 4. ACR_REVIEW_PROMPT_FILE env var
-// 5. review_prompt config field
-// 6. review_prompt_file config field
-// 7. DefaultClaudePrompt constant
-//
-// Returns the resolved prompt and an error if a prompt file cannot be read.
-func ResolvePrompt(cfg *Config, envState EnvState, flagState FlagState, flagValues ResolvedConfig, configDir string) (string, error) {
-	// 1. Check --prompt flag (highest priority)
-	if flagState.ReviewPromptSet && flagValues.ReviewPrompt != "" {
-		return flagValues.ReviewPrompt, nil
+// 1. --guidance flag
+// 2. --guidance-file flag
+// 3. ACR_GUIDANCE env var
+// 4. ACR_GUIDANCE_FILE env var
+// 5. guidance_file config field
+// 6. Empty string (no guidance)
+func ResolveGuidance(cfg *Config, envState EnvState, flagState FlagState, flagValues ResolvedConfig, configDir string) (string, error) {
+	if flagState.GuidanceSet && flagValues.Guidance != "" {
+		return flagValues.Guidance, nil
 	}
-
-	// 2. Check --prompt-file flag
-	if flagState.ReviewPromptFileSet && flagValues.ReviewPromptFile != "" {
-		content, err := os.ReadFile(flagValues.ReviewPromptFile)
+	if flagState.GuidanceFileSet && flagValues.GuidanceFile != "" {
+		content, err := os.ReadFile(flagValues.GuidanceFile)
 		if err != nil {
-			return "", fmt.Errorf("failed to read prompt file %q: %w", flagValues.ReviewPromptFile, err)
+			return "", fmt.Errorf("failed to read guidance file %q: %w", flagValues.GuidanceFile, err)
 		}
 		return string(content), nil
 	}
-
-	// 3. Check ACR_REVIEW_PROMPT env var
-	if envState.ReviewPromptSet && envState.ReviewPrompt != "" {
-		return envState.ReviewPrompt, nil
+	if envState.GuidanceSet && envState.Guidance != "" {
+		return envState.Guidance, nil
 	}
-
-	// 4. Check ACR_REVIEW_PROMPT_FILE env var
-	if envState.ReviewPromptFileSet && envState.ReviewPromptFile != "" {
-		content, err := os.ReadFile(envState.ReviewPromptFile)
+	if envState.GuidanceFileSet && envState.GuidanceFile != "" {
+		content, err := os.ReadFile(envState.GuidanceFile)
 		if err != nil {
-			return "", fmt.Errorf("failed to read prompt file %q: %w", envState.ReviewPromptFile, err)
+			return "", fmt.Errorf("failed to read guidance file %q: %w", envState.GuidanceFile, err)
 		}
 		return string(content), nil
 	}
-
-	// 5. Check review_prompt config field
-	if cfg != nil && cfg.ReviewPrompt != nil && *cfg.ReviewPrompt != "" {
-		return *cfg.ReviewPrompt, nil
-	}
-
-	// 6. Check review_prompt_file config field
-	if cfg != nil && cfg.ReviewPromptFile != nil && *cfg.ReviewPromptFile != "" {
-		promptPath := *cfg.ReviewPromptFile
-		// Resolve relative paths against config file directory
-		if !filepath.IsAbs(promptPath) && configDir != "" {
-			promptPath = filepath.Join(configDir, promptPath)
+	if cfg != nil && cfg.GuidanceFile != nil && *cfg.GuidanceFile != "" {
+		guidancePath := *cfg.GuidanceFile
+		if !filepath.IsAbs(guidancePath) && configDir != "" {
+			guidancePath = filepath.Join(configDir, guidancePath)
 		}
-		content, err := os.ReadFile(promptPath)
+		content, err := os.ReadFile(guidancePath)
 		if err != nil {
-			return "", fmt.Errorf("failed to read prompt file %q: %w", *cfg.ReviewPromptFile, err)
+			return "", fmt.Errorf("failed to read guidance file %q: %w", *cfg.GuidanceFile, err)
 		}
 		return string(content), nil
 	}
-
-	// 7. No explicit prompt configured - return empty to let agent use its default behavior
 	return "", nil
 }
