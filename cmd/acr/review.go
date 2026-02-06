@@ -15,7 +15,7 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
-func executeReview(ctx context.Context, workDir string, excludePatterns []string, customPrompt string, reviewerAgentNames []string, summarizerAgentName string, fetchRemote bool, useRefFile bool, fpFilterEnabled bool, fpThreshold int, prFeedbackEnabled bool, prFeedbackAgent string, prNumber string, logger *terminal.Logger) domain.ExitCode {
+func executeReview(ctx context.Context, workDir string, excludePatterns []string, guidance string, reviewerAgentNames []string, summarizerAgentName string, fetchRemote bool, useRefFile bool, fpFilterEnabled bool, fpThreshold int, prFeedbackEnabled bool, prFeedbackAgent string, prNumber string, logger *terminal.Logger) domain.ExitCode {
 	if concurrency < reviewers {
 		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, %d concurrent, base=%s)%s",
 			terminal.Color(terminal.Dim), reviewers, concurrency, baseRef, terminal.Color(terminal.Reset))
@@ -71,15 +71,15 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 
 	// Run reviewers
 	r, err := runner.New(runner.Config{
-		Reviewers:    reviewers,
-		Concurrency:  concurrency,
-		BaseRef:      resolvedBaseRef,
-		Timeout:      timeout,
-		Retries:      retries,
-		Verbose:      verbose,
-		WorkDir:      workDir,
-		CustomPrompt: customPrompt,
-		UseRefFile:   useRefFile,
+		Reviewers:   reviewers,
+		Concurrency: concurrency,
+		BaseRef:     resolvedBaseRef,
+		Timeout:     timeout,
+		Retries:     retries,
+		Verbose:     verbose,
+		WorkDir:     workDir,
+		Guidance:    guidance,
+		UseRefFile:  useRefFile,
 	}, reviewAgents, logger)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Runner initialization failed: %v", err)

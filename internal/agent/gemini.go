@@ -12,16 +12,6 @@ import (
 // Compile-time interface check
 var _ Agent = (*GeminiAgent)(nil)
 
-// BuildGeminiRefFilePrompt constructs the review prompt for ref-file mode.
-// If customPrompt is provided, it appends ref-file instructions to it.
-// Otherwise, it uses DefaultGeminiRefFilePrompt.
-func BuildGeminiRefFilePrompt(customPrompt, diffPath string) string {
-	if customPrompt != "" {
-		return fmt.Sprintf("%s\n\nThe diff to review is in file: %s\nRead the file contents to examine the changes.", customPrompt, diffPath)
-	}
-	return fmt.Sprintf(DefaultGeminiRefFilePrompt, diffPath)
-}
-
 // GeminiAgent implements the Agent interface for the Gemini CLI backend.
 type GeminiAgent struct{}
 
@@ -47,8 +37,7 @@ func (g *GeminiAgent) IsAvailable() error {
 // ExecuteReview runs a code review using the gemini CLI.
 // Returns an ExecutionResult for streaming the JSON output.
 //
-// Uses 'gemini -o json -' with the prompt piped to stdin.
-// If config.CustomPrompt is empty, uses DefaultGeminiPrompt.
+// Always uses the default Gemini prompt template with optional guidance.
 // The git diff is either appended to the prompt (default) or written to a
 // reference file when the diff is large or UseRefFile is set.
 func (g *GeminiAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (*ExecutionResult, error) {
@@ -75,17 +64,14 @@ func (g *GeminiAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 			return nil, err
 		}
 		tempFilePath = absPath
-		prompt = BuildGeminiRefFilePrompt(config.CustomPrompt, absPath)
+		prompt = fmt.Sprintf(DefaultGeminiRefFilePrompt, absPath)
+		prompt = RenderPrompt(prompt, config.Guidance)
 	} else {
 		// Use standard prompt with embedded diff
-		prompt = config.CustomPrompt
-		if prompt == "" {
-			prompt = DefaultGeminiPrompt
-		}
+		prompt = RenderPrompt(DefaultGeminiPrompt, config.Guidance)
 		prompt = BuildPromptWithDiff(prompt, diff)
 	}
 
-	// Build command: gemini -o json -
 	args := []string{"-o", "json", "-"}
 	stdin := bytes.NewReader([]byte(prompt))
 
