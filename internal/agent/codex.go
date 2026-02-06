@@ -15,12 +15,15 @@ var _ Agent = (*CodexAgent)(nil)
 
 // BuildCodexRefFilePrompt constructs the review prompt for ref-file mode.
 // If customPrompt is provided, it appends ref-file instructions to it.
-// Otherwise, it uses DefaultCodexRefFilePrompt.
+// Otherwise, it uses the default Gemini ref-file prompt as a fallback template.
+//
+// Deprecated: This function will be removed when the Codex agent is updated
+// to always use its built-in review command.
 func BuildCodexRefFilePrompt(customPrompt, diffPath string) string {
 	if customPrompt != "" {
 		return fmt.Sprintf("%s\n\nThe diff to review is in file: %s\nRead the file contents to examine the changes.", customPrompt, diffPath)
 	}
-	return fmt.Sprintf(DefaultCodexRefFilePrompt, diffPath)
+	return fmt.Sprintf(DefaultGeminiRefFilePrompt, diffPath)
 }
 
 // CodexAgent implements the Agent interface for the Codex CLI backend.

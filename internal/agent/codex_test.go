@@ -125,7 +125,7 @@ func TestBuildCodexRefFilePrompt(t *testing.T) {
 			wantContains: []string{
 				"/tmp/test.patch",
 				"Read the file contents",
-				"You are a code reviewer", // from DefaultCodexRefFilePrompt
+				"You are a code reviewer", // from default ref-file prompt
 			},
 			wantMissing: []string{},
 		},

@@ -77,3 +77,84 @@ func TestPromptInstructsNoFalsePositives(t *testing.T) {
 		t.Error("DefaultGeminiPrompt should instruct agents not to output 'looks good' messages")
 	}
 }
+
+func TestRenderPrompt(t *testing.T) {
+	tests := []struct {
+		name     string
+		template string
+		guidance string
+		want     string
+	}{
+		{
+			name:     "empty guidance strips placeholder",
+			template: "Review this code.\n{{guidance}}",
+			guidance: "",
+			want:     "Review this code.\n",
+		},
+		{
+			name:     "non-empty guidance injects section",
+			template: "Review this code.\n{{guidance}}",
+			guidance: "Focus on security issues.",
+			want:     "Review this code.\n\n\nAdditional context:\nFocus on security issues.",
+		},
+		{
+			name:     "no placeholder in template is no-op",
+			template: "Review this code with no placeholder.",
+			guidance: "This should not appear anywhere unexpected.",
+			want:     "Review this code with no placeholder.",
+		},
+		{
+			name:     "multiline guidance",
+			template: "Review this code.\n{{guidance}}",
+			guidance: "Line one.\nLine two.\nLine three.",
+			want:     "Review this code.\n\n\nAdditional context:\nLine one.\nLine two.\nLine three.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := RenderPrompt(tt.template, tt.guidance)
+			if got != tt.want {
+				t.Errorf("RenderPrompt() =\n%q\nwant:\n%q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDefaultPrompts_ContainPlaceholder(t *testing.T) {
+	prompts := map[string]string{
+		"DefaultClaudePrompt":        DefaultClaudePrompt,
+		"DefaultClaudeRefFilePrompt": DefaultClaudeRefFilePrompt,
+		"DefaultGeminiPrompt":        DefaultGeminiPrompt,
+		"DefaultGeminiRefFilePrompt": DefaultGeminiRefFilePrompt,
+	}
+
+	for name, prompt := range prompts {
+		t.Run(name, func(t *testing.T) {
+			if !strings.Contains(prompt, "{{guidance}}") {
+				t.Errorf("%s does not contain {{guidance}} placeholder", name)
+			}
+		})
+	}
+}
+
+func TestRenderPrompt_DefaultPrompts_NoGuidance(t *testing.T) {
+	prompts := map[string]string{
+		"DefaultClaudePrompt":        DefaultClaudePrompt,
+		"DefaultClaudeRefFilePrompt": DefaultClaudeRefFilePrompt,
+		"DefaultGeminiPrompt":        DefaultGeminiPrompt,
+		"DefaultGeminiRefFilePrompt": DefaultGeminiRefFilePrompt,
+	}
+
+	for name, prompt := range prompts {
+		t.Run(name, func(t *testing.T) {
+			rendered := RenderPrompt(prompt, "")
+			if strings.Contains(rendered, "{{guidance}}") {
+				t.Errorf("%s rendered with empty guidance still contains {{guidance}} placeholder", name)
+			}
+			if strings.Contains(rendered, "Additional context:") {
+				t.Errorf("%s rendered with empty guidance contains 'Additional context:' header", name)
+			}
+		})
+	}
+}
