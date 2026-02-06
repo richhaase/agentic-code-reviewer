@@ -86,19 +86,19 @@ type findingEvaluation struct {
 	Reasoning string `json:"reasoning"`
 }
 
-func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, priorFeedback string) (*Result, error) {
+func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, priorFeedback string) *Result {
 	start := time.Now()
 
 	if len(grouped.Findings) == 0 {
 		return &Result{
 			Grouped:  grouped,
 			Duration: time.Since(start),
-		}, nil
+		}
 	}
 
 	ag, err := agent.NewAgent(f.agentName)
 	if err != nil {
-		return skippedResult(grouped, start, "agent creation failed: "+err.Error()), nil
+		return skippedResult(grouped, start, "agent creation failed: "+err.Error())
 	}
 
 	req := evaluationRequest{
@@ -116,16 +116,16 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 
 	payload, err := json.Marshal(req)
 	if err != nil {
-		return skippedResult(grouped, start, "request marshal failed: "+err.Error()), nil
+		return skippedResult(grouped, start, "request marshal failed: "+err.Error())
 	}
 
 	prompt := buildPromptWithFeedback(fpEvaluationPrompt, priorFeedback)
 	execResult, err := ag.ExecuteSummary(ctx, prompt, payload)
 	if err != nil {
 		if ctx.Err() != nil {
-			return skippedResult(grouped, start, "context canceled"), nil
+			return skippedResult(grouped, start, "context canceled")
 		}
-		return skippedResult(grouped, start, "LLM execution failed: "+err.Error()), nil
+		return skippedResult(grouped, start, "LLM execution failed: "+err.Error())
 	}
 	// Close errors are non-fatal; they only occur on process cleanup issues.
 	defer func() {
@@ -137,9 +137,9 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 	output, err := io.ReadAll(execResult)
 	if err != nil {
 		if ctx.Err() != nil {
-			return skippedResult(grouped, start, "context canceled"), nil
+			return skippedResult(grouped, start, "context canceled")
 		}
-		return skippedResult(grouped, start, "response read failed: "+err.Error()), nil
+		return skippedResult(grouped, start, "response read failed: "+err.Error())
 	}
 
 	cleanedOutput := agent.StripMarkdownCodeFence(string(output))
@@ -148,7 +148,7 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 	if err := json.Unmarshal([]byte(cleanedOutput), &response); err != nil {
 		r := skippedResult(grouped, start, "response parse failed: "+err.Error())
 		r.EvalErrors = len(grouped.Findings)
-		return r, nil
+		return r
 	}
 
 	evalMap := make(map[int]findingEvaluation)
@@ -188,5 +188,5 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 		RemovedCount: len(removed),
 		Duration:     time.Since(start),
 		EvalErrors:   evalErrors,
-	}, nil
+	}
 }
