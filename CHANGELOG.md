@@ -4,27 +4,44 @@ All notable changes to ACR are documented in this file.
 
 This changelog is generated from git tag annotations.
 
+## [v0.10.0] - 2026-02-05
+
+# v0.10.0
+
+## Features
+
+- **PR feedback summarizer**: Reads prior PR comments and review summaries to improve false positive filtering on re-runs (#102)
+  - New `feedback/` package with PR context fetching and LLM-based summarization
+  - Runs in parallel with reviewers (zero added latency)
+  - Summarized feedback passed to FP filter for context-aware scoring
+  - New CLI flags: `--no-pr-feedback`, `--pr-feedback-agent`
+  - New env vars: `ACR_PR_FEEDBACK`, `ACR_PR_FEEDBACK_AGENT`
+  - New config section: `pr_feedback.enabled`, `pr_feedback.agent`
+
+## Fixes
+
+- Proper NDJSON pagination handling for GitHub API responses
+- Auto-detect PR number for feedback summarizer when `--pr` not specified
+- Skip unnecessary external calls when PR feedback or FP filter is disabled
+- Validate `pr_feedback.agent` against supported agents in config
+
 ## [v0.9.1] - 2026-01-29
 
 Bug fixes and code quality improvements
 
-### Fixed
 - Continue parsing after recoverable errors - parser errors no longer discard remaining findings (#87)
 - Capture PID before process group kill to prevent race conditions (#88)
 - Log Close() errors instead of silently ignoring them (#91)
 
-### Changed
 - Replace io.Reader with ExecutionResult type for guaranteed cleanup API (#86)
 - Extract common executeCommand helper, reducing ~143 lines of duplicated code (#89)
 - Rename github_actions.go to pr_submit.go for clarity (#98)
 - Extract shared non-finding detection logic for consistent behavior (#100)
 
-### Added
 - Compile-time interface compliance checks for Agent implementations (#96)
 - Documentation for magic numbers (RefFileSizeThreshold, DefaultThreshold, maxFindingPreviewLength) (#94)
 - Documentation for fetch/noFetch flag interaction (#95)
 
-### Removed
 - Unused joinInts function (#99)
 - Old plan documents
 
