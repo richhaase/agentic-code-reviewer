@@ -181,16 +181,17 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		}()
 
 		fpFilter := fpfilter.New(summarizerAgentName, fpThreshold, verbose)
-		fpResult, err := fpFilter.Apply(ctx, summaryResult.Grouped, priorFeedback)
+		fpResult := fpFilter.Apply(ctx, summaryResult.Grouped, priorFeedback)
 		fpSpinnerCancel()
 		<-fpSpinnerDone
 
-		if err == nil && fpResult != nil {
+		if fpResult != nil && fpResult.Skipped && ctx.Err() == nil {
+			logger.Logf(terminal.StyleWarning, "FP filter skipped (%s): showing all findings", fpResult.SkipReason)
+		}
+		if fpResult != nil {
 			summaryResult.Grouped = fpResult.Grouped
 			fpFilteredCount = fpResult.RemovedCount
 			stats.FPFilterDuration = fpResult.Duration
-		} else if err != nil && ctx.Err() == nil {
-			logger.Logf(terminal.StyleWarning, "FP filter error (continuing without filter): %v", err)
 		}
 	}
 	stats.FPFilteredCount = fpFilteredCount

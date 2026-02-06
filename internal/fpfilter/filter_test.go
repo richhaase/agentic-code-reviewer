@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
 func TestFilter_New(t *testing.T) {
@@ -39,6 +42,55 @@ func TestFPPrompt_IncludesReviewerCountGuidance(t *testing.T) {
 	}
 	if !strings.Contains(fpEvaluationPrompt, "Reviewer Agreement") {
 		t.Error("prompt should contain Reviewer Agreement section")
+	}
+}
+
+func TestSkippedResult(t *testing.T) {
+	grouped := domain.GroupedFindings{
+		Findings: []domain.FindingGroup{
+			{Title: "finding 1", Summary: "summary 1"},
+			{Title: "finding 2", Summary: "summary 2"},
+		},
+		Info: []domain.FindingGroup{
+			{Title: "info 1"},
+		},
+	}
+
+	tests := []struct {
+		name   string
+		reason string
+	}{
+		{"agent creation failed", "agent creation failed: codex not found"},
+		{"request marshal failed", "request marshal failed: json error"},
+		{"LLM execution failed", "LLM execution failed: timeout"},
+		{"response read failed", "response read failed: io error"},
+		{"response parse failed", "response parse failed: invalid json"},
+		{"context canceled", "context canceled"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			start := time.Now()
+			result := skippedResult(grouped, start, tt.reason)
+			if !result.Skipped {
+				t.Error("expected Skipped to be true")
+			}
+			if result.SkipReason != tt.reason {
+				t.Errorf("SkipReason = %q, want %q", result.SkipReason, tt.reason)
+			}
+			if len(result.Grouped.Findings) != len(grouped.Findings) {
+				t.Errorf("expected %d findings passed through, got %d", len(grouped.Findings), len(result.Grouped.Findings))
+			}
+			if len(result.Grouped.Info) != len(grouped.Info) {
+				t.Errorf("expected %d info items passed through, got %d", len(grouped.Info), len(result.Grouped.Info))
+			}
+			if result.RemovedCount != 0 {
+				t.Errorf("expected RemovedCount 0, got %d", result.RemovedCount)
+			}
+			if result.Duration < 0 {
+				t.Error("expected non-negative Duration")
+			}
+		})
 	}
 }
 
