@@ -47,7 +47,7 @@ For each finding, think step-by-step:
 
 Then assign:
 - fp_score: 0-100 (100 = definitely false positive, 0 = definitely real issue)
-- reasoning: Brief explanation (under 80 chars)
+- reasoning: Brief explanation (1-2 sentences)
 
 ## Decision Criteria
 
