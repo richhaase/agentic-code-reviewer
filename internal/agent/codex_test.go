@@ -98,4 +98,3 @@ func TestCodexAgent_ExecuteSummary_CodexNotAvailable(t *testing.T) {
 		t.Errorf("ExecuteSummary() error = %v, want error containing 'codex CLI not found'", err)
 	}
 }
-

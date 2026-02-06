@@ -71,15 +71,15 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 
 	// Run reviewers
 	r, err := runner.New(runner.Config{
-		Reviewers:    reviewers,
-		Concurrency:  concurrency,
-		BaseRef:      resolvedBaseRef,
-		Timeout:      timeout,
-		Retries:      retries,
-		Verbose:      verbose,
-		WorkDir:      workDir,
-		Guidance: guidance,
-		UseRefFile:   useRefFile,
+		Reviewers:   reviewers,
+		Concurrency: concurrency,
+		BaseRef:     resolvedBaseRef,
+		Timeout:     timeout,
+		Retries:     retries,
+		Verbose:     verbose,
+		WorkDir:     workDir,
+		Guidance:    guidance,
+		UseRefFile:  useRefFile,
 	}, reviewAgents, logger)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Runner initialization failed: %v", err)

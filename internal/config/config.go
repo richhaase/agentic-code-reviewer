@@ -54,19 +54,19 @@ func (d Duration) AsDuration() time.Duration {
 }
 
 type Config struct {
-	Reviewers        *int             `yaml:"reviewers"`
-	Concurrency      *int             `yaml:"concurrency"`
-	Base             *string          `yaml:"base"`
-	Timeout          *Duration        `yaml:"timeout"`
-	Retries          *int             `yaml:"retries"`
-	Fetch            *bool            `yaml:"fetch"`
-	ReviewerAgent    *string          `yaml:"reviewer_agent"`
-	ReviewerAgents   []string         `yaml:"reviewer_agents"`
-	SummarizerAgent  *string          `yaml:"summarizer_agent"`
-	GuidanceFile     *string          `yaml:"guidance_file"`
-	Filters          FilterConfig     `yaml:"filters"`
-	FPFilter         FPFilterConfig   `yaml:"fp_filter"`
-	PRFeedback       PRFeedbackConfig `yaml:"pr_feedback"`
+	Reviewers       *int             `yaml:"reviewers"`
+	Concurrency     *int             `yaml:"concurrency"`
+	Base            *string          `yaml:"base"`
+	Timeout         *Duration        `yaml:"timeout"`
+	Retries         *int             `yaml:"retries"`
+	Fetch           *bool            `yaml:"fetch"`
+	ReviewerAgent   *string          `yaml:"reviewer_agent"`
+	ReviewerAgents  []string         `yaml:"reviewer_agents"`
+	SummarizerAgent *string          `yaml:"summarizer_agent"`
+	GuidanceFile    *string          `yaml:"guidance_file"`
+	Filters         FilterConfig     `yaml:"filters"`
+	FPFilter        FPFilterConfig   `yaml:"fp_filter"`
+	PRFeedback      PRFeedbackConfig `yaml:"pr_feedback"`
 }
 
 type FPFilterConfig struct {
@@ -381,20 +381,20 @@ type ResolvedConfig struct {
 }
 
 type FlagState struct {
-	ReviewersSet        bool
-	ConcurrencySet      bool
-	BaseSet             bool
-	TimeoutSet          bool
-	RetriesSet          bool
-	FetchSet            bool
-	ReviewerAgentsSet   bool
-	SummarizerAgentSet  bool
+	ReviewersSet       bool
+	ConcurrencySet     bool
+	BaseSet            bool
+	TimeoutSet         bool
+	RetriesSet         bool
+	FetchSet           bool
+	ReviewerAgentsSet  bool
+	SummarizerAgentSet bool
 	GuidanceSet        bool
 	GuidanceFileSet    bool
-	NoFPFilterSet       bool
-	FPThresholdSet      bool
-	NoPRFeedbackSet     bool
-	PRFeedbackAgentSet  bool
+	NoFPFilterSet      bool
+	FPThresholdSet     bool
+	NoPRFeedbackSet    bool
+	PRFeedbackAgentSet bool
 }
 
 type EnvState struct {

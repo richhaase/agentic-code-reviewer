@@ -28,8 +28,8 @@ var (
 	retries             int
 	fetch               bool
 	noFetch             bool
-	guidance     string
-	guidanceFile string
+	guidance            string
+	guidanceFile        string
 	verbose             bool
 	local               bool
 	worktreeBranch      string
@@ -325,20 +325,20 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	// For fetch, either --fetch or --no-fetch being set counts as explicit
 	fetchFlagSet := cmd.Flags().Changed("fetch") || cmd.Flags().Changed("no-fetch")
 	flagState := config.FlagState{
-		ReviewersSet:        cmd.Flags().Changed("reviewers"),
-		ConcurrencySet:      cmd.Flags().Changed("concurrency"),
-		BaseSet:             cmd.Flags().Changed("base") || baseAutoDetected,
-		TimeoutSet:          cmd.Flags().Changed("timeout"),
-		RetriesSet:          cmd.Flags().Changed("retries"),
-		FetchSet:            fetchFlagSet,
-		ReviewerAgentsSet:   cmd.Flags().Changed("reviewer-agent"),
-		SummarizerAgentSet:  cmd.Flags().Changed("summarizer-agent"),
-		GuidanceSet:     cmd.Flags().Changed("guidance"),
-		GuidanceFileSet: cmd.Flags().Changed("guidance-file"),
-		NoFPFilterSet:       cmd.Flags().Changed("no-fp-filter"),
-		FPThresholdSet:      cmd.Flags().Changed("fp-threshold"),
-		NoPRFeedbackSet:     cmd.Flags().Changed("no-pr-feedback"),
-		PRFeedbackAgentSet:  cmd.Flags().Changed("pr-feedback-agent"),
+		ReviewersSet:       cmd.Flags().Changed("reviewers"),
+		ConcurrencySet:     cmd.Flags().Changed("concurrency"),
+		BaseSet:            cmd.Flags().Changed("base") || baseAutoDetected,
+		TimeoutSet:         cmd.Flags().Changed("timeout"),
+		RetriesSet:         cmd.Flags().Changed("retries"),
+		FetchSet:           fetchFlagSet,
+		ReviewerAgentsSet:  cmd.Flags().Changed("reviewer-agent"),
+		SummarizerAgentSet: cmd.Flags().Changed("summarizer-agent"),
+		GuidanceSet:        cmd.Flags().Changed("guidance"),
+		GuidanceFileSet:    cmd.Flags().Changed("guidance-file"),
+		NoFPFilterSet:      cmd.Flags().Changed("no-fp-filter"),
+		FPThresholdSet:     cmd.Flags().Changed("fp-threshold"),
+		NoPRFeedbackSet:    cmd.Flags().Changed("no-pr-feedback"),
+		PRFeedbackAgentSet: cmd.Flags().Changed("pr-feedback-agent"),
 	}
 
 	// Load env var state
@@ -358,8 +358,8 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		Fetch:             fetchValue,
 		ReviewerAgents:    agent.ParseAgentNames(agentName),
 		SummarizerAgent:   summarizerAgentName,
-		Guidance:     guidance,
-		GuidanceFile: guidanceFile,
+		Guidance:          guidance,
+		GuidanceFile:      guidanceFile,
 		FPFilterEnabled:   !noFPFilter,
 		FPThreshold:       fpThreshold,
 		PRFeedbackEnabled: !noPRFeedback,
