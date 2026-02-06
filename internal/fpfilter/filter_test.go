@@ -1,6 +1,7 @@
 package fpfilter
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -29,5 +30,46 @@ func TestBuildPromptWithoutFeedback(t *testing.T) {
 
 	if strings.Contains(prompt, "Prior Feedback Context") {
 		t.Error("prompt should not contain Prior Feedback Context when feedback is empty")
+	}
+}
+
+func TestFindingInput_IncludesReviewerCount(t *testing.T) {
+	tests := []struct {
+		name          string
+		reviewerCount int
+	}{
+		{"zero reviewers", 0},
+		{"single reviewer", 1},
+		{"multiple reviewers", 5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := findingInput{
+				ID:            0,
+				Title:         "Test",
+				Summary:       "Summary",
+				Messages:      []string{"msg"},
+				ReviewerCount: tt.reviewerCount,
+			}
+
+			data, err := json.Marshal(input)
+			if err != nil {
+				t.Fatalf("failed to marshal: %v", err)
+			}
+
+			var parsed map[string]any
+			if err := json.Unmarshal(data, &parsed); err != nil {
+				t.Fatalf("failed to unmarshal: %v", err)
+			}
+
+			rc, ok := parsed["reviewer_count"]
+			if !ok {
+				t.Fatal("reviewer_count field missing from JSON output")
+			}
+			if int(rc.(float64)) != tt.reviewerCount {
+				t.Errorf("reviewer_count = %v, want %d", rc, tt.reviewerCount)
+			}
+		})
 	}
 }
