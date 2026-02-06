@@ -4,6 +4,20 @@ All notable changes to ACR are documented in this file.
 
 This changelog is generated from git tag annotations.
 
+## [v0.10.1] - 2026-02-06
+
+v0.10.1
+
+### Improvements
+
+- feat(fpfilter): add reviewer_count to FP evaluation input
+- feat(fpfilter): add reviewer agreement guidance to FP prompt
+- fix(fpfilter): relax reasoning length constraint in FP prompt
+
+### Chores
+
+- remove old planning docs
+
 ## [v0.10.0] - 2026-02-05
 
 # v0.10.0
