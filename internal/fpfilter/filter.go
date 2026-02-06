@@ -56,10 +56,11 @@ type evaluationRequest struct {
 }
 
 type findingInput struct {
-	ID       int      `json:"id"`
-	Title    string   `json:"title"`
-	Summary  string   `json:"summary"`
-	Messages []string `json:"messages"`
+	ID            int      `json:"id"`
+	Title         string   `json:"title"`
+	Summary       string   `json:"summary"`
+	Messages      []string `json:"messages"`
+	ReviewerCount int      `json:"reviewer_count"`
 }
 
 type evaluationResponse struct {
@@ -92,10 +93,11 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 	}
 	for i, finding := range grouped.Findings {
 		req.Findings[i] = findingInput{
-			ID:       i,
-			Title:    finding.Title,
-			Summary:  finding.Summary,
-			Messages: finding.Messages,
+			ID:            i,
+			Title:         finding.Title,
+			Summary:       finding.Summary,
+			Messages:      finding.Messages,
+			ReviewerCount: finding.ReviewerCount,
 		}
 	}
 
