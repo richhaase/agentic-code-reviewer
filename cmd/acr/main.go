@@ -28,8 +28,8 @@ var (
 	retries             int
 	fetch               bool
 	noFetch             bool
-	prompt              string
-	promptFile          string
+	guidance     string
+	guidanceFile string
 	verbose             bool
 	local               bool
 	worktreeBranch      string
@@ -84,10 +84,10 @@ Exit codes:
 		"Fetch latest base ref from origin before diff (default: true, env: ACR_FETCH)")
 	rootCmd.Flags().BoolVar(&noFetch, "no-fetch", false,
 		"Disable fetching base ref from origin (use local state)")
-	rootCmd.Flags().StringVar(&prompt, "prompt", "",
-		"[experimental] Custom review prompt (env: ACR_REVIEW_PROMPT)")
-	rootCmd.Flags().StringVar(&promptFile, "prompt-file", "",
-		"[experimental] Path to file containing review prompt (env: ACR_REVIEW_PROMPT_FILE)")
+	rootCmd.Flags().StringVar(&guidance, "guidance", "",
+		"Steering context appended to the review prompt (env: ACR_GUIDANCE)")
+	rootCmd.Flags().StringVar(&guidanceFile, "guidance-file", "",
+		"Path to file containing review guidance (env: ACR_GUIDANCE_FILE)")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false,
 		"Print agent messages as they arrive")
 	rootCmd.Flags().BoolVarP(&local, "local", "l", false,
@@ -333,8 +333,8 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		FetchSet:            fetchFlagSet,
 		ReviewerAgentsSet:   cmd.Flags().Changed("reviewer-agent"),
 		SummarizerAgentSet:  cmd.Flags().Changed("summarizer-agent"),
-		ReviewPromptSet:     cmd.Flags().Changed("prompt"),
-		ReviewPromptFileSet: cmd.Flags().Changed("prompt-file"),
+		GuidanceSet:     cmd.Flags().Changed("guidance"),
+		GuidanceFileSet: cmd.Flags().Changed("guidance-file"),
 		NoFPFilterSet:       cmd.Flags().Changed("no-fp-filter"),
 		FPThresholdSet:      cmd.Flags().Changed("fp-threshold"),
 		NoPRFeedbackSet:     cmd.Flags().Changed("no-pr-feedback"),
@@ -358,8 +358,8 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		Fetch:             fetchValue,
 		ReviewerAgents:    agent.ParseAgentNames(agentName),
 		SummarizerAgent:   summarizerAgentName,
-		ReviewPrompt:      prompt,
-		ReviewPromptFile:  promptFile,
+		Guidance:     guidance,
+		GuidanceFile: guidanceFile,
 		FPFilterEnabled:   !noFPFilter,
 		FPThreshold:       fpThreshold,
 		PRFeedbackEnabled: !noPRFeedback,
@@ -408,10 +408,10 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	// Merge exclude patterns (config patterns + CLI patterns)
 	allExcludePatterns := config.Merge(cfg, excludePatterns)
 
-	// Resolve custom prompt (precedence: flags > env vars > config file)
-	customPrompt, err := config.ResolvePrompt(cfg, envState, flagState, flagValues, configDir)
+	// Resolve guidance (precedence: flags > env vars > config file)
+	resolvedGuidance, err := config.ResolveGuidance(cfg, envState, flagState, flagValues, configDir)
 	if err != nil {
-		logger.Logf(terminal.StyleError, "Failed to resolve prompt: %v", err)
+		logger.Logf(terminal.StyleError, "Failed to resolve guidance: %v", err)
 		return exitCode(domain.ExitError)
 	}
 
@@ -429,6 +429,6 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Run the review
-	code := executeReview(ctx, workDir, allExcludePatterns, customPrompt, resolved.ReviewerAgents, resolved.SummarizerAgent, resolved.Fetch, refFile, resolved.FPFilterEnabled, resolved.FPThreshold, resolved.PRFeedbackEnabled, resolved.PRFeedbackAgent, detectedPR, logger)
+	code := executeReview(ctx, workDir, allExcludePatterns, resolvedGuidance, resolved.ReviewerAgents, resolved.SummarizerAgent, resolved.Fetch, refFile, resolved.FPFilterEnabled, resolved.FPThreshold, resolved.PRFeedbackEnabled, resolved.PRFeedbackAgent, detectedPR, logger)
 	return exitCode(code)
 }
