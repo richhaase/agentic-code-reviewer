@@ -15,16 +15,6 @@ var _ Agent = (*ClaudeAgent)(nil)
 // This ensures Claude returns properly formatted JSON without markdown wrapping.
 const claudeSummarySchema = `{"type":"object","properties":{"findings":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"summary":{"type":"string"},"messages":{"type":"array","items":{"type":"string"}},"reviewer_count":{"type":"integer"},"sources":{"type":"array","items":{"type":"integer"}}},"required":["title","summary","messages","reviewer_count","sources"]}},"info":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"summary":{"type":"string"},"messages":{"type":"array","items":{"type":"string"}},"reviewer_count":{"type":"integer"},"sources":{"type":"array","items":{"type":"integer"}}},"required":["title","summary","messages","reviewer_count","sources"]}}},"required":["findings","info"]}`
 
-// BuildRefFilePrompt constructs the review prompt for ref-file mode.
-// If customPrompt is provided, it appends ref-file instructions to it.
-// Otherwise, it uses DefaultClaudeRefFilePrompt.
-func BuildRefFilePrompt(customPrompt, diffPath string) string {
-	if customPrompt != "" {
-		return fmt.Sprintf("%s\n\nThe diff to review is in file: %s\nUse the Read tool to examine it.", customPrompt, diffPath)
-	}
-	return fmt.Sprintf(DefaultClaudeRefFilePrompt, diffPath)
-}
-
 // ClaudeAgent implements the Agent interface for the Claude CLI backend.
 type ClaudeAgent struct{}
 
@@ -50,8 +40,7 @@ func (c *ClaudeAgent) IsAvailable() error {
 // ExecuteReview runs a code review using the claude CLI.
 // Returns an ExecutionResult for streaming the output.
 //
-// Uses 'claude --print -' with the prompt piped via stdin.
-// If config.CustomPrompt is empty, uses DefaultClaudePrompt.
+// Always uses the default Claude prompt template with optional guidance.
 // The git diff is either appended to the prompt (default) or written to a
 // reference file when the diff is large or UseRefFile is set.
 func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (*ExecutionResult, error) {
@@ -66,7 +55,6 @@ func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 	}
 
 	// Determine if we should use ref-file mode
-	// Claude has file-reading capability via its Read tool, so ref-file mode is supported
 	useRefFile := config.UseRefFile || len(diff) > RefFileSizeThreshold
 
 	var prompt string
@@ -74,25 +62,19 @@ func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 
 	if useRefFile && diff != "" {
 		// Write diff to a temp file in the working directory
-		// (Claude's sandboxed Read tool needs access to the file)
 		absPath, err := WriteDiffToTempFile(config.WorkDir, diff)
 		if err != nil {
 			return nil, err
 		}
 		tempFilePath = absPath
-		prompt = BuildRefFilePrompt(config.CustomPrompt, absPath)
+		prompt = fmt.Sprintf(DefaultClaudeRefFilePrompt, absPath)
+		prompt = RenderPrompt(prompt, config.Guidance)
 	} else {
 		// Use standard prompt with embedded diff
-		prompt = config.CustomPrompt
-		if prompt == "" {
-			prompt = DefaultClaudePrompt
-		}
+		prompt = RenderPrompt(DefaultClaudePrompt, config.Guidance)
 		prompt = BuildPromptWithDiff(prompt, diff)
 	}
 
-	// Build command: claude --print -
-	// --print: Output response only (non-interactive)
-	// -: Read prompt from stdin (avoids ARG_MAX limits on large diffs)
 	args := []string{"--print", "-"}
 	stdin := bytes.NewReader([]byte(prompt))
 
