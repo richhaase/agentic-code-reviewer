@@ -1,6 +1,6 @@
 package feedback
 
-const summarizePrompt = `You are analyzing a GitHub PR to summarize feedback about code review findings.
+const summarizePrompt = `You are analyzing a GitHub PR to extract a structured list of code review findings that have been discussed.
 
 ## Input
 You will receive:
@@ -8,25 +8,31 @@ You will receive:
 - All comments and replies from the PR
 
 ## Task
-Summarize any feedback that indicates code review issues have been:
-- Dismissed as false positives or not applicable
-- Explained as intentional design decisions
-- Acknowledged but deferred to future work
-- Marked as resolved
+Extract every code review finding that was discussed and categorize each by its resolution:
+- DISMISSED: Rejected as false positive, not applicable, or incorrect
+- FIXED: Acknowledged and a fix was applied (include commit if mentioned)
+- ACKNOWLEDGED: Accepted as valid but deferred to future work
+- INTENTIONAL: Explained as an intentional design decision
 
-Focus on feedback relevant to code quality findings (bugs, security issues, error handling, etc.).
+Focus on findings relevant to code quality (bugs, security issues, error handling, race conditions, resource leaks, etc.).
 Ignore unrelated discussion (feature questions, deployment, CI status, etc.).
 
-## Output
-Write a concise prose summary (2-5 sentences). Focus on what a code reviewer should probably ignore based on prior discussion.
+## Output Format
+One finding per line:
+- STATUS: "short finding description" -- reason (by @author)
+
+Preserve specific technical details of each finding. Do NOT generalize or combine findings.
 
 If no relevant feedback exists, respond with exactly:
 No prior feedback on code review findings.
 
-Example outputs:
+## Examples
 
-"The PR description notes this is a prototype and comprehensive error handling will be added in a follow-up PR. A reviewer's concern about the unchecked error in auth.go was addressed - the author explained errors are validated by middleware upstream."
+Example 1 (multiple findings discussed):
+- DISMISSED: "Non-atomic merge of shared map" -- Map is only accessed under caller's mutex, atomicity not needed (by @alice)
+- FIXED: "Unchecked error from db.Connect()" -- Fixed in commit abc123 (by @bob)
+- INTENTIONAL: "Graph writes outside SQL transaction" -- Intentional ordering; orphaned graph nodes are harmless, reverse would leave dangling references (by @alice)
+- ACKNOWLEDGED: "Missing nil check on user pointer" -- Deferred to follow-up PR #42 (by @carol)
 
-"The author acknowledged the SQL query could use parameterized queries but noted this is an internal admin tool with no user input. A thread about missing nil checks was resolved."
-
-"No prior feedback on code review findings."`
+Example 2 (no relevant findings):
+No prior feedback on code review findings.`
