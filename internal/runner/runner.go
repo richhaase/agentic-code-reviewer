@@ -291,9 +291,10 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	// Record duration after process fully exits
 	result.Duration = time.Since(start)
 
-	// Check for timeout after parsing
+	// Check for timeout after parsing — timeout takes precedence over auth failure
 	if timeoutCtx.Err() == context.DeadlineExceeded {
 		result.TimedOut = true
+		result.AuthFailed = false
 		result.ExitCode = -1
 		return result
 	}
