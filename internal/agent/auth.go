@@ -15,9 +15,9 @@ var authExitCodes = map[string][]int{
 var authStderrPatterns = []string{
 	"api_key",
 	"unauthorized",
-	"401",
+	" 401 ",
 	"authentication required",
-	"credentials",
+	"invalid credentials",
 }
 
 // authHints maps agent names to actionable error messages shown on auth failure.
