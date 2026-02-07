@@ -145,9 +145,9 @@ func handleFindings(ctx context.Context, grouped domain.GroupedFindings, aggrega
 
 			lgtmBody := runner.RenderDismissedLGTMMarkdown(grouped.Findings, stats)
 			pr := getPRContext(ctx)
-			if err := confirmAndSubmitLGTM(ctx, lgtmBody, pr, logger); err != nil {
-				return domain.ExitError
-			}
+			// Best-effort: LGTM posting is optional when dismissing findings.
+			// Auth/network errors should not fail the run.
+			_ = confirmAndSubmitLGTM(ctx, lgtmBody, pr, logger)
 			return domain.ExitNoFindings
 		}
 	}
