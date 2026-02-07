@@ -342,3 +342,36 @@ func TestRunReviewer_RecoverableParseError(t *testing.T) {
 		t.Errorf("expected 3 parse errors for non-JSON lines, got %d", result.ParseErrors)
 	}
 }
+
+func TestBuildStats_CategorizesAuthFailedReviewers(t *testing.T) {
+	results := []domain.ReviewerResult{
+		{ReviewerID: 1, ExitCode: 0, Duration: time.Second},
+		{ReviewerID: 2, ExitCode: 41, AuthFailed: true, AgentName: "gemini", Duration: time.Second},
+		{ReviewerID: 3, ExitCode: 1, Duration: time.Second},
+	}
+
+	stats := BuildStats(results, 3, time.Second)
+
+	if stats.SuccessfulReviewers != 1 {
+		t.Errorf("expected 1 successful, got %d", stats.SuccessfulReviewers)
+	}
+	if len(stats.AuthFailedReviewers) != 1 || stats.AuthFailedReviewers[0] != 2 {
+		t.Errorf("expected AuthFailedReviewers=[2], got %v", stats.AuthFailedReviewers)
+	}
+	if len(stats.FailedReviewers) != 1 || stats.FailedReviewers[0] != 3 {
+		t.Errorf("expected FailedReviewers=[3], got %v", stats.FailedReviewers)
+	}
+}
+
+func TestBuildStats_AllFailedIncludesAuthFailures(t *testing.T) {
+	results := []domain.ReviewerResult{
+		{ReviewerID: 1, AuthFailed: true, ExitCode: 41},
+		{ReviewerID: 2, AuthFailed: true, ExitCode: 41},
+	}
+
+	stats := BuildStats(results, 2, time.Second)
+
+	if !stats.AllFailed() {
+		t.Error("expected AllFailed() to return true when all reviewers are auth-failed")
+	}
+}

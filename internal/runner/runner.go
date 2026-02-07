@@ -309,6 +309,8 @@ func BuildStats(results []domain.ReviewerResult, totalReviewers int, wallClock t
 
 		if r.TimedOut {
 			stats.TimedOutReviewers = append(stats.TimedOutReviewers, r.ReviewerID)
+		} else if r.AuthFailed {
+			stats.AuthFailedReviewers = append(stats.AuthFailedReviewers, r.ReviewerID)
 		} else if r.ExitCode != 0 {
 			stats.FailedReviewers = append(stats.FailedReviewers, r.ReviewerID)
 		} else {
