@@ -4,6 +4,18 @@ All notable changes to ACR are documented in this file.
 
 This changelog is generated from git tag annotations.
 
+## [v0.11.2] - 2026-02-06
+
+# v0.11.2
+
+## What's Changed
+
+- feat: detect auth failures, skip retries, and surface actionable hints (#110)
+  - Recognizes authentication errors from LLM CLI agents via exit codes and stderr patterns
+  - Skips retries when auth failure is detected (retrying won't help)
+  - Displays actionable hints to help users fix their credentials
+  - Timeout takes precedence over auth failure classification
+
 ## [v0.11.1] - 2026-02-06
 
 # v0.11.1
