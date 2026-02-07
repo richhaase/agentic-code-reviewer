@@ -4,6 +4,24 @@ All notable changes to ACR are documented in this file.
 
 This changelog is generated from git tag annotations.
 
+## [v0.11.1] - 2026-02-06
+
+# v0.11.1
+
+## What's Changed
+
+### Improvements
+
+- **Structured FP feedback loop**: Replace prose feedback summary with structured per-finding dismissal list so the FP filter can match specific previously-discussed findings
+- **Explicit matching instructions**: FP filter prompt now includes score ranges per status (DISMISSED → 90-100, FIXED → 85-95, ACKNOWLEDGED → score on merit) with semantic matching guidance
+- **Scoped FIXED matching**: FIXED item matching limited to same specific instance, not same bug category, preventing suppression of new bugs
+
+### Tests
+
+- Add tests for structured feedback injection and prior-feedback check in evaluation prompt
+
+Closes #109
+
 ## [v0.11.0] - 2026-02-06
 
 # v0.11.0
