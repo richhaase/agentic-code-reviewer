@@ -14,7 +14,7 @@ The following findings were previously discussed on this PR:
 
 For EACH finding you evaluate, check the list above for a semantic match (same technical issue, even if worded differently):
 - Matches a DISMISSED or INTENTIONAL item → assign fp_score 90-100
-- Matches a FIXED item → assign fp_score 85-95
+- Matches a FIXED item → assign fp_score 85-95 (same specific instance, not just the same category of bug in a different location)
 - Matches an ACKNOWLEDGED item → note in reasoning but score on technical merit
 - No match → score purely on merit using the criteria above
 
