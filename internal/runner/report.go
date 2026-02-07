@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/summarizer"
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
@@ -54,6 +55,18 @@ func RenderReport(
 	}
 	if len(stats.TimedOutReviewers) > 0 {
 		warnings = append(warnings, fmt.Sprintf("Timed out reviewers: %s", formatReviewersWithAgents(stats.TimedOutReviewers, stats.ReviewerAgentNames)))
+	}
+	if len(stats.AuthFailedReviewers) > 0 {
+		warnings = append(warnings, fmt.Sprintf("Auth failed reviewers: %s",
+			formatReviewersWithAgents(stats.AuthFailedReviewers, stats.ReviewerAgentNames)))
+		seen := make(map[string]bool)
+		for _, id := range stats.AuthFailedReviewers {
+			agentName := stats.ReviewerAgentNames[id]
+			if agentName != "" && !seen[agentName] {
+				seen[agentName] = true
+				warnings = append(warnings, fmt.Sprintf("  Hint (%s): %s", agentName, agent.AuthHint(agentName)))
+			}
+		}
 	}
 
 	if len(warnings) > 0 {

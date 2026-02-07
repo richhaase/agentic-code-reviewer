@@ -467,3 +467,28 @@ func TestRenderReport_WithTimingStats(t *testing.T) {
 		}
 	})
 }
+
+func TestRenderReport_WithAuthFailedWarning(t *testing.T) {
+	terminal.WithColorsDisabled(func() {
+		grouped := domain.GroupedFindings{}
+		summaryResult := &summarizer.Result{ExitCode: 0}
+		stats := domain.ReviewStats{
+			AuthFailedReviewers: []int{2},
+			ReviewerAgentNames: map[int]string{
+				2: "gemini",
+			},
+		}
+
+		result := RenderReport(grouped, summaryResult, stats)
+
+		if !strings.Contains(result, "Warnings") {
+			t.Error("expected 'Warnings' section")
+		}
+		if !strings.Contains(result, "Auth failed") {
+			t.Error("expected 'Auth failed' in warnings")
+		}
+		if !strings.Contains(result, "#2 (gemini)") {
+			t.Error("expected reviewer ID with agent name")
+		}
+	})
+}
