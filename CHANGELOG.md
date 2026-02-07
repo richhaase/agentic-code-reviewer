@@ -4,6 +4,17 @@ All notable changes to ACR are documented in this file.
 
 This changelog is generated from git tag annotations.
 
+## [v0.11.3] - 2026-02-07
+
+v0.11.3
+
+# What's Changed
+
+- feat: add LGTM prompt when all findings dismissed (#112)
+  When a user deselects all findings and confirms, ACR now offers
+  the standard LGTM flow (Approve/Comment/Skip) with a body listing
+  the dismissed findings for transparency. Closes #90.
+
 ## [v0.11.2] - 2026-02-06
 
 # v0.11.2
