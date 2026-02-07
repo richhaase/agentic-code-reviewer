@@ -142,7 +142,13 @@ func handleFindings(ctx context.Context, grouped domain.GroupedFindings, aggrega
 
 		if len(selectedFindings) == 0 {
 			logger.Log("No findings selected to post.", terminal.StyleDim)
-			return domain.ExitFindings
+
+			lgtmBody := runner.RenderDismissedLGTMMarkdown(grouped.Findings, stats)
+			pr := getPRContext(ctx)
+			if err := confirmAndSubmitLGTM(ctx, lgtmBody, pr, logger); err != nil {
+				return domain.ExitError
+			}
+			return domain.ExitNoFindings
 		}
 	}
 
