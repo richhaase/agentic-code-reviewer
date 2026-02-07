@@ -24,7 +24,7 @@ func NewSummarizer(agentName string, verbose bool) *Summarizer {
 	}
 }
 
-// Summarize fetches PR context and returns a prose summary of prior feedback.
+// Summarize fetches PR context and returns a structured summary of prior feedback.
 func (s *Summarizer) Summarize(ctx context.Context, prNumber string) (string, error) {
 	if prNumber == "" {
 		return "", fmt.Errorf("PR number is required")
