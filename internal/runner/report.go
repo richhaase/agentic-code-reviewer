@@ -280,6 +280,39 @@ func RenderLGTMMarkdown(totalReviewers, successfulReviewers int, reviewerComment
 	return strings.Join(lines, "\n")
 }
 
+// RenderDismissedLGTMMarkdown renders LGTM markdown for when a user dismisses all findings.
+func RenderDismissedLGTMMarkdown(findings []domain.FindingGroup, stats domain.ReviewStats) string {
+	var lines []string
+	lines = append(lines, "## LGTM :white_check_mark:")
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("**%d of %d reviewers completed review. All findings dismissed after human review.**",
+		stats.SuccessfulReviewers, stats.TotalReviewers))
+	lines = append(lines, "")
+
+	count := len(findings)
+	if count == 1 {
+		lines = append(lines, "1 finding was reviewed and dismissed.")
+	} else {
+		lines = append(lines, fmt.Sprintf("%d findings were reviewed and dismissed.", count))
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, "<details>")
+	lines = append(lines, "<summary>Dismissed findings</summary>")
+	lines = append(lines, "")
+	for _, f := range findings {
+		title := f.Title
+		if title == "" {
+			title = "Untitled"
+		}
+		lines = append(lines, fmt.Sprintf("- **%s**", title))
+	}
+	lines = append(lines, "")
+	lines = append(lines, "</details>")
+
+	return strings.Join(lines, "\n")
+}
+
 func collectSourceIndices(groups []domain.FindingGroup) []int {
 	seen := make(map[int]bool)
 	var indices []int
