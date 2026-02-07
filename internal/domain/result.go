@@ -10,6 +10,7 @@ type ReviewerResult struct {
 	ExitCode    int
 	ParseErrors int
 	TimedOut    bool
+	AuthFailed  bool
 	Duration    time.Duration
 }
 
@@ -18,6 +19,7 @@ type ReviewStats struct {
 	SuccessfulReviewers int
 	FailedReviewers     []int
 	TimedOutReviewers   []int
+	AuthFailedReviewers []int
 	ParseErrors         int
 	ReviewerDurations   map[int]time.Duration
 	ReviewerAgentNames  map[int]string
@@ -29,6 +31,6 @@ type ReviewStats struct {
 
 // AllFailed returns true if all reviewers failed.
 func (s *ReviewStats) AllFailed() bool {
-	totalFailures := len(s.FailedReviewers) + len(s.TimedOutReviewers)
+	totalFailures := len(s.FailedReviewers) + len(s.TimedOutReviewers) + len(s.AuthFailedReviewers)
 	return totalFailures >= s.TotalReviewers
 }

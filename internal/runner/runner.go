@@ -142,6 +142,13 @@ func (r *Runner) runReviewerWithRetry(ctx context.Context, reviewerID int) domai
 			return result
 		}
 
+		// Skip retries for auth failures — retrying won't help
+		if result.AuthFailed {
+			r.logger.Logf(terminal.StyleError, "Reviewer #%d (%s) authentication failed: %s",
+				reviewerID, result.AgentName, agent.AuthHint(result.AgentName))
+			return result
+		}
+
 		if attempt < r.config.Retries {
 			delay := time.Duration(1<<attempt) * time.Second
 			reason := "failed"
@@ -276,12 +283,18 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	}
 	result.ExitCode = execResult.ExitCode()
 
+	// Detect auth failure from exit code and stderr
+	if result.ExitCode != 0 {
+		result.AuthFailed = agent.IsAuthFailure(selectedAgent.Name(), result.ExitCode, execResult.Stderr())
+	}
+
 	// Record duration after process fully exits
 	result.Duration = time.Since(start)
 
-	// Check for timeout after parsing
+	// Check for timeout after parsing — timeout takes precedence over auth failure
 	if timeoutCtx.Err() == context.DeadlineExceeded {
 		result.TimedOut = true
+		result.AuthFailed = false
 		result.ExitCode = -1
 		return result
 	}
@@ -309,6 +322,8 @@ func BuildStats(results []domain.ReviewerResult, totalReviewers int, wallClock t
 
 		if r.TimedOut {
 			stats.TimedOutReviewers = append(stats.TimedOutReviewers, r.ReviewerID)
+		} else if r.AuthFailed {
+			stats.AuthFailedReviewers = append(stats.AuthFailedReviewers, r.ReviewerID)
 		} else if r.ExitCode != 0 {
 			stats.FailedReviewers = append(stats.FailedReviewers, r.ReviewerID)
 		} else {
