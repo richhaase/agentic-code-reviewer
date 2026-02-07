@@ -142,6 +142,13 @@ func (r *Runner) runReviewerWithRetry(ctx context.Context, reviewerID int) domai
 			return result
 		}
 
+		// Skip retries for auth failures — retrying won't help
+		if result.AuthFailed {
+			r.logger.Logf(terminal.StyleError, "Reviewer #%d (%s) authentication failed: %s",
+				reviewerID, result.AgentName, agent.AuthHint(result.AgentName))
+			return result
+		}
+
 		if attempt < r.config.Retries {
 			delay := time.Duration(1<<attempt) * time.Second
 			reason := "failed"
@@ -275,6 +282,11 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		r.logger.Logf(terminal.StyleWarning, "Reviewer #%d: close error (non-fatal): %v", reviewerID, closeErr)
 	}
 	result.ExitCode = execResult.ExitCode()
+
+	// Detect auth failure from exit code and stderr
+	if result.ExitCode != 0 {
+		result.AuthFailed = agent.IsAuthFailure(selectedAgent.Name(), result.ExitCode, execResult.Stderr())
+	}
 
 	// Record duration after process fully exits
 	result.Duration = time.Since(start)

@@ -375,3 +375,69 @@ func TestBuildStats_AllFailedIncludesAuthFailures(t *testing.T) {
 		t.Error("expected AllFailed() to return true when all reviewers are auth-failed")
 	}
 }
+
+// mockAuthFailAgent returns a configurable exit code with stderr for auth testing.
+type mockAuthFailAgent struct {
+	name      string
+	exitCode  int
+	stderr    string
+	callCount atomic.Int32
+}
+
+func (m *mockAuthFailAgent) Name() string { return m.name }
+func (m *mockAuthFailAgent) IsAvailable() error { return nil }
+
+func (m *mockAuthFailAgent) ExecuteReview(_ context.Context, _ *agent.ReviewConfig) (*agent.ExecutionResult, error) {
+	m.callCount.Add(1)
+	reader := &stringReadCloser{strings.NewReader("")}
+	exitCode := m.exitCode
+	stderr := m.stderr
+	return agent.NewExecutionResult(reader, func() int { return exitCode }, func() string { return stderr }), nil
+}
+
+func (m *mockAuthFailAgent) ExecuteSummary(_ context.Context, _ string, _ []byte) (*agent.ExecutionResult, error) {
+	return nil, nil
+}
+
+func TestRunReviewerWithRetry_SkipsRetryOnAuthFailure(t *testing.T) {
+	mock := &mockAuthFailAgent{name: "gemini", exitCode: 41, stderr: ""}
+
+	r := &Runner{
+		config:    Config{Reviewers: 1, Retries: 2, Timeout: 10 * time.Second},
+		agents:    []agent.Agent{mock},
+		logger:    terminal.NewLogger(),
+		completed: new(atomic.Int32),
+	}
+
+	result := r.runReviewerWithRetry(context.Background(), 1)
+
+	if mock.callCount.Load() != 1 {
+		t.Errorf("expected 1 call (no retries), got %d", mock.callCount.Load())
+	}
+	if !result.AuthFailed {
+		t.Error("expected AuthFailed to be true")
+	}
+	if result.ExitCode != 41 {
+		t.Errorf("expected exit code 41, got %d", result.ExitCode)
+	}
+}
+
+func TestRunReviewerWithRetry_RetriesNonAuthFailure(t *testing.T) {
+	mock := &mockAuthFailAgent{name: "codex", exitCode: 1, stderr: "some error"}
+
+	r := &Runner{
+		config:    Config{Reviewers: 1, Retries: 1, Timeout: 10 * time.Second},
+		agents:    []agent.Agent{mock},
+		logger:    terminal.NewLogger(),
+		completed: new(atomic.Int32),
+	}
+
+	result := r.runReviewerWithRetry(context.Background(), 1)
+
+	if mock.callCount.Load() != 2 {
+		t.Errorf("expected 2 calls (initial + 1 retry), got %d", mock.callCount.Load())
+	}
+	if result.AuthFailed {
+		t.Error("expected AuthFailed to be false for non-auth failure")
+	}
+}
