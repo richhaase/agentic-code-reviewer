@@ -384,7 +384,7 @@ type mockAuthFailAgent struct {
 	callCount atomic.Int32
 }
 
-func (m *mockAuthFailAgent) Name() string { return m.name }
+func (m *mockAuthFailAgent) Name() string       { return m.name }
 func (m *mockAuthFailAgent) IsAvailable() error { return nil }
 
 func (m *mockAuthFailAgent) ExecuteReview(_ context.Context, _ *agent.ReviewConfig) (*agent.ExecutionResult, error) {
