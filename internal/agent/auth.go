@@ -15,7 +15,7 @@ var authExitCodes = map[string][]int{
 var authStderrPatterns = []string{
 	"api_key",
 	"unauthorized",
-	" 401 ",
+	"401",
 	"authentication required",
 	"invalid credentials",
 }
