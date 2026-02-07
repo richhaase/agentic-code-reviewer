@@ -505,8 +505,8 @@ func TestRenderDismissedLGTMMarkdown_BasicFormat(t *testing.T) {
 	if !strings.Contains(result, "LGTM") {
 		t.Error("expected 'LGTM' in output")
 	}
-	if !strings.Contains(result, "after human review") {
-		t.Error("expected 'after human review' phrasing")
+	if !strings.Contains(result, "All findings dismissed after human review") {
+		t.Error("expected 'All findings dismissed after human review' phrasing")
 	}
 	if !strings.Contains(result, "2 findings were reviewed and dismissed") {
 		t.Error("expected dismissed count")

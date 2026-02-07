@@ -285,7 +285,7 @@ func RenderDismissedLGTMMarkdown(findings []domain.FindingGroup, stats domain.Re
 	var lines []string
 	lines = append(lines, "## LGTM :white_check_mark:")
 	lines = append(lines, "")
-	lines = append(lines, fmt.Sprintf("**%d of %d reviewers found no issues after human review.**",
+	lines = append(lines, fmt.Sprintf("**%d of %d reviewers completed review. All findings dismissed after human review.**",
 		stats.SuccessfulReviewers, stats.TotalReviewers))
 	lines = append(lines, "")
 
