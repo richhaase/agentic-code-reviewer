@@ -492,3 +492,58 @@ func TestRenderReport_WithAuthFailedWarning(t *testing.T) {
 		}
 	})
 }
+
+func TestRenderDismissedLGTMMarkdown_BasicFormat(t *testing.T) {
+	findings := []domain.FindingGroup{
+		{Title: "Potential nil dereference"},
+		{Title: "Missing error check"},
+	}
+	stats := domain.ReviewStats{TotalReviewers: 5, SuccessfulReviewers: 3}
+
+	result := RenderDismissedLGTMMarkdown(findings, stats)
+
+	if !strings.Contains(result, "LGTM") {
+		t.Error("expected 'LGTM' in output")
+	}
+	if !strings.Contains(result, "after human review") {
+		t.Error("expected 'after human review' phrasing")
+	}
+	if !strings.Contains(result, "2 findings were reviewed and dismissed") {
+		t.Error("expected dismissed count")
+	}
+	if !strings.Contains(result, "Potential nil dereference") {
+		t.Error("expected first finding title")
+	}
+	if !strings.Contains(result, "Missing error check") {
+		t.Error("expected second finding title")
+	}
+	if !strings.Contains(result, "<details>") {
+		t.Error("expected collapsible details section")
+	}
+}
+
+func TestRenderDismissedLGTMMarkdown_SingleFinding(t *testing.T) {
+	findings := []domain.FindingGroup{
+		{Title: "Minor style issue"},
+	}
+	stats := domain.ReviewStats{TotalReviewers: 3, SuccessfulReviewers: 3}
+
+	result := RenderDismissedLGTMMarkdown(findings, stats)
+
+	if !strings.Contains(result, "1 finding was reviewed and dismissed") {
+		t.Error("expected singular 'finding was'")
+	}
+}
+
+func TestRenderDismissedLGTMMarkdown_UntitledFallback(t *testing.T) {
+	findings := []domain.FindingGroup{
+		{Title: ""},
+	}
+	stats := domain.ReviewStats{TotalReviewers: 2, SuccessfulReviewers: 2}
+
+	result := RenderDismissedLGTMMarkdown(findings, stats)
+
+	if !strings.Contains(result, "Untitled") {
+		t.Error("expected 'Untitled' fallback for empty title")
+	}
+}
