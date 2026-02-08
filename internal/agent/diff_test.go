@@ -302,9 +302,12 @@ func TestIsRelativeRef(t *testing.T) {
 		{"HEAD~3", true},
 		{"HEAD~1", true},
 		{"main^2", true},
-		{"abc1234", true},  // commit SHA
-		{"main", false},    // branch name
-		{"develop", false}, // branch name
+		{"abc1234", true},          // commit SHA
+		{"HEAD@{1}", true},         // reflog ref
+		{"main@{2}", true},         // branch reflog ref
+		{"HEAD@{yesterday}", true}, // reflog date ref
+		{"main", false},            // branch name
+		{"develop", false},         // branch name
 		{"origin/main", false},
 		{"v1.0.0", false}, // tag
 	}
