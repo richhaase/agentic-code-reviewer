@@ -82,6 +82,16 @@ func UpdateCurrentBranch(ctx context.Context, workDir string) UpdateBranchResult
 	}
 }
 
+// IsRelativeRef returns true if the ref is relative to HEAD (e.g., HEAD, HEAD~3, main^2)
+// or is a commit SHA. These refs would change meaning if the branch is fast-forwarded,
+// so the branch should not be updated when using them.
+func IsRelativeRef(ref string) bool {
+	return ref == "HEAD" ||
+		strings.Contains(ref, "~") ||
+		strings.Contains(ref, "^") ||
+		isLikelyCommitSHA(ref)
+}
+
 // FetchResult contains the result of a FetchRemoteRef operation.
 type FetchResult struct {
 	// ResolvedRef is the ref to use for diffing (either "origin/<baseRef>" or "<baseRef>")

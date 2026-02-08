@@ -293,6 +293,32 @@ func TestBuildPromptWithDiff_WithDiff(t *testing.T) {
 	}
 }
 
+func TestIsRelativeRef(t *testing.T) {
+	tests := []struct {
+		ref      string
+		expected bool
+	}{
+		{"HEAD", true},
+		{"HEAD~3", true},
+		{"HEAD~1", true},
+		{"main^2", true},
+		{"abc1234", true},  // commit SHA
+		{"main", false},    // branch name
+		{"develop", false}, // branch name
+		{"origin/main", false},
+		{"v1.0.0", false}, // tag
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.ref, func(t *testing.T) {
+			result := IsRelativeRef(tt.ref)
+			if result != tt.expected {
+				t.Errorf("IsRelativeRef(%q) = %v, want %v", tt.ref, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestUpdateCurrentBranch_DetachedHEAD(t *testing.T) {
 	tmpDir := createTestRepo(t)
 
