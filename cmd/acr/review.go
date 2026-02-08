@@ -60,6 +60,16 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 	// inconsistent results if network conditions vary during parallel execution.
 	resolvedBaseRef := baseRef
 	if fetchRemote {
+		// Update current branch from remote (fast-forward only)
+		branchResult := agent.UpdateCurrentBranch(ctx, workDir)
+		if branchResult.Updated && verbose {
+			logger.Logf(terminal.StyleDim, "Updated branch %s from origin", branchResult.BranchName)
+		}
+		if branchResult.Error != nil {
+			logger.Logf(terminal.StyleWarning, "Could not update %s from origin: %v (reviewing local state)", branchResult.BranchName, branchResult.Error)
+		}
+
+		// Fetch base ref
 		result := agent.FetchRemoteRef(ctx, baseRef, workDir)
 		resolvedBaseRef = result.ResolvedRef
 		if result.FetchAttempted && !result.RefResolved {

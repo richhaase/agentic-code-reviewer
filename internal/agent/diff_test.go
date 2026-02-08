@@ -293,6 +293,201 @@ func TestBuildPromptWithDiff_WithDiff(t *testing.T) {
 	}
 }
 
+func TestUpdateCurrentBranch_DetachedHEAD(t *testing.T) {
+	tmpDir := createTestRepo(t)
+
+	// Detach HEAD
+	if err := runGit(tmpDir, "checkout", "--detach"); err != nil {
+		t.Fatalf("Failed to detach HEAD: %v", err)
+	}
+
+	ctx := context.Background()
+	result := UpdateCurrentBranch(ctx, tmpDir)
+
+	if !result.Skipped {
+		t.Error("UpdateCurrentBranch() Skipped = false, want true for detached HEAD")
+	}
+	if result.SkipReason != "detached HEAD" {
+		t.Errorf("UpdateCurrentBranch() SkipReason = %q, want %q", result.SkipReason, "detached HEAD")
+	}
+	if result.BranchName != "" {
+		t.Errorf("UpdateCurrentBranch() BranchName = %q, want empty", result.BranchName)
+	}
+}
+
+func TestUpdateCurrentBranch_NoRemote(t *testing.T) {
+	tmpDir := createTestRepo(t)
+
+	ctx := context.Background()
+	result := UpdateCurrentBranch(ctx, tmpDir)
+
+	if result.Error == nil {
+		t.Error("UpdateCurrentBranch() Error = nil, want error for no remote")
+	}
+	if result.Skipped {
+		t.Error("UpdateCurrentBranch() Skipped = true, want false (branch exists, fetch should be attempted)")
+	}
+	if result.BranchName == "" {
+		t.Error("UpdateCurrentBranch() BranchName is empty, want branch name")
+	}
+}
+
+func TestUpdateCurrentBranch_AlreadyUpToDate(t *testing.T) {
+	tmpDir := createTestRepo(t)
+
+	// Add self as remote so fetch succeeds
+	if err := runGit(tmpDir, "remote", "add", "origin", tmpDir); err != nil {
+		t.Fatalf("Failed to add remote: %v", err)
+	}
+
+	ctx := context.Background()
+	result := UpdateCurrentBranch(ctx, tmpDir)
+
+	if result.Error != nil {
+		t.Errorf("UpdateCurrentBranch() Error = %v, want nil", result.Error)
+	}
+	if !result.AlreadyCurrent {
+		t.Error("UpdateCurrentBranch() AlreadyCurrent = false, want true")
+	}
+	if result.Updated {
+		t.Error("UpdateCurrentBranch() Updated = true, want false")
+	}
+}
+
+func TestUpdateCurrentBranch_FastForward(t *testing.T) {
+	// Create the "origin" repo
+	originDir := createTestRepo(t)
+
+	// Clone it
+	cloneDir, err := os.MkdirTemp("", "git-update-clone-*")
+	if err != nil {
+		t.Fatalf("Failed to create clone dir: %v", err)
+	}
+	defer os.RemoveAll(cloneDir)
+
+	cloneCmd := exec.Command("git", "clone", originDir, cloneDir)
+	if err := cloneCmd.Run(); err != nil {
+		t.Fatalf("Failed to clone repo: %v", err)
+	}
+
+	// Add a new commit to the origin
+	originFile := filepath.Join(originDir, "new.txt")
+	if err := os.WriteFile(originFile, []byte("new content"), 0644); err != nil {
+		t.Fatalf("Failed to write file in origin: %v", err)
+	}
+	if err := runGit(originDir, "add", "."); err != nil {
+		t.Fatalf("Failed to git add in origin: %v", err)
+	}
+	if err := runGit(originDir, "commit", "-m", "new commit"); err != nil {
+		t.Fatalf("Failed to git commit in origin: %v", err)
+	}
+
+	// The clone is now behind origin — UpdateCurrentBranch should fast-forward
+	ctx := context.Background()
+	result := UpdateCurrentBranch(ctx, cloneDir)
+
+	if result.Error != nil {
+		t.Errorf("UpdateCurrentBranch() Error = %v, want nil", result.Error)
+	}
+	if !result.Updated {
+		t.Error("UpdateCurrentBranch() Updated = false, want true")
+	}
+	if result.AlreadyCurrent {
+		t.Error("UpdateCurrentBranch() AlreadyCurrent = true, want false")
+	}
+
+	// Verify the new file exists in the clone
+	if _, err := os.Stat(filepath.Join(cloneDir, "new.txt")); os.IsNotExist(err) {
+		t.Error("Fast-forward did not bring new.txt into the working tree")
+	}
+}
+
+func TestUpdateCurrentBranch_Diverged(t *testing.T) {
+	// Create the "origin" repo
+	originDir := createTestRepo(t)
+
+	// Clone it
+	cloneDir, err := os.MkdirTemp("", "git-update-diverged-*")
+	if err != nil {
+		t.Fatalf("Failed to create clone dir: %v", err)
+	}
+	defer os.RemoveAll(cloneDir)
+
+	cloneCmd := exec.Command("git", "clone", originDir, cloneDir)
+	if err := cloneCmd.Run(); err != nil {
+		t.Fatalf("Failed to clone repo: %v", err)
+	}
+
+	// Add a commit to origin
+	originFile := filepath.Join(originDir, "origin-change.txt")
+	if err := os.WriteFile(originFile, []byte("origin"), 0644); err != nil {
+		t.Fatalf("Failed to write file in origin: %v", err)
+	}
+	if err := runGit(originDir, "add", "."); err != nil {
+		t.Fatalf("Failed to git add in origin: %v", err)
+	}
+	if err := runGit(originDir, "commit", "-m", "origin commit"); err != nil {
+		t.Fatalf("Failed to git commit in origin: %v", err)
+	}
+
+	// Add a different commit to clone (diverging)
+	cloneFile := filepath.Join(cloneDir, "local-change.txt")
+	if err := os.WriteFile(cloneFile, []byte("local"), 0644); err != nil {
+		t.Fatalf("Failed to write file in clone: %v", err)
+	}
+	if err := runGit(cloneDir, "add", "."); err != nil {
+		t.Fatalf("Failed to git add in clone: %v", err)
+	}
+	if err := runGit(cloneDir, "commit", "-m", "local commit"); err != nil {
+		t.Fatalf("Failed to git commit in clone: %v", err)
+	}
+
+	// Branches have diverged — --ff-only should fail gracefully
+	ctx := context.Background()
+	result := UpdateCurrentBranch(ctx, cloneDir)
+
+	if result.Error == nil {
+		t.Error("UpdateCurrentBranch() Error = nil, want error for diverged branches")
+	}
+	if result.Updated {
+		t.Error("UpdateCurrentBranch() Updated = true, want false for diverged branches")
+	}
+	if result.BranchName == "" {
+		t.Error("UpdateCurrentBranch() BranchName is empty, want branch name")
+	}
+}
+
+// createTestRepo creates a temporary git repo with one commit and returns its path.
+func createTestRepo(t *testing.T) string {
+	t.Helper()
+	tmpDir, err := os.MkdirTemp("", "git-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(tmpDir) })
+
+	if err := runGit(tmpDir, "init"); err != nil {
+		t.Fatalf("Failed to init git repo: %v", err)
+	}
+	if err := runGit(tmpDir, "config", "user.email", "test@test.com"); err != nil {
+		t.Fatalf("Failed to set git email: %v", err)
+	}
+	if err := runGit(tmpDir, "config", "user.name", "Test"); err != nil {
+		t.Fatalf("Failed to set git name: %v", err)
+	}
+	testFile := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(testFile, []byte("initial"), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+	if err := runGit(tmpDir, "add", "."); err != nil {
+		t.Fatalf("Failed to git add: %v", err)
+	}
+	if err := runGit(tmpDir, "commit", "-m", "initial"); err != nil {
+		t.Fatalf("Failed to git commit: %v", err)
+	}
+	return tmpDir
+}
+
 // runGit runs a git command in the specified directory
 func runGit(dir string, args ...string) error {
 	cmd := exec.Command("git", args...)

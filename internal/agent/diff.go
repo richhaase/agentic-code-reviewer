@@ -7,6 +7,81 @@ import (
 	"strings"
 )
 
+// UpdateBranchResult contains the result of an UpdateCurrentBranch operation.
+type UpdateBranchResult struct {
+	BranchName     string // Current branch name (empty if detached)
+	Updated        bool   // Whether the branch was fast-forwarded
+	AlreadyCurrent bool   // Whether the branch was already up to date
+	Skipped        bool   // Whether the update was skipped (detached HEAD, no remote, etc.)
+	SkipReason     string // Why it was skipped
+	Error          error  // Non-fatal error (fetch/merge failed)
+}
+
+// UpdateCurrentBranch fast-forwards the current branch from origin.
+// This ensures the working tree has the latest commits before reviewing.
+// All failures are non-fatal — the review continues with local state.
+func UpdateCurrentBranch(ctx context.Context, workDir string) UpdateBranchResult {
+	// Get the current branch name
+	branchCmd := exec.CommandContext(ctx, "git", "symbolic-ref", "--short", "HEAD")
+	if workDir != "" {
+		branchCmd.Dir = workDir
+	}
+	branchOutput, err := branchCmd.Output()
+	if err != nil {
+		return UpdateBranchResult{
+			Skipped:    true,
+			SkipReason: "detached HEAD",
+		}
+	}
+	branch := strings.TrimSpace(string(branchOutput))
+	if branch == "" || strings.HasPrefix(branch, "-") {
+		return UpdateBranchResult{
+			Skipped:    true,
+			SkipReason: "detached HEAD",
+		}
+	}
+
+	// Fetch the branch from origin
+	// #nosec G204 - branch comes from git symbolic-ref and is validated above
+	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "origin", branch)
+	if workDir != "" {
+		fetchCmd.Dir = workDir
+	}
+	if err := fetchCmd.Run(); err != nil {
+		return UpdateBranchResult{
+			BranchName: branch,
+			Error:      fmt.Errorf("fetch failed: %w", err),
+		}
+	}
+
+	// Fast-forward merge
+	// #nosec G204 - branch comes from git symbolic-ref and is validated above
+	mergeCmd := exec.CommandContext(ctx, "git", "merge", "--ff-only", "origin/"+branch)
+	if workDir != "" {
+		mergeCmd.Dir = workDir
+	}
+	mergeOutput, err := mergeCmd.CombinedOutput()
+	if err != nil {
+		return UpdateBranchResult{
+			BranchName: branch,
+			Error:      fmt.Errorf("fast-forward failed: %w", err),
+		}
+	}
+
+	output := strings.TrimSpace(string(mergeOutput))
+	if strings.Contains(output, "Already up to date") {
+		return UpdateBranchResult{
+			BranchName:     branch,
+			AlreadyCurrent: true,
+		}
+	}
+
+	return UpdateBranchResult{
+		BranchName: branch,
+		Updated:    true,
+	}
+}
+
 // FetchResult contains the result of a FetchRemoteRef operation.
 type FetchResult struct {
 	// ResolvedRef is the ref to use for diffing (either "origin/<baseRef>" or "<baseRef>")
