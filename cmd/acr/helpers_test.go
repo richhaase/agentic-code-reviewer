@@ -1,9 +1,11 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
+	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
 func TestFilterFindingsByIndices_SelectsCorrectFindings(t *testing.T) {
@@ -127,4 +129,34 @@ func TestExitCode_ReturnsErrorForOtherCodes(t *testing.T) {
 			t.Errorf("expected code %d, got %d", code, exitErr.code)
 		}
 	}
+}
+
+func TestLogCIChecks_Truncation(t *testing.T) {
+	if maxDisplayedCIChecks != 5 {
+		t.Errorf("maxDisplayedCIChecks = %d, want 5", maxDisplayedCIChecks)
+	}
+}
+
+func TestFormatPRRef(t *testing.T) {
+	terminal.WithColorsDisabled(func() {
+		result := formatPRRef("123")
+		if !strings.Contains(result, "#123") {
+			t.Errorf("formatPRRef(123) = %q, want to contain '#123'", result)
+		}
+	})
+}
+
+func TestFormatPrompt(t *testing.T) {
+	terminal.WithColorsDisabled(func() {
+		result := formatPrompt("Post review", "[Y]es / [N]o:")
+		if !strings.Contains(result, "Post review") {
+			t.Errorf("formatPrompt() = %q, want to contain question", result)
+		}
+		if !strings.Contains(result, "[Y]es / [N]o:") {
+			t.Errorf("formatPrompt() = %q, want to contain options", result)
+		}
+		if !strings.HasSuffix(result, " ") {
+			t.Errorf("formatPrompt() = %q, should end with space", result)
+		}
+	})
 }
