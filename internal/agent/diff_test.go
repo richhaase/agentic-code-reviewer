@@ -369,6 +369,12 @@ func TestUpdateCurrentBranch_FastForward(t *testing.T) {
 	if err := cloneCmd.Run(); err != nil {
 		t.Fatalf("Failed to clone repo: %v", err)
 	}
+	if err := runGit(cloneDir, "config", "user.email", "test@test.com"); err != nil {
+		t.Fatalf("Failed to set git email in clone: %v", err)
+	}
+	if err := runGit(cloneDir, "config", "user.name", "Test"); err != nil {
+		t.Fatalf("Failed to set git name in clone: %v", err)
+	}
 
 	// Add a new commit to the origin
 	originFile := filepath.Join(originDir, "new.txt")
@@ -416,6 +422,12 @@ func TestUpdateCurrentBranch_Diverged(t *testing.T) {
 	cloneCmd := exec.Command("git", "clone", originDir, cloneDir)
 	if err := cloneCmd.Run(); err != nil {
 		t.Fatalf("Failed to clone repo: %v", err)
+	}
+	if err := runGit(cloneDir, "config", "user.email", "test@test.com"); err != nil {
+		t.Fatalf("Failed to set git email in clone: %v", err)
+	}
+	if err := runGit(cloneDir, "config", "user.name", "Test"); err != nil {
+		t.Fatalf("Failed to set git name in clone: %v", err)
 	}
 
 	// Add a commit to origin
