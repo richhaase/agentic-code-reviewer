@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -96,5 +98,128 @@ func TestCodexAgent_ExecuteSummary_CodexNotAvailable(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "codex CLI not found") {
 		t.Errorf("ExecuteSummary() error = %v, want error containing 'codex CLI not found'", err)
+	}
+}
+
+func TestCodexAgent_ExecuteReview_ArgsWithoutGuidance(t *testing.T) {
+	tmpDir := t.TempDir()
+	mockScript := filepath.Join(tmpDir, "codex")
+	err := os.WriteFile(mockScript, []byte("#!/bin/sh\nfor arg in \"$@\"; do echo \"$arg\"; done\n"), 0755)
+	if err != nil {
+		t.Fatalf("failed to write mock script: %v", err)
+	}
+
+	originalPath := os.Getenv("PATH")
+	defer os.Setenv("PATH", originalPath)
+	os.Setenv("PATH", tmpDir)
+
+	agent := NewCodexAgent()
+	ctx := context.Background()
+	config := &ReviewConfig{
+		BaseRef: "main",
+		WorkDir: tmpDir,
+	}
+
+	result, err := agent.ExecuteReview(ctx, config)
+	if err != nil {
+		t.Fatalf("ExecuteReview() error: %v", err)
+	}
+	defer result.Close()
+
+	output, err := io.ReadAll(result)
+	if err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+
+	args := strings.Split(strings.TrimSpace(string(output)), "\n")
+	expected := []string{"exec", "--json", "--color", "never", "review", "--base", "main"}
+	if len(args) != len(expected) {
+		t.Fatalf("got %d args %v, want %d args %v", len(args), args, len(expected), expected)
+	}
+	for i, want := range expected {
+		if args[i] != want {
+			t.Errorf("arg[%d] = %q, want %q", i, args[i], want)
+		}
+	}
+}
+
+func TestCodexAgent_ExecuteReview_ArgsWithGuidance(t *testing.T) {
+	tmpDir := t.TempDir()
+	mockScript := filepath.Join(tmpDir, "codex")
+	err := os.WriteFile(mockScript, []byte("#!/bin/sh\nfor arg in \"$@\"; do echo \"$arg\"; done\n"), 0755)
+	if err != nil {
+		t.Fatalf("failed to write mock script: %v", err)
+	}
+
+	originalPath := os.Getenv("PATH")
+	defer os.Setenv("PATH", originalPath)
+	os.Setenv("PATH", tmpDir)
+
+	agent := NewCodexAgent()
+	ctx := context.Background()
+	config := &ReviewConfig{
+		BaseRef:  "develop",
+		WorkDir:  tmpDir,
+		Guidance: "Focus on security issues",
+	}
+
+	result, err := agent.ExecuteReview(ctx, config)
+	if err != nil {
+		t.Fatalf("ExecuteReview() error: %v", err)
+	}
+	defer result.Close()
+
+	output, err := io.ReadAll(result)
+	if err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+
+	args := strings.Split(strings.TrimSpace(string(output)), "\n")
+	expected := []string{"exec", "--json", "--color", "never", "review", "--base", "develop", "-"}
+	if len(args) != len(expected) {
+		t.Fatalf("got %d args %v, want %d args %v", len(args), args, len(expected), expected)
+	}
+	for i, want := range expected {
+		if args[i] != want {
+			t.Errorf("arg[%d] = %q, want %q", i, args[i], want)
+		}
+	}
+}
+
+func TestCodexAgent_ExecuteSummary_Args(t *testing.T) {
+	tmpDir := t.TempDir()
+	mockScript := filepath.Join(tmpDir, "codex")
+	err := os.WriteFile(mockScript, []byte("#!/bin/sh\nfor arg in \"$@\"; do echo \"$arg\"; done\n"), 0755)
+	if err != nil {
+		t.Fatalf("failed to write mock script: %v", err)
+	}
+
+	originalPath := os.Getenv("PATH")
+	defer os.Setenv("PATH", originalPath)
+	os.Setenv("PATH", tmpDir)
+
+	agent := NewCodexAgent()
+	ctx := context.Background()
+
+	result, err := agent.ExecuteSummary(ctx, "summarize this", []byte(`{"findings":[]}`))
+	if err != nil {
+		t.Fatalf("ExecuteSummary() error: %v", err)
+	}
+	defer result.Close()
+
+	output, err := io.ReadAll(result)
+	if err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+
+	args := strings.Split(strings.TrimSpace(string(output)), "\n")
+	expected := []string{"exec", "--json", "--color", "never", "-"}
+	if len(args) != len(expected) {
+		t.Fatalf("got %d args %v, want %d args %v", len(args), args, len(expected), expected)
+	}
+	for i, want := range expected {
+		if args[i] != want {
+			t.Errorf("arg[%d] = %q, want %q", i, args[i], want)
+		}
 	}
 }
