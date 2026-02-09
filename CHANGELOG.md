@@ -4,6 +4,19 @@ All notable changes to ACR are documented in this file.
 
 This changelog is generated from git tag annotations.
 
+## [v0.11.4] - 2026-02-09
+
+# v0.11.4
+
+## What's Changed
+
+- test: add integration tests for agent CLI execution and other gaps (#114)
+
+### Test Coverage
+
+- Added integration tests for agent CLI execution paths
+- Improved test coverage across multiple packages
+
 ## [v0.11.3] - 2026-02-07
 
 v0.11.3
