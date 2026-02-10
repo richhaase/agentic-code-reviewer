@@ -80,6 +80,9 @@ acr
 # Review with custom settings
 acr --reviewers 10 --base develop --timeout 10m
 
+# Review a PR by number
+acr --pr 123
+
 # Review a specific branch in a temporary worktree
 acr --worktree-branch feature/my-branch
 
@@ -114,12 +117,14 @@ acr --verbose
 | `--fp-threshold`    |       | 75      | False positive confidence threshold 1-100 |
 | `--no-pr-feedback`  |       | false   | Disable PR feedback summarization         |
 | `--pr-feedback-agent`|      |         | Agent for PR feedback summarization       |
+| `--pr`              |       |         | Review a PR by number (fetches into temp worktree) |
+| `--guidance`        |       |         | Steering context appended to review prompt (env: ACR_GUIDANCE) |
+| `--guidance-file`   |       |         | Path to file containing review guidance (env: ACR_GUIDANCE_FILE) |
+| `--ref-file`        |       | false   | Write diff to temp file instead of embedding in prompt (auto for large diffs) |
 | `--exclude-pattern` |       |         | Exclude findings matching regex (repeat)  |
 | `--no-config`       |       | false   | Skip loading .acr.yaml config file        |
 | `--reviewer-agent`  | `-a`  | codex   | Agent(s) for reviews, comma-separated (codex, claude, gemini) |
 | `--summarizer-agent`| `-s`  | codex   | Agent for summarization (codex, claude, gemini) |
-| `--prompt`          |       |         | [experimental] Custom review prompt (inline) |
-| `--prompt-file`     |       |         | [experimental] Path to file containing review prompt |
 
 ### Concurrency Control
 
@@ -179,24 +184,19 @@ acr -r 6 --reviewer-agent codex,claude,gemini
 
 Different agents may find different issues. When multiple agents are specified (comma-separated), reviewers are assigned to agents in round-robin order. The appropriate CLI must be installed and authenticated for all selected agents.
 
-### Custom Prompts (Experimental)
+### Review Guidance
 
-Override the default review prompt to focus on specific concerns:
+Steer reviews with additional context without replacing the built-in prompts:
 
 ```bash
-# Inline prompt
-acr --prompt "Review for security vulnerabilities only. Output: file:line: description"
+# Inline guidance
+acr --guidance "Focus on security vulnerabilities and auth issues"
 
-# Prompt from file
-acr --prompt-file prompts/security-review.txt
+# Guidance from file
+acr --guidance-file .acr-guidance.md
 ```
 
-Effective prompts should:
-- Be specific about what to look for
-- Explicitly state what to skip (reduces noise)
-- Specify the desired output format
-
-The git diff is automatically appended to your prompt.
+Guidance is appended to the default review prompts, preserving the tuned output format and skip rules. Use it to provide domain context, focus areas, or project conventions.
 
 ### PR Feedback Summarization
 
@@ -238,8 +238,8 @@ PR feedback summarization runs in parallel with the reviewers and is enabled by 
 | `ACR_PR_FEEDBACK_AGENT`   | Agent for PR feedback summarization |
 | `ACR_REVIEWER_AGENT`      | Default reviewer agent(s), comma-separated |
 | `ACR_SUMMARIZER_AGENT`    | Default summarizer agent  |
-| `ACR_REVIEW_PROMPT`       | [experimental] Default review prompt     |
-| `ACR_REVIEW_PROMPT_FILE`  | [experimental] Path to default review prompt file |
+| `ACR_GUIDANCE`            | Steering context appended to review prompt |
+| `ACR_GUIDANCE_FILE`       | Path to file containing review guidance    |
 
 ## Configuration
 
@@ -262,11 +262,8 @@ fetch: true               # Fetch base ref from origin before diff
 #   - gemini
 # summarizer_agent: codex # Agent for summarization (codex, claude, gemini)
 
-# Experimental: Custom review prompt (inline or file)
-# review_prompt: |
-#   Review for bugs only. Skip style issues.
-#   Output: file:line: description
-# review_prompt_file: prompts/security.txt
+# Review guidance (appended to built-in prompts)
+# guidance_file: .acr-guidance.md
 
 filters:
   exclude_patterns:       # Regex patterns to exclude from findings
