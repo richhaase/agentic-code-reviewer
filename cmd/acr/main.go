@@ -54,7 +54,7 @@ func run() int {
 	rootCmd := &cobra.Command{
 		Use:   "acr",
 		Short: "Agentic code reviewer - run parallel code reviews",
-		Long: `Run codex review in parallel, parse JSONL output, and summarize findings.
+		Long: `Run parallel LLM-powered code reviews, deduplicate findings, and summarize results.
 
 Exit codes:
   0 - No findings
@@ -202,7 +202,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		// Get repo root for worktree creation
 		repoRoot, err := git.GetRoot()
 		if err != nil {
-			logger.Logf(terminal.StyleError, "Error: %v", err)
+			logger.Logf(terminal.StyleError, "%v", err)
 			return exitCode(domain.ExitError)
 		}
 		prRepoRoot = repoRoot
@@ -214,7 +214,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		// Create worktree from PR - uses FETCH_HEAD to avoid branch conflicts
 		wt, err := git.CreateWorktreeFromPR(repoRoot, remote, prNumber)
 		if err != nil {
-			logger.Logf(terminal.StyleError, "Error: %v", err)
+			logger.Logf(terminal.StyleError, "%v", err)
 			return exitCode(domain.ExitError)
 		}
 		defer func() {
@@ -235,7 +235,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 
 		forkRef, err := github.ResolveForkRef(ctx, worktreeBranch)
 		if err != nil {
-			logger.Logf(terminal.StyleError, "Error: %v", err)
+			logger.Logf(terminal.StyleError, "%v", err)
 			return exitCode(domain.ExitError)
 		}
 
@@ -278,7 +278,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 			if cleanupRemote != nil {
 				cleanupRemote()
 			}
-			logger.Logf(terminal.StyleError, "Error: %v", err)
+			logger.Logf(terminal.StyleError, "%v", err)
 			return exitCode(domain.ExitError)
 		}
 

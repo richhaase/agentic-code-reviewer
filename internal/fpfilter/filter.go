@@ -5,11 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log"
 	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
+	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
 // DefaultThreshold is the minimum confidence score (0-100) for a finding to
@@ -38,17 +38,19 @@ type Filter struct {
 	agentName string
 	threshold int
 	verbose   bool
+	logger    *terminal.Logger
 }
 
 // New creates a new false positive filter.
 // If verbose is true, non-fatal errors (like Close failures) are logged.
-func New(agentName string, threshold int, verbose bool) *Filter {
+func New(agentName string, threshold int, verbose bool, logger *terminal.Logger) *Filter {
 	if threshold < 1 || threshold > 100 {
 		threshold = DefaultThreshold
 	}
 	return &Filter{
 		agentName: agentName,
 		threshold: threshold,
+		logger:    logger,
 		verbose:   verbose,
 	}
 }
@@ -130,7 +132,7 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 	// Close errors are non-fatal; they only occur on process cleanup issues.
 	defer func() {
 		if err := execResult.Close(); err != nil && f.verbose {
-			log.Printf("[fpfilter] close error (non-fatal): %v", err)
+			f.logger.Logf(terminal.StyleDim, "fp-filter close error (non-fatal): %v", err)
 		}
 	}()
 

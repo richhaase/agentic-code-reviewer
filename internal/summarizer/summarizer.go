@@ -5,11 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log"
 	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
+	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
 const groupPrompt = `# Code Review Summarizer
@@ -78,7 +78,7 @@ type inputItem struct {
 // Summarize summarizes the aggregated findings using an LLM.
 // The agentName parameter specifies which agent to use for summarization.
 // If verbose is true, non-fatal errors (like Close failures) are logged.
-func Summarize(ctx context.Context, agentName string, aggregated []domain.AggregatedFinding, verbose bool) (*Result, error) {
+func Summarize(ctx context.Context, agentName string, aggregated []domain.AggregatedFinding, verbose bool, logger *terminal.Logger) (*Result, error) {
 	start := time.Now()
 
 	if len(aggregated) == 0 {
@@ -135,7 +135,7 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 	// The explicit Close() below handles the primary close; this is a safety net.
 	defer func() {
 		if err := execResult.Close(); err != nil && verbose {
-			log.Printf("[summarizer] close error (non-fatal): %v", err)
+			logger.Logf(terminal.StyleDim, "summarizer close error (non-fatal): %v", err)
 		}
 	}()
 
@@ -156,7 +156,7 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 	// Close to get exit code and stderr (defer will be a no-op due to sync.Once).
 	// Close errors are non-fatal; they only occur on process cleanup issues.
 	if err := execResult.Close(); err != nil && verbose {
-		log.Printf("[summarizer] close error (non-fatal): %v", err)
+		logger.Logf(terminal.StyleDim, "summarizer close error (non-fatal): %v", err)
 	}
 	exitCode := execResult.ExitCode()
 	stderr := execResult.Stderr()

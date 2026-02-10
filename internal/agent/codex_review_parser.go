@@ -11,8 +11,8 @@ import (
 const (
 	// scannerInitialBuffer is the initial buffer size for the scanner (64KB).
 	scannerInitialBuffer = 64 * 1024
-	// scannerMaxLineSize is the maximum line size the scanner will handle (100MB).
-	scannerMaxLineSize = 100 * 1024 * 1024
+	// scannerMaxLineSize is the maximum line size the scanner will handle (10MB).
+	scannerMaxLineSize = 10 * 1024 * 1024
 )
 
 // CodexOutputParser parses JSONL output from the codex CLI.

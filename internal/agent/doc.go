@@ -1,59 +1,59 @@
 // Package agent provides abstractions for code review backends (agents).
 //
-// The agent package defines the core interfaces and implementations for
-// different code review backends like Codex, Claude, Gemini, etc.
+// The package defines the core interfaces and implementations for
+// different code review backends: Codex, Claude, and Gemini.
 //
 // # Architecture
 //
-// The package is built around two main interfaces:
+// The package is built around three main interfaces:
 //
-//  1. Agent - represents a code review backend that can execute reviews
-//  2. OutputParser - parses backend-specific output into domain.Finding structs
+//  1. Agent - executes code reviews and summarizations via CLI subprocesses
+//  2. ReviewParser - streams findings from agent review output
+//  3. SummaryParser - parses complete summarization output
+//
+// Agents and parsers are created via the registry in factory.go.
+// Adding a new backend requires implementing all three interfaces
+// and registering them in the factory.
 //
 // # Agent Interface
 //
 // Agents are responsible for:
-//   - Checking availability (IsAvailable)
-//   - Executing reviews (Execute)
-//   - Returning output streams for parsing
+//   - Checking CLI availability (IsAvailable)
+//   - Executing reviews (ExecuteReview)
+//   - Executing summarizations (ExecuteSummary)
+//   - Returning ExecutionResult for streaming output and lifecycle management
 //
 // Example usage:
 //
-//	agent := agent.NewCodexAgent()
-//	if err := agent.IsAvailable(); err != nil {
+//	ag, _ := agent.NewAgent("claude")
+//	if err := ag.IsAvailable(); err != nil {
 //	    log.Fatal(err)
 //	}
 //
-//	config := &agent.AgentConfig{
-//	    BaseRef: "main",
-//	    Timeout: 5 * time.Minute,
-//	    ReviewerID: "reviewer-1",
+//	config := &agent.ReviewConfig{
+//	    BaseRef:    "main",
+//	    Timeout:    5 * time.Minute,
+//	    ReviewerID: 1,
 //	}
 //
-//	reader, err := agent.Execute(ctx, config)
+//	result, err := ag.ExecuteReview(ctx, config)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
-//	defer reader.(io.Closer).Close()
+//	defer result.Close()
 //
-// # OutputParser Interface
+// # ReviewParser Interface
 //
-// Parsers are responsible for:
-//   - Reading from agent output streams
-//   - Converting backend-specific formats to domain.Finding
-//   - Handling parsing errors gracefully
+// Parsers stream findings one at a time from agent output:
 //
-// Example usage:
-//
-//	parser := agent.NewCodexOutputParser(reviewerID)
-//	scanner := bufio.NewScanner(reader)
+//	parser, _ := agent.NewReviewParser("claude", reviewerID)
+//	scanner := bufio.NewScanner(result)
 //	agent.ConfigureScanner(scanner)
 //
 //	for {
 //	    finding, err := parser.ReadFinding(scanner)
-//	    if err != nil {
-//	        log.Printf("parse error: %v", err)
-//	        continue
+//	    if agent.IsRecoverable(err) {
+//	        continue // skip bad lines
 //	    }
 //	    if finding == nil {
 //	        break // end of stream
@@ -61,15 +61,9 @@
 //	    // process finding
 //	}
 //
-// # Current Implementations
+// # Implementations
 //
-// CodexAgent: Executes reviews using the codex CLI
-// CodexOutputParser: Parses JSONL output from codex
-//
-// # Future Implementations
-//
-// The package is designed to support additional backends:
-//   - ClaudeAgent (using claude CLI)
-//   - GeminiAgent (using gemini CLI)
-//   - Custom implementations via Agent interface
+// CodexAgent / CodexOutputParser / CodexSummaryParser: Uses the codex CLI with JSONL output
+// ClaudeAgent / ClaudeOutputParser / ClaudeSummaryParser: Uses the claude CLI with plain text / JSON schema output
+// GeminiAgent / GeminiOutputParser / GeminiSummaryParser: Uses the gemini CLI with JSON output
 package agent

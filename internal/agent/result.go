@@ -11,7 +11,7 @@ import (
 // after Close() is called.
 //
 // This type replaces the previous pattern of returning io.Reader and requiring
-// callers to type-assert for io.Closer, ExitCoder, and StderrProvider.
+// callers to type-assert for io.Closer, exit code, and stderr access.
 // ExecutionResult makes cleanup mandatory and provides a clean API.
 type ExecutionResult struct {
 	reader       io.ReadCloser

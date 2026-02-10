@@ -124,7 +124,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 				feedbackAgentName = summarizerAgentName
 			}
 
-			summarizer := feedback.NewSummarizer(feedbackAgentName, verbose)
+			summarizer := feedback.NewSummarizer(feedbackAgentName, verbose, logger)
 			summary, err := summarizer.Summarize(ctx, prNumber)
 			if err != nil {
 				logger.Logf(terminal.StyleWarning, "PR feedback summarizer failed: %v", err)
@@ -170,7 +170,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		close(spinnerDone)
 	}()
 
-	summaryResult, err := summarizer.Summarize(ctx, summarizerAgentName, aggregated, verbose)
+	summaryResult, err := summarizer.Summarize(ctx, summarizerAgentName, aggregated, verbose, logger)
 	spinnerCancel()
 	<-spinnerDone
 
@@ -194,7 +194,7 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 			close(fpSpinnerDone)
 		}()
 
-		fpFilter := fpfilter.New(summarizerAgentName, fpThreshold, verbose)
+		fpFilter := fpfilter.New(summarizerAgentName, fpThreshold, verbose, logger)
 		fpResult := fpFilter.Apply(ctx, summaryResult.Grouped, priorFeedback)
 		fpSpinnerCancel()
 		<-fpSpinnerDone

@@ -62,9 +62,6 @@ func TestCmdReader_Close_CommandNotStarted(t *testing.T) {
 	}
 }
 
-func TestCmdReaderExitCoderInterface(t *testing.T) {
-	var _ ExitCoder = (*cmdReader)(nil)
-}
 
 func TestCmdReader_ExitCode_Success(t *testing.T) {
 	cmd := exec.Command("true")

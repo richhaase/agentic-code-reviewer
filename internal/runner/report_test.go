@@ -114,7 +114,7 @@ func TestFormatRawFindings_TrimsTrailingWhitespace(t *testing.T) {
 }
 
 func TestRenderLGTMMarkdown_BasicFormat(t *testing.T) {
-	result := RenderLGTMMarkdown(5, 5, nil)
+	result := RenderLGTMMarkdown(5, 5, nil, "dev")
 
 	if !strings.Contains(result, "LGTM") {
 		t.Error("expected 'LGTM' in output")
@@ -133,7 +133,7 @@ func TestRenderLGTMMarkdown_WithComments(t *testing.T) {
 		1: "Code looks clean",
 	}
 
-	result := RenderLGTMMarkdown(3, 3, comments)
+	result := RenderLGTMMarkdown(3, 3, comments, "dev")
 
 	if !strings.Contains(result, "Reviewer comments") {
 		t.Error("expected 'Reviewer comments' section")
@@ -156,7 +156,7 @@ func TestRenderLGTMMarkdown_SortsCommentsByReviewerID(t *testing.T) {
 		2: "Second",
 	}
 
-	result := RenderLGTMMarkdown(3, 3, comments)
+	result := RenderLGTMMarkdown(3, 3, comments, "dev")
 
 	// Reviewer 1 should appear before Reviewer 2, which should appear before Reviewer 3
 	idx1 := strings.Index(result, "Reviewer 1")
@@ -182,7 +182,7 @@ func TestRenderCommentMarkdown_BasicFormat(t *testing.T) {
 		},
 	}
 
-	result := RenderCommentMarkdown(grouped, 5, nil)
+	result := RenderCommentMarkdown(grouped, 5, nil, "dev")
 
 	if !strings.Contains(result, "## Findings") {
 		t.Error("expected '## Findings' header")
@@ -207,7 +207,7 @@ func TestRenderCommentMarkdown_NumbersFindings(t *testing.T) {
 		},
 	}
 
-	result := RenderCommentMarkdown(grouped, 3, nil)
+	result := RenderCommentMarkdown(grouped, 3, nil, "dev")
 
 	if !strings.Contains(result, "1. **First**") {
 		t.Error("expected first finding to be numbered 1")
@@ -227,7 +227,7 @@ func TestRenderCommentMarkdown_UntitledFindingsFallback(t *testing.T) {
 		},
 	}
 
-	result := RenderCommentMarkdown(grouped, 3, nil)
+	result := RenderCommentMarkdown(grouped, 3, nil, "dev")
 
 	if !strings.Contains(result, "**Untitled**") {
 		t.Error("expected 'Untitled' fallback for empty title")
@@ -244,7 +244,7 @@ func TestRenderCommentMarkdown_IncludesEvidence(t *testing.T) {
 		},
 	}
 
-	result := RenderCommentMarkdown(grouped, 3, nil)
+	result := RenderCommentMarkdown(grouped, 3, nil, "dev")
 
 	if !strings.Contains(result, "Evidence:") {
 		t.Error("expected 'Evidence:' label")
@@ -272,7 +272,7 @@ func TestRenderCommentMarkdown_IncludesRawSection(t *testing.T) {
 		{Text: "Raw finding text", Reviewers: []int{1, 2}},
 	}
 
-	result := RenderCommentMarkdown(grouped, 5, aggregated)
+	result := RenderCommentMarkdown(grouped, 5, aggregated, "dev")
 
 	if !strings.Contains(result, "<details>") {
 		t.Error("expected collapsible details section")
@@ -500,7 +500,7 @@ func TestRenderDismissedLGTMMarkdown_BasicFormat(t *testing.T) {
 	}
 	stats := domain.ReviewStats{TotalReviewers: 5, SuccessfulReviewers: 3}
 
-	result := RenderDismissedLGTMMarkdown(findings, stats)
+	result := RenderDismissedLGTMMarkdown(findings, stats, "dev")
 
 	if !strings.Contains(result, "LGTM") {
 		t.Error("expected 'LGTM' in output")
@@ -528,7 +528,7 @@ func TestRenderDismissedLGTMMarkdown_SingleFinding(t *testing.T) {
 	}
 	stats := domain.ReviewStats{TotalReviewers: 3, SuccessfulReviewers: 3}
 
-	result := RenderDismissedLGTMMarkdown(findings, stats)
+	result := RenderDismissedLGTMMarkdown(findings, stats, "dev")
 
 	if !strings.Contains(result, "1 finding was reviewed and dismissed") {
 		t.Error("expected singular 'finding was'")
@@ -541,7 +541,7 @@ func TestRenderDismissedLGTMMarkdown_UntitledFallback(t *testing.T) {
 	}
 	stats := domain.ReviewStats{TotalReviewers: 2, SuccessfulReviewers: 2}
 
-	result := RenderDismissedLGTMMarkdown(findings, stats)
+	result := RenderDismissedLGTMMarkdown(findings, stats, "dev")
 
 	if !strings.Contains(result, "Untitled") {
 		t.Error("expected 'Untitled' fallback for empty title")

@@ -114,7 +114,7 @@ func handleLGTM(ctx context.Context, allFindings []domain.Finding, stats domain.
 		reviewerComments[f.ReviewerID] = f.Text
 	}
 
-	lgtmBody := runner.RenderLGTMMarkdown(stats.TotalReviewers, stats.SuccessfulReviewers, reviewerComments)
+	lgtmBody := runner.RenderLGTMMarkdown(stats.TotalReviewers, stats.SuccessfulReviewers, reviewerComments, version)
 	pr := getPRContext(ctx)
 
 	if err := confirmAndSubmitLGTM(ctx, lgtmBody, pr, logger); err != nil {
@@ -143,7 +143,7 @@ func handleFindings(ctx context.Context, grouped domain.GroupedFindings, aggrega
 		if len(selectedFindings) == 0 {
 			logger.Log("No findings selected to post.", terminal.StyleDim)
 
-			lgtmBody := runner.RenderDismissedLGTMMarkdown(grouped.Findings, stats)
+			lgtmBody := runner.RenderDismissedLGTMMarkdown(grouped.Findings, stats, version)
 			pr := getPRContext(ctx)
 			// Best-effort: LGTM posting is optional when dismissing findings.
 			// Auth/network errors should not fail the run.
@@ -158,7 +158,7 @@ func handleFindings(ctx context.Context, grouped domain.GroupedFindings, aggrega
 		Findings: selectedFindings,
 		Info:     grouped.Info,
 	}
-	reviewBody := runner.RenderCommentMarkdown(filteredGrouped, stats.TotalReviewers, aggregated)
+	reviewBody := runner.RenderCommentMarkdown(filteredGrouped, stats.TotalReviewers, aggregated, version)
 
 	if err := confirmAndSubmitReview(ctx, reviewBody, pr, logger); err != nil {
 		return domain.ExitError

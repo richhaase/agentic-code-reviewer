@@ -13,8 +13,8 @@ import (
 var _ io.Closer = (*cmdReader)(nil)
 
 // cmdReader wraps an io.Reader and ensures the command is waited on when closed.
-// It implements io.Closer, ExitCoder, and StderrProvider to provide process exit
-// code and stderr output after Close().
+// It implements io.Closer and provides process exit code and stderr output
+// after Close().
 // This type is used by all agent implementations (codex, claude, gemini) to manage
 // subprocess lifecycle.
 type cmdReader struct {
@@ -68,14 +68,14 @@ func (r *cmdReader) Close() error {
 	return nil
 }
 
-// ExitCode implements ExitCoder and returns the process exit code.
+// ExitCode returns the process exit code.
 // Only valid after Close() has been called. Returns 0 if process succeeded,
 // -1 if process could not be waited on, or the actual exit code otherwise.
 func (r *cmdReader) ExitCode() int {
 	return r.exitCode
 }
 
-// Stderr implements StderrProvider and returns captured stderr output.
+// Stderr returns captured stderr output.
 // Only valid after Close() has been called. Returns empty string if no
 // stderr was captured or if stderr buffer was not configured.
 func (r *cmdReader) Stderr() string {

@@ -201,6 +201,7 @@ func RenderCommentMarkdown(
 	grouped domain.GroupedFindings,
 	totalReviewers int,
 	aggregated []domain.AggregatedFinding,
+	version string,
 ) string {
 	var lines []string
 	lines = append(lines, "## Findings")
@@ -248,11 +249,14 @@ func RenderCommentMarkdown(
 		lines = append(lines, "</details>")
 	}
 
+	lines = append(lines, "")
+	lines = append(lines, renderFooter(version))
+
 	return strings.Join(lines, "\n")
 }
 
 // RenderLGTMMarkdown renders approval comment markdown.
-func RenderLGTMMarkdown(totalReviewers, successfulReviewers int, reviewerComments map[int]string) string {
+func RenderLGTMMarkdown(totalReviewers, successfulReviewers int, reviewerComments map[int]string, version string) string {
 	var lines []string
 	lines = append(lines, "## LGTM :white_check_mark:")
 	lines = append(lines, "")
@@ -277,11 +281,14 @@ func RenderLGTMMarkdown(totalReviewers, successfulReviewers int, reviewerComment
 		lines = append(lines, "</details>")
 	}
 
+	lines = append(lines, "")
+	lines = append(lines, renderFooter(version))
+
 	return strings.Join(lines, "\n")
 }
 
 // RenderDismissedLGTMMarkdown renders LGTM markdown for when a user dismisses all findings.
-func RenderDismissedLGTMMarkdown(findings []domain.FindingGroup, stats domain.ReviewStats) string {
+func RenderDismissedLGTMMarkdown(findings []domain.FindingGroup, stats domain.ReviewStats, version string) string {
 	var lines []string
 	lines = append(lines, "## LGTM :white_check_mark:")
 	lines = append(lines, "")
@@ -310,7 +317,18 @@ func RenderDismissedLGTMMarkdown(findings []domain.FindingGroup, stats domain.Re
 	lines = append(lines, "")
 	lines = append(lines, "</details>")
 
+	lines = append(lines, "")
+	lines = append(lines, renderFooter(version))
+
 	return strings.Join(lines, "\n")
+}
+
+// renderFooter returns a small attribution line for GitHub comments.
+func renderFooter(version string) string {
+	if version == "" {
+		return "_Posted by [acr](https://github.com/richhaase/agentic-code-reviewer)_"
+	}
+	return fmt.Sprintf("_Posted by [acr](https://github.com/richhaase/agentic-code-reviewer) %s_", version)
 }
 
 func collectSourceIndices(groups []domain.FindingGroup) []int {

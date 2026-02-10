@@ -7,10 +7,11 @@ import (
 	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
+	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
 func TestFilter_New(t *testing.T) {
-	f := New("codex", 75, false)
+	f := New("codex", 75, false, terminal.NewLogger())
 	if f == nil {
 		t.Fatal("New returned nil")
 	}

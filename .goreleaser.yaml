@@ -126,7 +126,7 @@ homebrew_casks:
       Documentation: https://github.com/richhaase/agentic-code-reviewer#readme
 
       ACR runs parallel code reviews using AI agents and summarizes findings.
-      It requires the 'codex' CLI to be installed.
+      It requires at least one supported LLM CLI: codex, claude, or gemini.
 
 # Sign and notarize macOS binaries
 notarize:

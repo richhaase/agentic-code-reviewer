@@ -4,23 +4,25 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
+	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
 // Summarizer summarizes PR feedback for the FP filter.
 type Summarizer struct {
 	agentName string
 	verbose   bool
+	logger    *terminal.Logger
 }
 
 // NewSummarizer creates a new PR feedback summarizer.
-func NewSummarizer(agentName string, verbose bool) *Summarizer {
+func NewSummarizer(agentName string, verbose bool, logger *terminal.Logger) *Summarizer {
 	return &Summarizer{
 		agentName: agentName,
 		verbose:   verbose,
+		logger:    logger,
 	}
 }
 
@@ -59,7 +61,7 @@ func (s *Summarizer) Summarize(ctx context.Context, prNumber string) (string, er
 	}
 	defer func() {
 		if err := execResult.Close(); err != nil && s.verbose {
-			log.Printf("[feedback] close error (non-fatal): %v", err)
+			s.logger.Logf(terminal.StyleDim, "feedback close error (non-fatal): %v", err)
 		}
 	}()
 
