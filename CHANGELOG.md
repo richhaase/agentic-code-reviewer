@@ -4,6 +4,14 @@ All notable changes to ACR are documented in this file.
 
 This changelog is generated from git tag annotations.
 
+## [v0.11.5] - 2026-02-09
+
+# v0.11.5
+
+### Features
+
+- Fetch current branch from remote before review (#113)
+
 ## [v0.11.4] - 2026-02-09
 
 # v0.11.4
