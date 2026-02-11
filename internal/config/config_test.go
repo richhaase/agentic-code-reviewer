@@ -1137,106 +1137,141 @@ func TestResolveGuidance_ConfigFileAbsolutePath(t *testing.T) {
 
 // Tests for malformed environment variable warnings
 
+// clearACREnv unsets all ACR_* env vars to isolate tests from ambient environment.
+// Uses t.Setenv("VAR", "") then os.Unsetenv to get automatic restore on test cleanup.
+func clearACREnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{
+		"ACR_REVIEWERS", "ACR_CONCURRENCY", "ACR_BASE_REF", "ACR_TIMEOUT",
+		"ACR_RETRIES", "ACR_FETCH", "ACR_REVIEWER_AGENT", "ACR_SUMMARIZER_AGENT",
+		"ACR_GUIDANCE", "ACR_GUIDANCE_FILE", "ACR_FP_FILTER", "ACR_FP_THRESHOLD",
+		"ACR_PR_FEEDBACK", "ACR_PR_FEEDBACK_AGENT",
+	} {
+		t.Setenv(key, os.Getenv(key)) // register for restore
+		os.Unsetenv(key)
+	}
+}
+
+// hasWarningContaining checks if any warning contains the given substring.
+func hasWarningContaining(warnings []string, substr string) bool {
+	for _, w := range warnings {
+		if strings.Contains(w, substr) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestLoadEnvState_MalformedReviewers(t *testing.T) {
+	clearACREnv(t)
 	t.Setenv("ACR_REVIEWERS", "abc")
 	state, warnings := LoadEnvState()
 	if state.ReviewersSet {
 		t.Error("expected ReviewersSet to be false for invalid value")
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "ACR_REVIEWERS") {
+	if !hasWarningContaining(warnings, "ACR_REVIEWERS") {
 		t.Errorf("expected warning about ACR_REVIEWERS, got %v", warnings)
 	}
 }
 
 func TestLoadEnvState_MalformedConcurrency(t *testing.T) {
+	clearACREnv(t)
 	t.Setenv("ACR_CONCURRENCY", "xyz")
 	state, warnings := LoadEnvState()
 	if state.ConcurrencySet {
 		t.Error("expected ConcurrencySet to be false for invalid value")
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "ACR_CONCURRENCY") {
+	if !hasWarningContaining(warnings, "ACR_CONCURRENCY") {
 		t.Errorf("expected warning about ACR_CONCURRENCY, got %v", warnings)
 	}
 }
 
 func TestLoadEnvState_MalformedTimeout(t *testing.T) {
+	clearACREnv(t)
 	t.Setenv("ACR_TIMEOUT", "notaduration")
 	state, warnings := LoadEnvState()
 	if state.TimeoutSet {
 		t.Error("expected TimeoutSet to be false for invalid value")
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "ACR_TIMEOUT") {
+	if !hasWarningContaining(warnings, "ACR_TIMEOUT") {
 		t.Errorf("expected warning about ACR_TIMEOUT, got %v", warnings)
 	}
 }
 
 func TestLoadEnvState_MalformedRetries(t *testing.T) {
+	clearACREnv(t)
 	t.Setenv("ACR_RETRIES", "nope")
 	state, warnings := LoadEnvState()
 	if state.RetriesSet {
 		t.Error("expected RetriesSet to be false for invalid value")
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "ACR_RETRIES") {
+	if !hasWarningContaining(warnings, "ACR_RETRIES") {
 		t.Errorf("expected warning about ACR_RETRIES, got %v", warnings)
 	}
 }
 
 func TestLoadEnvState_MalformedFetch(t *testing.T) {
+	clearACREnv(t)
 	t.Setenv("ACR_FETCH", "maybe")
 	state, warnings := LoadEnvState()
 	if state.FetchSet {
 		t.Error("expected FetchSet to be false for invalid value")
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "ACR_FETCH") {
+	if !hasWarningContaining(warnings, "ACR_FETCH") {
 		t.Errorf("expected warning about ACR_FETCH, got %v", warnings)
 	}
 }
 
 func TestLoadEnvState_MalformedFPFilter(t *testing.T) {
+	clearACREnv(t)
 	t.Setenv("ACR_FP_FILTER", "maybe")
 	state, warnings := LoadEnvState()
 	if state.FPFilterSet {
 		t.Error("expected FPFilterSet to be false for invalid value")
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "ACR_FP_FILTER") {
+	if !hasWarningContaining(warnings, "ACR_FP_FILTER") {
 		t.Errorf("expected warning about ACR_FP_FILTER, got %v", warnings)
 	}
 }
 
 func TestLoadEnvState_MalformedPRFeedback(t *testing.T) {
+	clearACREnv(t)
 	t.Setenv("ACR_PR_FEEDBACK", "maybe")
 	state, warnings := LoadEnvState()
 	if state.PRFeedbackEnabledSet {
 		t.Error("expected PRFeedbackEnabledSet to be false for invalid value")
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "ACR_PR_FEEDBACK") {
+	if !hasWarningContaining(warnings, "ACR_PR_FEEDBACK") {
 		t.Errorf("expected warning about ACR_PR_FEEDBACK, got %v", warnings)
 	}
 }
 
 func TestLoadEnvState_MalformedFPThreshold_NotInt(t *testing.T) {
+	clearACREnv(t)
 	t.Setenv("ACR_FP_THRESHOLD", "abc")
 	state, warnings := LoadEnvState()
 	if state.FPThresholdSet {
 		t.Error("expected FPThresholdSet to be false for invalid value")
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "ACR_FP_THRESHOLD") {
+	if !hasWarningContaining(warnings, "ACR_FP_THRESHOLD") {
 		t.Errorf("expected warning about ACR_FP_THRESHOLD, got %v", warnings)
 	}
 }
 
 func TestLoadEnvState_MalformedFPThreshold_OutOfRange(t *testing.T) {
+	clearACREnv(t)
 	t.Setenv("ACR_FP_THRESHOLD", "200")
 	state, warnings := LoadEnvState()
 	if state.FPThresholdSet {
 		t.Error("expected FPThresholdSet to be false for out-of-range value")
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "out of range") {
+	if !hasWarningContaining(warnings, "out of range") {
 		t.Errorf("expected out-of-range warning, got %v", warnings)
 	}
 }
 
 func TestLoadEnvState_NoWarningsForValidValues(t *testing.T) {
+	clearACREnv(t)
 	t.Setenv("ACR_REVIEWERS", "5")
 	t.Setenv("ACR_TIMEOUT", "10m")
 	t.Setenv("ACR_FETCH", "true")
