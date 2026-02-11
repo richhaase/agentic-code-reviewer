@@ -62,14 +62,19 @@ func TestClaudeSummaryParser_ExtractText(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "structured_output present",
-			input:   `{"result":"text","structured_output":{"evaluations":[{"id":0,"fp_score":90}]}}`,
+			name:    "result preferred over structured_output",
+			input:   `{"result":"{\"evaluations\":[{\"id\":0,\"fp_score\":90}]}","structured_output":{"findings":[],"info":[]}}`,
 			wantSub: "evaluations",
 		},
 		{
-			name:    "result fallback",
+			name:    "result only",
 			input:   `{"result":"{\"evaluations\":[]}"}`,
 			wantSub: "evaluations",
+		},
+		{
+			name:    "structured_output fallback when result empty",
+			input:   `{"result":"","structured_output":{"findings":[],"info":[]}}`,
+			wantSub: "findings",
 		},
 		{
 			name:    "both empty",
@@ -167,7 +172,7 @@ func TestCodexSummaryParser_Parse_StillWorks(t *testing.T) {
 }
 
 func TestClaudeSummaryParser_Parse_StillWorks(t *testing.T) {
-	input := `{"result":"","structured_output":{"findings":[{"title":"test","summary":"s","messages":["m"],"reviewer_count":1,"sources":[0]}],"info":[]}}`
+	input := `{"result":"{\"findings\":[{\"title\":\"test\",\"summary\":\"s\",\"messages\":[\"m\"],\"reviewer_count\":1,\"sources\":[0]}],\"info\":[]}","structured_output":{"findings":[],"info":[]}}`
 
 	p := NewClaudeSummaryParser()
 	grouped, err := p.Parse([]byte(input))

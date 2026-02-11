@@ -58,6 +58,64 @@ type SummaryParser interface {
 	ExtractText(data []byte) (string, error)
 }
 
+// ExtractJSON attempts to extract a JSON object or array from text that may
+// contain surrounding prose. Tries in order:
+// 1. The text itself as-is (already clean JSON)
+// 2. After stripping markdown code fences
+// 3. The first { ... } or [ ... ] substring (for JSON embedded in prose)
+// Returns the extracted JSON string, or the original text if no JSON found.
+func ExtractJSON(s string) string {
+	s = strings.TrimSpace(s)
+
+	// Already valid JSON start?
+	if len(s) > 0 && (s[0] == '{' || s[0] == '[') {
+		return s
+	}
+
+	// Try stripping markdown code fences
+	stripped := StripMarkdownCodeFence(s)
+	if len(stripped) > 0 && (stripped[0] == '{' || stripped[0] == '[') {
+		return stripped
+	}
+
+	// Try to find JSON object or array in the text
+	if idx := strings.Index(s, "{"); idx != -1 {
+		// Find the matching closing brace
+		depth := 0
+		inString := false
+		escape := false
+		for i := idx; i < len(s); i++ {
+			if escape {
+				escape = false
+				continue
+			}
+			ch := s[i]
+			if ch == '\\' && inString {
+				escape = true
+				continue
+			}
+			if ch == '"' {
+				inString = !inString
+				continue
+			}
+			if inString {
+				continue
+			}
+			switch ch {
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if depth == 0 {
+					return s[idx : i+1]
+				}
+			}
+		}
+	}
+
+	return s
+}
+
 // StripMarkdownCodeFence removes markdown code fences from a string.
 // Handles ```json\n...\n``` or ```\n...\n``` patterns, as well as
 // single-line fences like ```json{...}```.

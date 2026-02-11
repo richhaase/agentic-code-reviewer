@@ -157,10 +157,8 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 		return skippedResult(grouped, start, "response extraction failed: "+err.Error())
 	}
 
-	cleanedOutput := agent.StripMarkdownCodeFence(responseText)
-
 	var response evaluationResponse
-	if err := json.Unmarshal([]byte(cleanedOutput), &response); err != nil {
+	if err := json.Unmarshal([]byte(responseText), &response); err != nil {
 		r := skippedResult(grouped, start, "response parse failed: "+err.Error())
 		r.EvalErrors = len(grouped.Findings)
 		return r

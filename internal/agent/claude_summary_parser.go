@@ -24,22 +24,32 @@ func NewClaudeSummaryParser() *ClaudeSummaryParser {
 }
 
 // ExtractText extracts the raw response text from claude JSON output.
-// Returns the structured_output as raw JSON if present, otherwise falls back to result field.
+// Prefers the result field (which contains the LLM's actual text response to the prompt)
+// over structured_output (which is constrained by --json-schema to a fixed schema).
+// This allows callers like the FP filter to get the response in whatever format
+// the prompt requested, rather than being forced into the summarizer's schema.
 func (p *ClaudeSummaryParser) ExtractText(data []byte) (string, error) {
 	var wrapper claudeTextWrapper
 	if err := json.Unmarshal(data, &wrapper); err != nil {
 		return "", fmt.Errorf("failed to parse claude output: %w", err)
 	}
 
-	if wrapper.StructuredOutput != nil {
-		return strings.TrimSpace(string(*wrapper.StructuredOutput)), nil
-	}
-
+	// Prefer result field — it contains the LLM's actual response text,
+	// which respects the caller's prompt format (not the hardcoded schema).
+	// Use ExtractJSON to handle cases where Claude wraps JSON in prose text.
 	if wrapper.Result != "" {
-		return StripMarkdownCodeFence(wrapper.Result), nil
+		return ExtractJSON(wrapper.Result), nil
 	}
 
-	return "", fmt.Errorf("claude output has no structured_output or result field")
+	// Fall back to structured_output if result is empty
+	if wrapper.StructuredOutput != nil {
+		raw := strings.TrimSpace(string(*wrapper.StructuredOutput))
+		if raw != "null" && raw != "" {
+			return raw, nil
+		}
+	}
+
+	return "", fmt.Errorf("claude output has no result or structured_output field")
 }
 
 // Parse parses the summary output and returns grouped findings.
