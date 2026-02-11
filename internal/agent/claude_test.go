@@ -351,7 +351,8 @@ func TestClaudeAgent_ExecuteSummary_Args(t *testing.T) {
 	if !strings.Contains(outputStr, "ARG:json") {
 		t.Errorf("expected json in args, got:\n%s", outputStr)
 	}
-	if !strings.Contains(outputStr, "ARG:--json-schema") {
-		t.Errorf("expected --json-schema in args, got:\n%s", outputStr)
+	// Verify --json-schema is NOT used (it constrains all ExecuteSummary callers to one schema)
+	if strings.Contains(outputStr, "ARG:--json-schema") {
+		t.Errorf("unexpected --json-schema in args — ExecuteSummary must not constrain output format")
 	}
 }
