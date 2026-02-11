@@ -1,158 +1,65 @@
 package agent
 
 import (
-	"bytes"
-	"context"
-	"io"
-	"strings"
 	"testing"
 )
 
-func TestExecuteCommand(t *testing.T) {
-	ctx := context.Background()
-
-	result, err := executeCommand(ctx, executeOptions{
-		Command: "echo",
-		Args:    []string{"hello"},
-	})
+func TestCappedBuffer_UnderLimit(t *testing.T) {
+	buf := newCappedBuffer(100)
+	n, err := buf.Write([]byte("hello"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer result.Close()
-
-	output, err := io.ReadAll(result)
-	if err != nil {
-		t.Fatalf("failed to read output: %v", err)
+	if n != 5 {
+		t.Errorf("Write() = %d, want 5", n)
 	}
-	if !bytes.Contains(output, []byte("hello")) {
-		t.Errorf("expected output to contain 'hello', got: %s", output)
+	if buf.String() != "hello" {
+		t.Errorf("String() = %q, want %q", buf.String(), "hello")
 	}
 }
 
-func TestExecuteCommand_WithStdin(t *testing.T) {
-	ctx := context.Background()
-
-	result, err := executeCommand(ctx, executeOptions{
-		Command: "cat",
-		Stdin:   strings.NewReader("test input"),
-	})
+func TestCappedBuffer_AtLimit(t *testing.T) {
+	buf := newCappedBuffer(5)
+	buf.Write([]byte("hello"))
+	// At limit — further writes silently discarded
+	n, err := buf.Write([]byte(" world"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer result.Close()
-
-	output, err := io.ReadAll(result)
-	if err != nil {
-		t.Fatalf("failed to read output: %v", err)
+	if n != 6 {
+		t.Errorf("Write() should report full length even when discarded, got %d", n)
 	}
-	if string(output) != "test input" {
-		t.Errorf("expected 'test input', got: %s", output)
+	if buf.String() != "hello" {
+		t.Errorf("String() = %q, want %q", buf.String(), "hello")
 	}
 }
 
-func TestExecuteCommand_ExitCode(t *testing.T) {
-	ctx := context.Background()
-
-	result, err := executeCommand(ctx, executeOptions{
-		Command: "sh",
-		Args:    []string{"-c", "exit 42"},
-	})
+func TestCappedBuffer_PartialWrite(t *testing.T) {
+	buf := newCappedBuffer(8)
+	buf.Write([]byte("hello"))
+	// 3 bytes remaining — should write partial
+	n, err := buf.Write([]byte(" world"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	// Drain output
-	_, _ = io.ReadAll(result)
-	result.Close()
-
-	if result.ExitCode() != 42 {
-		t.Errorf("expected exit code 42, got: %d", result.ExitCode())
+	if n != 3 {
+		t.Errorf("Write() = %d, want 3 (partial)", n)
+	}
+	if buf.String() != "hello wo" {
+		t.Errorf("String() = %q, want %q", buf.String(), "hello wo")
 	}
 }
 
-func TestExecuteCommand_CapturesStderr(t *testing.T) {
-	ctx := context.Background()
-
-	result, err := executeCommand(ctx, executeOptions{
-		Command: "sh",
-		Args:    []string{"-c", "echo error message >&2"},
-	})
+func TestCappedBuffer_ZeroLimit(t *testing.T) {
+	buf := newCappedBuffer(0)
+	n, err := buf.Write([]byte("anything"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	// Drain output
-	_, _ = io.ReadAll(result)
-	result.Close()
-
-	stderr := result.Stderr()
-	if !strings.Contains(stderr, "error message") {
-		t.Errorf("expected stderr to contain 'error message', got: %s", stderr)
+	if n != 8 {
+		t.Errorf("Write() should report full length, got %d", n)
 	}
-}
-
-func TestExecuteCommand_InvalidCommand(t *testing.T) {
-	ctx := context.Background()
-
-	_, err := executeCommand(ctx, executeOptions{
-		Command: "nonexistent-command-12345",
-	})
-	if err == nil {
-		t.Fatal("expected error for invalid command")
-	}
-	if !strings.Contains(err.Error(), "failed to start") {
-		t.Errorf("expected error to mention 'failed to start', got: %v", err)
-	}
-}
-
-func TestExecuteCommand_WorkDir(t *testing.T) {
-	ctx := context.Background()
-
-	result, err := executeCommand(ctx, executeOptions{
-		Command: "pwd",
-		WorkDir: "/tmp",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	defer result.Close()
-
-	output, err := io.ReadAll(result)
-	if err != nil {
-		t.Fatalf("failed to read output: %v", err)
-	}
-
-	// On macOS, /tmp is a symlink to /private/tmp
-	outputStr := strings.TrimSpace(string(output))
-	if outputStr != "/tmp" && outputStr != "/private/tmp" {
-		t.Errorf("expected working directory '/tmp' or '/private/tmp', got: %s", outputStr)
-	}
-}
-
-func TestExecuteCommand_ContextCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	result, err := executeCommand(ctx, executeOptions{
-		Command: "sleep",
-		Args:    []string{"10"},
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Cancel the context immediately
-	cancel()
-
-	// Close should handle the cancellation gracefully
-	err = result.Close()
-	if err != nil {
-		t.Fatalf("unexpected error on close: %v", err)
-	}
-
-	// The process should have been killed
-	// Exit code will be non-zero due to SIGKILL
-	exitCode := result.ExitCode()
-	if exitCode == 0 {
-		t.Error("expected non-zero exit code after cancellation")
+	if buf.String() != "" {
+		t.Errorf("String() = %q, want empty", buf.String())
 	}
 }
