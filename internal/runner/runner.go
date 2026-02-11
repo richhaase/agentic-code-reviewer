@@ -22,16 +22,17 @@ const maxFindingPreviewLength = 120
 
 // Config holds the runner configuration.
 type Config struct {
-	Reviewers   int
-	Concurrency int
-	BaseRef     string
-	Timeout     time.Duration
-	Retries     int
-	Verbose     bool
-	WorkDir     string
-	Guidance    string
-	UseRefFile  bool
-	Diff        string // Pre-computed git diff (generated once, shared across reviewers)
+	Reviewers       int
+	Concurrency     int
+	BaseRef         string
+	Timeout         time.Duration
+	Retries         int
+	Verbose         bool
+	WorkDir         string
+	Guidance        string
+	UseRefFile      bool
+	Diff            string // Pre-computed git diff (generated once, shared across reviewers)
+	DiffPrecomputed bool   // Whether Diff was pre-computed (true even if Diff is empty)
 }
 
 // Runner executes parallel code reviews.
@@ -198,14 +199,15 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 
 	// Create review configuration
 	reviewConfig := &agent.ReviewConfig{
-		BaseRef:    r.config.BaseRef,
-		Timeout:    r.config.Timeout,
-		WorkDir:    r.config.WorkDir,
-		Verbose:    r.config.Verbose,
-		Guidance:   r.config.Guidance,
-		ReviewerID: strconv.Itoa(reviewerID),
-		UseRefFile: r.config.UseRefFile,
-		Diff:       r.config.Diff,
+		BaseRef:         r.config.BaseRef,
+		Timeout:         r.config.Timeout,
+		WorkDir:         r.config.WorkDir,
+		Verbose:         r.config.Verbose,
+		Guidance:        r.config.Guidance,
+		ReviewerID:      strconv.Itoa(reviewerID),
+		UseRefFile:      r.config.UseRefFile,
+		Diff:            r.config.Diff,
+		DiffPrecomputed: r.config.DiffPrecomputed,
 	}
 
 	// Execute the review

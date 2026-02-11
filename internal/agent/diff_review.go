@@ -26,7 +26,7 @@ type diffReviewConfig struct {
 func executeDiffBasedReview(ctx context.Context, config *ReviewConfig, dc diffReviewConfig) (*ExecutionResult, error) {
 	// Use pre-computed diff if available, otherwise fetch it
 	diff := config.Diff
-	if diff == "" {
+	if !config.DiffPrecomputed {
 		var err error
 		diff, err = git.GetDiff(ctx, config.BaseRef, config.WorkDir)
 		if err != nil {

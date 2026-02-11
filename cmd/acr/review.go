@@ -84,34 +84,42 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		}
 	}
 
-	// Generate the diff once and share it across all reviewers.
-	// Codex ignores this (it has built-in diff via --base), but Claude and Gemini
-	// would otherwise each run git diff independently per reviewer.
-	diff, err := git.GetDiff(ctx, resolvedBaseRef, workDir)
-	if err != nil {
-		logger.Logf(terminal.StyleError, "Failed to get diff: %v", err)
-		return domain.ExitError
+	// Pre-compute the git diff once and share it across all reviewers.
+	// Skip for codex-only runs since Codex has built-in diff via --base.
+	var diff string
+	var diffPrecomputed bool
+	needsDiff := agent.AgentsNeedDiff(reviewAgents)
+	if needsDiff {
+		var err error
+		diff, err = git.GetDiff(ctx, resolvedBaseRef, workDir)
+		if err != nil {
+			logger.Logf(terminal.StyleError, "Failed to get diff: %v", err)
+			return domain.ExitError
+		}
+		diffPrecomputed = true
+
+		if verbose {
+			logger.Logf(terminal.StyleDim, "Diff size: %d bytes", len(diff))
+		}
 	}
 
-	if verbose {
-		logger.Logf(terminal.StyleDim, "Diff size: %d bytes", len(diff))
-		if useRefFile {
-			logger.Logf(terminal.StyleDim, "Ref-file mode enabled")
-		}
+	if verbose && useRefFile {
+		logger.Logf(terminal.StyleDim, "Ref-file mode enabled")
 	}
 
 	// Run reviewers
 	r, err := runner.New(runner.Config{
-		Reviewers:   reviewers,
-		Concurrency: concurrency,
-		BaseRef:     resolvedBaseRef,
-		Timeout:     timeout,
-		Retries:     retries,
-		Verbose:     verbose,
-		WorkDir:     workDir,
-		Guidance:    guidance,
-		UseRefFile:  useRefFile,
-		Diff:        diff,
+		Reviewers:       reviewers,
+		Concurrency:     concurrency,
+		BaseRef:         resolvedBaseRef,
+		Timeout:         timeout,
+		Retries:         retries,
+		Verbose:         verbose,
+		WorkDir:         workDir,
+		Guidance:        guidance,
+		UseRefFile:      useRefFile,
+		Diff:            diff,
+		DiffPrecomputed: diffPrecomputed,
 	}, reviewAgents, logger)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Runner initialization failed: %v", err)
