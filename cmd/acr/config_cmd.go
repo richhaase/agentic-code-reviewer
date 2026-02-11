@@ -3,11 +3,13 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/config"
+	"github.com/richhaase/agentic-code-reviewer/internal/git"
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
@@ -70,8 +72,15 @@ func newConfigInitCmd() *cobra.Command {
 		Short: "Generate a starter .acr.yaml file",
 		Long:  "Create a commented .acr.yaml configuration file in the current directory.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if _, err := os.Stat(config.ConfigFileName); err == nil {
-				return fmt.Errorf("%s already exists; remove it first or edit it directly", config.ConfigFileName)
+			// Write to git repo root (same location runtime loading uses)
+			repoRoot, err := git.GetRoot()
+			if err != nil {
+				return fmt.Errorf("not in a git repository: %w", err)
+			}
+			configPath := filepath.Join(repoRoot, config.ConfigFileName)
+
+			if _, err := os.Stat(configPath); err == nil {
+				return fmt.Errorf("%s already exists; remove it first or edit it directly", configPath)
 			}
 
 			starter := `# acr configuration file
@@ -120,11 +129,11 @@ func newConfigInitCmd() *cobra.Command {
 #   enabled: true
 #   agent: ""
 `
-			if err := os.WriteFile(config.ConfigFileName, []byte(starter), 0644); err != nil {
-				return fmt.Errorf("failed to write %s: %w", config.ConfigFileName, err)
+			if err := os.WriteFile(configPath, []byte(starter), 0644); err != nil {
+				return fmt.Errorf("failed to write %s: %w", configPath, err)
 			}
 
-			fmt.Printf("Created %s with default settings (commented out).\n", config.ConfigFileName)
+			fmt.Printf("Created %s with default settings (commented out).\n", configPath)
 			return nil
 		},
 	}

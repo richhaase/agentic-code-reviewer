@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -13,6 +14,11 @@ func TestConfigInit_CreatesFile(t *testing.T) {
 	origDir, _ := os.Getwd()
 	defer os.Chdir(origDir)
 	os.Chdir(dir)
+
+	// Init a git repo so git.GetRoot() works
+	if out, err := exec.Command("git", "init").CombinedOutput(); err != nil {
+		t.Fatalf("git init failed: %v: %s", err, out)
+	}
 
 	cmd := newConfigCmd()
 	cmd.SetArgs([]string{"init"})
@@ -32,6 +38,11 @@ func TestConfigInit_FailsIfExists(t *testing.T) {
 	origDir, _ := os.Getwd()
 	defer os.Chdir(origDir)
 	os.Chdir(dir)
+
+	// Init a git repo so git.GetRoot() works
+	if out, err := exec.Command("git", "init").CombinedOutput(); err != nil {
+		t.Fatalf("git init failed: %v: %s", err, out)
+	}
 
 	// Create the file first
 	configPath := filepath.Join(dir, config.ConfigFileName)
