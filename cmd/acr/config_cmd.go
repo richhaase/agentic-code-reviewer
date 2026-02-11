@@ -70,7 +70,7 @@ func newConfigInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
 		Short: "Generate a starter .acr.yaml file",
-		Long:  "Create a commented .acr.yaml configuration file in the current directory.",
+		Long:  "Create a commented .acr.yaml configuration file in the git repository root.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Write to git repo root (same location runtime loading uses)
 			repoRoot, err := git.GetRoot()
