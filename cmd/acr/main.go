@@ -396,11 +396,19 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	summarizerAgentName = resolved.SummarizerAgent
 
 	// Resolve phase timeouts (precedence: flags > env vars > defaults)
+	defaultPhaseTimeout := 5 * time.Minute
 	if !cmd.Flags().Changed("summarizer-timeout") {
-		summarizerTimeout = getEnvDuration("ACR_SUMMARIZER_TIMEOUT", 5*time.Minute)
+		summarizerTimeout = getEnvDuration("ACR_SUMMARIZER_TIMEOUT", defaultPhaseTimeout)
 	}
 	if !cmd.Flags().Changed("fp-filter-timeout") {
-		fpFilterTimeout = getEnvDuration("ACR_FP_FILTER_TIMEOUT", 5*time.Minute)
+		fpFilterTimeout = getEnvDuration("ACR_FP_FILTER_TIMEOUT", defaultPhaseTimeout)
+	}
+	// Ensure zero timeout doesn't create an instantly-expiring context
+	if summarizerTimeout <= 0 {
+		summarizerTimeout = defaultPhaseTimeout
+	}
+	if fpFilterTimeout <= 0 {
+		fpFilterTimeout = defaultPhaseTimeout
 	}
 
 	// For PR mode: fetch and qualify the base ref so git diff works in the detached worktree
@@ -460,6 +468,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 }
 
 // getEnvDuration reads a duration from an environment variable, returning the default if unset or invalid.
+// Logs a warning to stderr if the value is set but unparseable.
 func getEnvDuration(key string, defaultVal time.Duration) time.Duration {
 	val := os.Getenv(key)
 	if val == "" {
@@ -467,6 +476,7 @@ func getEnvDuration(key string, defaultVal time.Duration) time.Duration {
 	}
 	d, err := time.ParseDuration(val)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "[W] Invalid %s=%q (expected format like '5m' or '300s'), using default %s\n", key, val, defaultVal)
 		return defaultVal
 	}
 	return d
