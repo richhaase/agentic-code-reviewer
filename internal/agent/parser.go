@@ -63,57 +63,93 @@ type SummaryParser interface {
 // 1. The text itself as-is (already clean JSON)
 // 2. After stripping markdown code fences
 // 3. The first { ... } or [ ... ] substring (for JSON embedded in prose)
-// Returns the extracted JSON string, or the original text if no JSON found.
-func ExtractJSON(s string) string {
+// Returns an error if no JSON object or array can be found.
+func ExtractJSON(s string) (string, error) {
 	s = strings.TrimSpace(s)
 
-	// Already valid JSON start?
-	if len(s) > 0 && (s[0] == '{' || s[0] == '[') {
-		return s
-	}
-
-	// Try stripping markdown code fences
+	// Try stripping markdown code fences first
 	stripped := StripMarkdownCodeFence(s)
-	if len(stripped) > 0 && (stripped[0] == '{' || stripped[0] == '[') {
-		return stripped
-	}
 
-	// Try to find JSON object or array in the text
-	if idx := strings.Index(s, "{"); idx != -1 {
-		// Find the matching closing brace
-		depth := 0
-		inString := false
-		escape := false
-		for i := idx; i < len(s); i++ {
-			if escape {
-				escape = false
-				continue
-			}
-			ch := s[i]
-			if ch == '\\' && inString {
-				escape = true
-				continue
-			}
-			if ch == '"' {
-				inString = !inString
-				continue
-			}
-			if inString {
-				continue
-			}
-			switch ch {
-			case '{':
-				depth++
-			case '}':
-				depth--
-				if depth == 0 {
-					return s[idx : i+1]
-				}
+	// Try each candidate: stripped version first (handles code fences), then original
+	for _, candidate := range []string{stripped, s} {
+		candidate = strings.TrimSpace(candidate)
+		if len(candidate) == 0 {
+			continue
+		}
+
+		// If it starts with { or [, extract the matching balanced structure
+		// (strips any trailing prose after the JSON)
+		if candidate[0] == '{' || candidate[0] == '[' {
+			if result, ok := extractBalanced(candidate, 0); ok {
+				return result, nil
 			}
 		}
 	}
 
-	return s
+	// Search for first { or [ in the original text
+	braceIdx := strings.Index(s, "{")
+	bracketIdx := strings.Index(s, "[")
+
+	// Pick the earliest match
+	idx := braceIdx
+	if idx == -1 || (bracketIdx != -1 && bracketIdx < idx) {
+		idx = bracketIdx
+	}
+
+	if idx != -1 {
+		if result, ok := extractBalanced(s, idx); ok {
+			return result, nil
+		}
+	}
+
+	return "", fmt.Errorf("no JSON object or array found in text")
+}
+
+// extractBalanced extracts a balanced JSON object or array starting at position idx.
+// Returns the extracted substring and true if successful.
+func extractBalanced(s string, idx int) (string, bool) {
+	open := s[idx]
+	var close byte
+	switch open {
+	case '{':
+		close = '}'
+	case '[':
+		close = ']'
+	default:
+		return "", false
+	}
+
+	depth := 0
+	inString := false
+	escape := false
+	for i := idx; i < len(s); i++ {
+		if escape {
+			escape = false
+			continue
+		}
+		ch := s[i]
+		if ch == '\\' && inString {
+			escape = true
+			continue
+		}
+		if ch == '"' {
+			inString = !inString
+			continue
+		}
+		if inString {
+			continue
+		}
+		switch ch {
+		case open:
+			depth++
+		case close:
+			depth--
+			if depth == 0 {
+				return s[idx : i+1], true
+			}
+		}
+	}
+	return "", false
 }
 
 // StripMarkdownCodeFence removes markdown code fences from a string.

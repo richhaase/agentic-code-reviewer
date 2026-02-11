@@ -38,7 +38,7 @@ func (p *ClaudeSummaryParser) ExtractText(data []byte) (string, error) {
 	// which respects the caller's prompt format (not the hardcoded schema).
 	// Use ExtractJSON to handle cases where Claude wraps JSON in prose text.
 	if wrapper.Result != "" {
-		return ExtractJSON(wrapper.Result), nil
+		return ExtractJSON(wrapper.Result)
 	}
 
 	// Fall back to structured_output if result is empty

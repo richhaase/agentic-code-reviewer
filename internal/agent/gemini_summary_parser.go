@@ -35,7 +35,7 @@ func (p *GeminiSummaryParser) ExtractText(data []byte) (string, error) {
 		return "", fmt.Errorf("gemini output has empty response field")
 	}
 
-	return StripMarkdownCodeFence(wrapper.Response), nil
+	return ExtractJSON(wrapper.Response)
 }
 
 // Parse parses the summary output and returns grouped findings.

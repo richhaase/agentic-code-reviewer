@@ -69,7 +69,7 @@ func (p *CodexSummaryParser) ExtractText(data []byte) (string, error) {
 		return "", fmt.Errorf("no agent_message found in codex output (received: %s)", preview)
 	}
 
-	return StripMarkdownCodeFence(messageText), nil
+	return ExtractJSON(messageText)
 }
 
 // Parse parses the summary output and returns grouped findings.
