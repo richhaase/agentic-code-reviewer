@@ -152,8 +152,8 @@ func (r *Runner) runReviewerWithRetry(ctx context.Context, reviewerID int) domai
 
 		if attempt < r.config.Retries {
 			base := time.Duration(1<<attempt) * time.Second
-		jitter := time.Duration(rand.Int64N(int64(base / 2)))
-		delay := base + jitter
+			jitter := time.Duration(rand.Int64N(int64(base / 2)))
+			delay := base + jitter
 			reason := "failed"
 			if result.TimedOut {
 				reason = "timed out"
