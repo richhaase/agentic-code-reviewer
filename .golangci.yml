@@ -71,6 +71,8 @@ linters:
       excludes:
         # G104: Audit errors not checked - handled by errcheck exclude-functions
         - G104
+        # G115: Integer overflow conversion - safe uintptr->int for file descriptor numbers
+        - G115
         # G204: Subprocess execution - needed for codex/claude/gemini/gh CLIs
         - G204
         # G301: Directory permissions - we use standard 0755 for config dirs
