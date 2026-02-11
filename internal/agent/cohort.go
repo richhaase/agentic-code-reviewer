@@ -79,6 +79,17 @@ func CreateAgents(names []string) ([]Agent, error) {
 	return agents, nil
 }
 
+// AgentsNeedDiff returns true if any agent in the list requires a pre-computed diff.
+// Codex has built-in diff via --base and doesn't need one.
+func AgentsNeedDiff(agents []Agent) bool {
+	for _, a := range agents {
+		if a.Name() != "codex" {
+			return true
+		}
+	}
+	return false
+}
+
 // FormatDistribution returns a human-readable distribution summary.
 // Example: "2×codex, 2×claude, 1×gemini" for 5 reviewers with 3 agent types.
 func FormatDistribution(agents []Agent, totalReviewers int) string {

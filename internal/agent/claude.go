@@ -40,50 +40,18 @@ func (c *ClaudeAgent) IsAvailable() error {
 // ExecuteReview runs a code review using the claude CLI.
 // Returns an ExecutionResult for streaming the output.
 //
-// Always uses the default Claude prompt template with optional guidance.
-// The git diff is either appended to the prompt (default) or written to a
-// reference file when the diff is large or UseRefFile is set.
+// Uses the pre-computed diff from config.Diff when available, otherwise fetches it.
+// The diff is either appended to the prompt or written to a reference file for large diffs.
 func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (*ExecutionResult, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
 	}
 
-	// Get git diff
-	diff, err := GetGitDiff(ctx, config.BaseRef, config.WorkDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get diff for review: %w", err)
-	}
-
-	// Determine if we should use ref-file mode
-	useRefFile := config.UseRefFile || len(diff) > RefFileSizeThreshold
-
-	var prompt string
-	var tempFilePath string
-
-	if useRefFile && diff != "" {
-		// Write diff to a temp file in the working directory
-		absPath, err := WriteDiffToTempFile(config.WorkDir, diff)
-		if err != nil {
-			return nil, err
-		}
-		tempFilePath = absPath
-		prompt = fmt.Sprintf(DefaultClaudeRefFilePrompt, absPath)
-		prompt = RenderPrompt(prompt, config.Guidance)
-	} else {
-		// Use standard prompt with embedded diff
-		prompt = RenderPrompt(DefaultClaudePrompt, config.Guidance)
-		prompt = BuildPromptWithDiff(prompt, diff)
-	}
-
-	args := []string{"--print", "-"}
-	stdin := bytes.NewReader([]byte(prompt))
-
-	return executeCommand(ctx, executeOptions{
-		Command:      "claude",
-		Args:         args,
-		Stdin:        stdin,
-		WorkDir:      config.WorkDir,
-		TempFilePath: tempFilePath,
+	return executeDiffBasedReview(ctx, config, diffReviewConfig{
+		Command:       "claude",
+		Args:          []string{"--print", "-"},
+		DefaultPrompt: DefaultClaudePrompt,
+		RefFilePrompt: DefaultClaudeRefFilePrompt,
 	})
 }
 
