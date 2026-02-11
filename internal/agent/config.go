@@ -27,4 +27,9 @@ type ReviewConfig struct {
 	// instead of embedding the diff in the prompt. This avoids "prompt too long" errors.
 	// When false (default), ref-file mode is still used automatically if diff exceeds RefFileSizeThreshold.
 	UseRefFile bool
+
+	// Diff is the pre-computed git diff content. When set, agents use this instead of
+	// calling git diff themselves. This avoids running the same diff N times across
+	// parallel reviewers. Codex ignores this (it has built-in diff via --base).
+	Diff string
 }

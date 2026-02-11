@@ -31,6 +31,7 @@ type Config struct {
 	WorkDir     string
 	Guidance    string
 	UseRefFile  bool
+	Diff        string // Pre-computed git diff (generated once, shared across reviewers)
 }
 
 // Runner executes parallel code reviews.
@@ -152,8 +153,8 @@ func (r *Runner) runReviewerWithRetry(ctx context.Context, reviewerID int) domai
 
 		if attempt < r.config.Retries {
 			base := time.Duration(1<<attempt) * time.Second
-		jitter := time.Duration(rand.Int64N(int64(base / 2)))
-		delay := base + jitter
+			jitter := time.Duration(rand.Int64N(int64(base / 2)))
+			delay := base + jitter
 			reason := "failed"
 			if result.TimedOut {
 				reason = "timed out"
@@ -204,6 +205,7 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		Guidance:   r.config.Guidance,
 		ReviewerID: strconv.Itoa(reviewerID),
 		UseRefFile: r.config.UseRefFile,
+		Diff:       r.config.Diff,
 	}
 
 	// Execute the review

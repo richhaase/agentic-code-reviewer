@@ -28,4 +28,3 @@ type Agent interface {
 	// After Close(), ExitCode() and Stderr() return valid values.
 	ExecuteSummary(ctx context.Context, prompt string, input []byte) (*ExecutionResult, error)
 }
-

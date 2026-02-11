@@ -10,6 +10,7 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/feedback"
 	"github.com/richhaase/agentic-code-reviewer/internal/filter"
 	"github.com/richhaase/agentic-code-reviewer/internal/fpfilter"
+	"github.com/richhaase/agentic-code-reviewer/internal/git"
 	"github.com/richhaase/agentic-code-reviewer/internal/runner"
 	"github.com/richhaase/agentic-code-reviewer/internal/summarizer"
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
@@ -63,8 +64,8 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		// Update current branch from remote (fast-forward only).
 		// Skip when the base ref is relative to HEAD (e.g., HEAD~3) since
 		// fast-forwarding would change what those refs resolve to.
-		if !agent.IsRelativeRef(baseRef) {
-			branchResult := agent.UpdateCurrentBranch(ctx, workDir)
+		if !git.IsRelativeRef(baseRef) {
+			branchResult := git.UpdateCurrentBranch(ctx, workDir)
 			if branchResult.Updated && verbose {
 				logger.Logf(terminal.StyleDim, "Updated branch %s from origin", branchResult.BranchName)
 			}
@@ -74,12 +75,28 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		}
 
 		// Fetch base ref
-		result := agent.FetchRemoteRef(ctx, baseRef, workDir)
+		result := git.FetchRemoteRef(ctx, baseRef, workDir)
 		resolvedBaseRef = result.ResolvedRef
 		if result.FetchAttempted && !result.RefResolved {
 			logger.Logf(terminal.StyleWarning, "Failed to fetch %s from origin, comparing against local %s (may be stale)", baseRef, resolvedBaseRef)
 		} else if verbose && result.FetchAttempted && result.RefResolved {
 			logger.Logf(terminal.StyleDim, "Comparing against %s (fetched from origin)", resolvedBaseRef)
+		}
+	}
+
+	// Generate the diff once and share it across all reviewers.
+	// Codex ignores this (it has built-in diff via --base), but Claude and Gemini
+	// would otherwise each run git diff independently per reviewer.
+	diff, err := git.GetDiff(ctx, resolvedBaseRef, workDir)
+	if err != nil {
+		logger.Logf(terminal.StyleError, "Failed to get diff: %v", err)
+		return domain.ExitError
+	}
+
+	if verbose {
+		logger.Logf(terminal.StyleDim, "Diff size: %d bytes", len(diff))
+		if useRefFile {
+			logger.Logf(terminal.StyleDim, "Ref-file mode enabled")
 		}
 	}
 
@@ -94,17 +111,11 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		WorkDir:     workDir,
 		Guidance:    guidance,
 		UseRefFile:  useRefFile,
+		Diff:        diff,
 	}, reviewAgents, logger)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Runner initialization failed: %v", err)
 		return domain.ExitError
-	}
-
-	// Log ref-file mode if explicitly requested (verbose)
-	// Note: We don't pre-fetch the diff here to avoid duplicate GetGitDiff calls.
-	// Each agent will fetch the diff and decide on ref-file mode based on size.
-	if verbose && useRefFile {
-		logger.Logf(terminal.StyleDim, "Ref-file mode enabled")
 	}
 
 	// Start PR feedback summarizer in parallel with reviewers (if enabled, reviewing a PR, and FP filter is on)
