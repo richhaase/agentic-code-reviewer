@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -998,8 +999,11 @@ func TestLoadEnvState_ReviewerAgents(t *testing.T) {
 	}()
 
 	os.Setenv("ACR_REVIEWER_AGENT", "claude")
-	state := LoadEnvState()
+	state, warnings := LoadEnvState()
 
+	if len(warnings) != 0 {
+		t.Errorf("expected no warnings, got %v", warnings)
+	}
 	if !state.ReviewerAgentsSet {
 		t.Error("expected ReviewerAgentsSet to be true")
 	}
@@ -1020,8 +1024,11 @@ func TestLoadEnvState_ReviewerAgents_NotSet(t *testing.T) {
 	}()
 
 	os.Unsetenv("ACR_REVIEWER_AGENT")
-	state := LoadEnvState()
+	state, warnings := LoadEnvState()
 
+	if len(warnings) != 0 {
+		t.Errorf("expected no warnings, got %v", warnings)
+	}
 	if state.ReviewerAgentsSet {
 		t.Error("expected ReviewerAgentsSet to be false")
 	}
@@ -1125,5 +1132,204 @@ func TestResolveGuidance_ConfigFileAbsolutePath(t *testing.T) {
 	}
 	if got != guidanceContent {
 		t.Errorf("ResolveGuidance() = %q, want %q", got, guidanceContent)
+	}
+}
+
+// Tests for malformed environment variable warnings
+
+func TestLoadEnvState_MalformedReviewers(t *testing.T) {
+	t.Setenv("ACR_REVIEWERS", "abc")
+	state, warnings := LoadEnvState()
+	if state.ReviewersSet {
+		t.Error("expected ReviewersSet to be false for invalid value")
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "ACR_REVIEWERS") {
+		t.Errorf("expected warning about ACR_REVIEWERS, got %v", warnings)
+	}
+}
+
+func TestLoadEnvState_MalformedConcurrency(t *testing.T) {
+	t.Setenv("ACR_CONCURRENCY", "xyz")
+	state, warnings := LoadEnvState()
+	if state.ConcurrencySet {
+		t.Error("expected ConcurrencySet to be false for invalid value")
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "ACR_CONCURRENCY") {
+		t.Errorf("expected warning about ACR_CONCURRENCY, got %v", warnings)
+	}
+}
+
+func TestLoadEnvState_MalformedTimeout(t *testing.T) {
+	t.Setenv("ACR_TIMEOUT", "notaduration")
+	state, warnings := LoadEnvState()
+	if state.TimeoutSet {
+		t.Error("expected TimeoutSet to be false for invalid value")
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "ACR_TIMEOUT") {
+		t.Errorf("expected warning about ACR_TIMEOUT, got %v", warnings)
+	}
+}
+
+func TestLoadEnvState_MalformedRetries(t *testing.T) {
+	t.Setenv("ACR_RETRIES", "nope")
+	state, warnings := LoadEnvState()
+	if state.RetriesSet {
+		t.Error("expected RetriesSet to be false for invalid value")
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "ACR_RETRIES") {
+		t.Errorf("expected warning about ACR_RETRIES, got %v", warnings)
+	}
+}
+
+func TestLoadEnvState_MalformedFetch(t *testing.T) {
+	t.Setenv("ACR_FETCH", "maybe")
+	state, warnings := LoadEnvState()
+	if state.FetchSet {
+		t.Error("expected FetchSet to be false for invalid value")
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "ACR_FETCH") {
+		t.Errorf("expected warning about ACR_FETCH, got %v", warnings)
+	}
+}
+
+func TestLoadEnvState_MalformedFPFilter(t *testing.T) {
+	t.Setenv("ACR_FP_FILTER", "maybe")
+	state, warnings := LoadEnvState()
+	if state.FPFilterSet {
+		t.Error("expected FPFilterSet to be false for invalid value")
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "ACR_FP_FILTER") {
+		t.Errorf("expected warning about ACR_FP_FILTER, got %v", warnings)
+	}
+}
+
+func TestLoadEnvState_MalformedPRFeedback(t *testing.T) {
+	t.Setenv("ACR_PR_FEEDBACK", "maybe")
+	state, warnings := LoadEnvState()
+	if state.PRFeedbackEnabledSet {
+		t.Error("expected PRFeedbackEnabledSet to be false for invalid value")
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "ACR_PR_FEEDBACK") {
+		t.Errorf("expected warning about ACR_PR_FEEDBACK, got %v", warnings)
+	}
+}
+
+func TestLoadEnvState_MalformedFPThreshold_NotInt(t *testing.T) {
+	t.Setenv("ACR_FP_THRESHOLD", "abc")
+	state, warnings := LoadEnvState()
+	if state.FPThresholdSet {
+		t.Error("expected FPThresholdSet to be false for invalid value")
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "ACR_FP_THRESHOLD") {
+		t.Errorf("expected warning about ACR_FP_THRESHOLD, got %v", warnings)
+	}
+}
+
+func TestLoadEnvState_MalformedFPThreshold_OutOfRange(t *testing.T) {
+	t.Setenv("ACR_FP_THRESHOLD", "200")
+	state, warnings := LoadEnvState()
+	if state.FPThresholdSet {
+		t.Error("expected FPThresholdSet to be false for out-of-range value")
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "out of range") {
+		t.Errorf("expected out-of-range warning, got %v", warnings)
+	}
+}
+
+func TestLoadEnvState_NoWarningsForValidValues(t *testing.T) {
+	t.Setenv("ACR_REVIEWERS", "5")
+	t.Setenv("ACR_TIMEOUT", "10m")
+	t.Setenv("ACR_FETCH", "true")
+	_, warnings := LoadEnvState()
+	if len(warnings) != 0 {
+		t.Errorf("expected no warnings for valid values, got %v", warnings)
+	}
+}
+
+// Tests for deprecated reviewer_agent config key
+
+func TestLoadFromPathWithWarnings_DeprecatedReviewerAgent(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	content := `reviewer_agent: claude
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := LoadFromPathWithWarnings(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	found := false
+	for _, w := range result.Warnings {
+		if strings.Contains(w, "deprecated") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected deprecation warning, got warnings: %v", result.Warnings)
+	}
+}
+
+func TestLoadFromPathWithWarnings_DeprecatedReviewerAgentWithReviewerAgents(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	content := `reviewer_agent: claude
+reviewer_agents:
+  - codex
+  - gemini
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := LoadFromPathWithWarnings(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	hasDeprecated := false
+	hasPrecedence := false
+	for _, w := range result.Warnings {
+		if strings.Contains(w, "deprecated") {
+			hasDeprecated = true
+		}
+		if strings.Contains(w, "takes precedence") {
+			hasPrecedence = true
+		}
+	}
+	if !hasDeprecated {
+		t.Errorf("expected deprecation warning, got: %v", result.Warnings)
+	}
+	if !hasPrecedence {
+		t.Errorf("expected precedence warning, got: %v", result.Warnings)
+	}
+}
+
+func TestLoadFromPathWithWarnings_NoDeprecationWithoutReviewerAgent(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	content := `reviewer_agents:
+  - codex
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := LoadFromPathWithWarnings(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, w := range result.Warnings {
+		if strings.Contains(w, "deprecated") {
+			t.Errorf("unexpected deprecation warning: %s", w)
+		}
 	}
 }
