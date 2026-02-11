@@ -4,6 +4,17 @@ All notable changes to ACR are documented in this file.
 
 This changelog is generated from git tag annotations.
 
+## [v0.11.7] - 2026-02-11
+
+# v0.11.7
+
+## What's Changed
+
+- **feat**: Generate git diff once and share across reviewers (#138)
+- **refactor**: Move git operations from `agent/` to `git/` package
+- **refactor**: Extract shared `executeDiffBasedReview()` for Claude/Gemini
+- **chore**: Add release-acr pi skill, update claude command for protected branches
+
 ## [v0.11.6] - 2026-02-10
 
 # v0.11.6
