@@ -1,6 +1,7 @@
 package fpfilter
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -163,5 +164,286 @@ func TestBuildPromptWithStructuredFeedback(t *testing.T) {
 func TestFPPrompt_IncludesPriorFeedbackCheck(t *testing.T) {
 	if !strings.Contains(fpEvaluationPrompt, "previously discussed") {
 		t.Error("base prompt should reference checking prior feedback")
+	}
+}
+
+func TestNew_ThresholdClamping(t *testing.T) {
+	logger := terminal.NewLogger()
+	tests := []struct {
+		name              string
+		threshold         int
+		expectedThreshold int
+	}{
+		{"zero uses default", 0, DefaultThreshold},
+		{"negative uses default", -5, DefaultThreshold},
+		{"above 100 uses default", 101, DefaultThreshold},
+		{"valid 50 keeps 50", 50, 50},
+		{"minimum valid 1", 1, 1},
+		{"maximum valid 100", 100, 100},
+		{"mid-range 75", 75, 75},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := New("codex", tt.threshold, false, logger)
+			if f.threshold != tt.expectedThreshold {
+				t.Errorf("threshold = %d, want %d", f.threshold, tt.expectedThreshold)
+			}
+		})
+	}
+}
+
+func TestApply_EmptyFindings(t *testing.T) {
+	f := New("codex", 75, false, terminal.NewLogger())
+	grouped := domain.GroupedFindings{
+		Findings: []domain.FindingGroup{},
+	}
+
+	result := f.Apply(context.Background(), grouped, "")
+
+	if result == nil {
+		t.Fatal("Apply returned nil")
+	}
+	if len(result.Grouped.Findings) != 0 {
+		t.Errorf("expected 0 findings, got %d", len(result.Grouped.Findings))
+	}
+	if result.RemovedCount != 0 {
+		t.Errorf("expected 0 removed, got %d", result.RemovedCount)
+	}
+	if result.Skipped {
+		t.Error("expected Skipped to be false for empty findings")
+	}
+	if result.Duration < 0 {
+		t.Error("expected non-negative duration")
+	}
+}
+
+func TestApply_EmptyFindingsPreservesInfo(t *testing.T) {
+	f := New("codex", 75, false, terminal.NewLogger())
+	grouped := domain.GroupedFindings{
+		Findings: []domain.FindingGroup{},
+		Info: []domain.FindingGroup{
+			{Title: "info 1", Summary: "informational note"},
+			{Title: "info 2", Summary: "another note"},
+		},
+	}
+
+	result := f.Apply(context.Background(), grouped, "")
+
+	if len(result.Grouped.Info) != 2 {
+		t.Errorf("expected 2 info items preserved, got %d", len(result.Grouped.Info))
+	}
+	if result.Grouped.Info[0].Title != "info 1" {
+		t.Errorf("info[0].Title = %q, want %q", result.Grouped.Info[0].Title, "info 1")
+	}
+}
+
+func TestEvaluationRequest_Marshal(t *testing.T) {
+	req := evaluationRequest{
+		Findings: []findingInput{
+			{ID: 0, Title: "Bug A", Summary: "null ptr", Messages: []string{"fix this"}, ReviewerCount: 3},
+			{ID: 1, Title: "Bug B", Summary: "race condition", Messages: []string{"msg1", "msg2"}, ReviewerCount: 1},
+		},
+	}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+
+	findings, ok := parsed["findings"].([]interface{})
+	if !ok {
+		t.Fatal("findings field missing or wrong type")
+	}
+	if len(findings) != 2 {
+		t.Errorf("expected 2 findings, got %d", len(findings))
+	}
+
+	first := findings[0].(map[string]interface{})
+	if first["title"] != "Bug A" {
+		t.Errorf("first finding title = %q, want %q", first["title"], "Bug A")
+	}
+	if int(first["reviewer_count"].(float64)) != 3 {
+		t.Errorf("first finding reviewer_count = %v, want 3", first["reviewer_count"])
+	}
+}
+
+func TestEvaluationResponse_Unmarshal(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          string
+		wantEvalCount  int
+		wantFirstID    int
+		wantFirstScore int
+		wantErr        bool
+	}{
+		{
+			name:           "valid response with multiple evaluations",
+			input:          `{"evaluations":[{"id":0,"fp_score":80,"reasoning":"likely false positive"},{"id":1,"fp_score":30,"reasoning":"real issue"}]}`,
+			wantEvalCount:  2,
+			wantFirstID:    0,
+			wantFirstScore: 80,
+		},
+		{
+			name:          "empty evaluations array",
+			input:         `{"evaluations":[]}`,
+			wantEvalCount: 0,
+		},
+		{
+			name:           "missing fields default to zero",
+			input:          `{"evaluations":[{"id":0}]}`,
+			wantEvalCount:  1,
+			wantFirstID:    0,
+			wantFirstScore: 0,
+		},
+		{
+			name:    "invalid JSON",
+			input:   `{not valid}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var resp evaluationResponse
+			err := json.Unmarshal([]byte(tt.input), &resp)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(resp.Evaluations) != tt.wantEvalCount {
+				t.Fatalf("got %d evaluations, want %d", len(resp.Evaluations), tt.wantEvalCount)
+			}
+			if tt.wantEvalCount > 0 {
+				if resp.Evaluations[0].ID != tt.wantFirstID {
+					t.Errorf("first eval ID = %d, want %d", resp.Evaluations[0].ID, tt.wantFirstID)
+				}
+				if resp.Evaluations[0].FPScore != tt.wantFirstScore {
+					t.Errorf("first eval FPScore = %d, want %d", resp.Evaluations[0].FPScore, tt.wantFirstScore)
+				}
+			}
+		})
+	}
+}
+
+func TestFilteringLogic(t *testing.T) {
+	// This test simulates the core filtering logic from Apply() without
+	// needing an external agent. We replicate the evalMap + threshold logic.
+	threshold := 75
+
+	findings := []domain.FindingGroup{
+		{Title: "Finding 0", Summary: "At threshold", ReviewerCount: 2},       // id=0, score=75 -> removed
+		{Title: "Finding 1", Summary: "Below threshold", ReviewerCount: 1},    // id=1, score=74 -> kept
+		{Title: "Finding 2", Summary: "Above threshold", ReviewerCount: 1},    // id=2, score=90 -> removed
+		{Title: "Finding 3", Summary: "Missing evaluation", ReviewerCount: 3}, // id=3, no eval -> kept + error
+		{Title: "Finding 4", Summary: "Well below", ReviewerCount: 2},         // id=4, score=10 -> kept
+	}
+
+	infoItems := []domain.FindingGroup{
+		{Title: "Info 1", Summary: "informational"},
+	}
+
+	response := evaluationResponse{
+		Evaluations: []findingEvaluation{
+			{ID: 0, FPScore: 75, Reasoning: "exactly at threshold"},
+			{ID: 1, FPScore: 74, Reasoning: "just below threshold"},
+			{ID: 2, FPScore: 90, Reasoning: "clearly false positive"},
+			// ID 3 intentionally missing
+			{ID: 4, FPScore: 10, Reasoning: "very likely real issue"},
+		},
+	}
+
+	// Build evalMap (same as Apply)
+	evalMap := make(map[int]findingEvaluation)
+	for _, eval := range response.Evaluations {
+		evalMap[eval.ID] = eval
+	}
+
+	var kept []domain.FindingGroup
+	var removed []EvaluatedFinding
+	evalErrors := 0
+
+	for i, finding := range findings {
+		eval, ok := evalMap[i]
+		if !ok {
+			kept = append(kept, finding)
+			evalErrors++
+			continue
+		}
+		if eval.FPScore >= threshold {
+			removed = append(removed, EvaluatedFinding{
+				Finding:   finding,
+				FPScore:   eval.FPScore,
+				Reasoning: eval.Reasoning,
+			})
+		} else {
+			kept = append(kept, finding)
+		}
+	}
+
+	// Verify kept findings
+	if len(kept) != 3 {
+		t.Fatalf("expected 3 kept findings, got %d", len(kept))
+	}
+	keptTitles := map[string]bool{}
+	for _, f := range kept {
+		keptTitles[f.Title] = true
+	}
+	if !keptTitles["Finding 1"] {
+		t.Error("Finding 1 (below threshold) should be kept")
+	}
+	if !keptTitles["Finding 3"] {
+		t.Error("Finding 3 (missing eval) should be kept")
+	}
+	if !keptTitles["Finding 4"] {
+		t.Error("Finding 4 (well below) should be kept")
+	}
+
+	// Verify removed findings
+	if len(removed) != 2 {
+		t.Fatalf("expected 2 removed findings, got %d", len(removed))
+	}
+	removedTitles := map[string]bool{}
+	for _, ef := range removed {
+		removedTitles[ef.Finding.Title] = true
+	}
+	if !removedTitles["Finding 0"] {
+		t.Error("Finding 0 (at threshold) should be removed")
+	}
+	if !removedTitles["Finding 2"] {
+		t.Error("Finding 2 (above threshold) should be removed")
+	}
+
+	// Verify eval errors
+	if evalErrors != 1 {
+		t.Errorf("expected 1 eval error, got %d", evalErrors)
+	}
+
+	// Verify info items are always preserved (they never go through filtering)
+	result := &Result{
+		Grouped: domain.GroupedFindings{
+			Findings: kept,
+			Info:     infoItems,
+		},
+		Removed:      removed,
+		RemovedCount: len(removed),
+		EvalErrors:   evalErrors,
+	}
+
+	if len(result.Grouped.Info) != 1 {
+		t.Errorf("expected 1 info item preserved, got %d", len(result.Grouped.Info))
+	}
+	if result.Grouped.Info[0].Title != "Info 1" {
+		t.Errorf("info title = %q, want %q", result.Grouped.Info[0].Title, "Info 1")
 	}
 }
