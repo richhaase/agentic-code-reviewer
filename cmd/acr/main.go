@@ -120,6 +120,8 @@ Exit codes:
 	rootCmd.Flags().StringVar(&prFeedbackAgent, "pr-feedback-agent", "",
 		"Agent for PR feedback summarization (default: same as --summarizer-agent, env: ACR_PR_FEEDBACK_AGENT)")
 
+	setGroupedUsage(rootCmd)
+
 	if err := rootCmd.Execute(); err != nil {
 		// Check if this is an exit code wrapper (not a real error)
 		if exitErr, ok := err.(exitCodeError); ok {
