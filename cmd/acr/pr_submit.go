@@ -196,11 +196,11 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, logg
 		if pr.isSelfReview {
 			fmt.Print(formatPrompt(
 				"You cannot request changes on your own PR. Post review to PR "+prRef+"?",
-				"[C]omment / [S]kip:"))
+				"[C]omment (default) / [S]kip:"))
 		} else {
 			fmt.Print(formatPrompt(
 				"Post review to PR "+prRef+"?",
-				"[R]equest changes / [C]omment / [S]kip:"))
+				"[R]equest changes (default) / [C]omment / [S]kip:"))
 		}
 
 		response := readUserInput()
@@ -303,11 +303,11 @@ func promptLGTMAction(pr prContext) lgtmAction {
 	if pr.isSelfReview {
 		fmt.Print(formatPrompt(
 			"You cannot approve your own PR. Post LGTM review to PR "+prRef+"?",
-			"[C]omment / [S]kip:"))
+			"[C]omment (default) / [S]kip:"))
 	} else {
 		fmt.Print(formatPrompt(
 			"Post LGTM to PR "+prRef+"?",
-			"[A]pprove / [C]omment / [S]kip:"))
+			"[A]pprove (default) / [C]omment / [S]kip:"))
 	}
 
 	response := readUserInput()
@@ -373,7 +373,7 @@ func checkCIAndMaybeDowngrade(ctx context.Context, prNumber string, action lgtmA
 		return actionSkip, nil
 	}
 
-	fmt.Print(formatPrompt("Post as comment instead?", "[C]omment / [S]kip:"))
+	fmt.Print(formatPrompt("Post as comment instead?", "[C]omment (default) / [S]kip:"))
 	response := readUserInput()
 
 	switch response {

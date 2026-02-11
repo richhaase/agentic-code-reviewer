@@ -120,6 +120,8 @@ Exit codes:
 	rootCmd.Flags().StringVar(&prFeedbackAgent, "pr-feedback-agent", "",
 		"Agent for PR feedback summarization (default: same as --summarizer-agent, env: ACR_PR_FEEDBACK_AGENT)")
 
+	rootCmd.AddCommand(newConfigCmd())
+
 	setGroupedUsage(rootCmd)
 
 	if err := rootCmd.Execute(); err != nil {
@@ -344,7 +346,10 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Load env var state
-	envState := config.LoadEnvState()
+	envState, envWarnings := config.LoadEnvState()
+	for _, warning := range envWarnings {
+		logger.Logf(terminal.StyleWarning, "Warning: %s", warning)
+	}
 
 	// Build flag values struct
 	// noFetch exists for shell alias ergonomics where --fetch=false is awkward.

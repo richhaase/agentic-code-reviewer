@@ -1,0 +1,71 @@
+package main
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+
+	"github.com/richhaase/agentic-code-reviewer/internal/config"
+)
+
+func TestConfigInit_CreatesFile(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	defer os.Chdir(origDir)
+	os.Chdir(dir)
+
+	// Init a git repo so git.GetRoot() works
+	if out, err := exec.Command("git", "init").CombinedOutput(); err != nil {
+		t.Fatalf("git init failed: %v: %s", err, out)
+	}
+
+	cmd := newConfigCmd()
+	cmd.SetArgs([]string{"init"})
+	err := cmd.Execute()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	configPath := filepath.Join(dir, config.ConfigFileName)
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		t.Fatal("expected .acr.yaml to be created")
+	}
+}
+
+func TestConfigInit_FailsIfExists(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	defer os.Chdir(origDir)
+	os.Chdir(dir)
+
+	// Init a git repo so git.GetRoot() works
+	if out, err := exec.Command("git", "init").CombinedOutput(); err != nil {
+		t.Fatalf("git init failed: %v: %s", err, out)
+	}
+
+	// Create the file first
+	configPath := filepath.Join(dir, config.ConfigFileName)
+	if err := os.WriteFile(configPath, []byte("existing"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newConfigCmd()
+	cmd.SetArgs([]string{"init"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when file already exists")
+	}
+}
+
+func TestConfigValidate_DoesNotPanic(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	defer os.Chdir(origDir)
+	os.Chdir(dir)
+
+	cmd := newConfigCmd()
+	cmd.SetArgs([]string{"validate"})
+	// Should not panic; may return error if not in git repo, that's fine
+	_ = cmd.Execute()
+}
