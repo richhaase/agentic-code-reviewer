@@ -4,6 +4,31 @@ All notable changes to ACR are documented in this file.
 
 This changelog is generated from git tag annotations.
 
+## [v0.12.0] - 2026-02-11
+
+# v0.12.0
+
+## Bug Fixes
+- fix: FP filter now uses agent-specific parsers for response extraction (#149, #150)
+  - Added ExtractText() to SummaryParser interface
+  - Removed hardcoded --json-schema from Claude ExecuteSummary
+  - Added ExtractJSON() helper for robust JSON extraction from prose
+  - All 3 agents (codex, claude, gemini) validated working
+- fix: Short-circuit empty diffs before sending to LLM agents (#140)
+
+## Features
+- feat: Configuration UX improvements (#130, #131, #132, #133, #147)
+  - acr config init — generate .acr.yaml with documented defaults
+  - acr config validate — check configuration for errors
+  - acr config show — display effective configuration
+  - Warn on unrecognized environment variables with ACR_ prefix
+
+## Testing
+- test: Improved coverage for fpfilter, github, and feedback packages (#120, #121, #122, #146)
+
+## CI/CD
+- ci: Security hardening — dependabot, security scanning workflow, linter fixes (#123, #124, #125, #127, #135, #141)
+
 ## [v0.11.7] - 2026-02-11
 
 # v0.11.7
