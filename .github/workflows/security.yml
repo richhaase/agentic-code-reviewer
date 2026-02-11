@@ -29,18 +29,20 @@ jobs:
       run: |
         echo "Checking for vulnerabilities in dependencies..."
         go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-      continue-on-error: true
 
     - name: Run gosec
       run: |
         echo "Running security analysis..."
-        # Exclude rules for legitimate CLI operations:
-        # G204: Subprocess execution (needed for codex/gh CLIs)
-        # G301: Directory permissions (Go defaults are appropriate)
+        # Exclusions kept in sync with .golangci.yml (source of truth):
+        # G104: Audit errors not checked - handled by errcheck
+        # G204: Subprocess execution (needed for codex/claude/gemini/gh CLIs)
+        # G301: Directory permissions - we use standard 0755 for config dirs
+        # G302: File permissions - we use standard 0644 for readable config files
         # G304: File path input (needed for config file reading)
-        # G306: WriteFile permissions
-        go run github.com/securego/gosec/v2/cmd/gosec@latest -exclude=G204,G301,G304,G306 ./...
-      continue-on-error: true
+        # G306: WriteFile permissions - we use 0644 for config files intentionally
+        # G404: Weak random number generator - used for non-security test data
+        go run github.com/securego/gosec/v2/cmd/gosec@latest -exclude=G104,G204,G301,G302,G304,G306,G404 ./...
+      continue-on-error: ${{ github.event_name == 'schedule' }}
 
     - name: Summary
       if: always()

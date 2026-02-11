@@ -71,10 +71,14 @@ linters:
       excludes:
         # G104: Audit errors not checked - handled by errcheck exclude-functions
         - G104
+        # G204: Subprocess execution - needed for codex/claude/gemini/gh CLIs
+        - G204
         # G301: Directory permissions - we use standard 0755 for config dirs
         - G301
         # G302: File permissions - we use standard 0644 for readable config files
         - G302
+        # G304: File path input - needed for config file reading
+        - G304
         # G306: WriteFile permissions - we use 0644 for config files intentionally
         - G306
         # G404: Weak random number generator - used for non-security test data

@@ -7,6 +7,28 @@ on:
     branches: [ main ]
 
 jobs:
+  fmt:
+    name: Format Check
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+
+    - name: Check formatting
+      run: |
+        unformatted=$(gofmt -l ./...)
+        if [ -n "$unformatted" ]; then
+          echo "The following files are not formatted:"
+          echo "$unformatted"
+          exit 1
+        fi
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -20,8 +42,30 @@ jobs:
       with:
         go-version-file: 'go.mod'
 
-    - name: Run tests
-      run: make test
+    - name: Run tests with coverage
+      run: go test -coverprofile=coverage.out ./...
+
+    - name: Upload coverage
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage
+        path: coverage.out
+
+  test-race:
+    name: Test (Race Detection)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+
+    - name: Run tests with race detector
+      run: go test -race ./...
 
   lint:
     name: Lint
@@ -70,3 +114,19 @@ jobs:
 
     - name: Run vet
       run: make vet
+
+  govulncheck:
+    name: Vulnerability Check
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+
+    - name: Run govulncheck
+      run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
