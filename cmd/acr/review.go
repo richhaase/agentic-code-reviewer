@@ -85,23 +85,26 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 	}
 
 	// Pre-compute the git diff once and share it across all reviewers.
-	// Skip for codex-only runs since Codex has built-in diff via --base.
-	var diff string
-	var diffPrecomputed bool
-	needsDiff := agent.AgentsNeedDiff(reviewAgents)
-	if needsDiff {
-		var err error
-		diff, err = git.GetDiff(ctx, resolvedBaseRef, workDir)
-		if err != nil {
-			logger.Logf(terminal.StyleError, "Failed to get diff: %v", err)
-			return domain.ExitError
-		}
-		diffPrecomputed = true
-
-		if verbose {
-			logger.Logf(terminal.StyleDim, "Diff size: %d bytes", len(diff))
-		}
+	// Always compute (even for codex-only) so we can short-circuit empty diffs.
+	diff, err := git.GetDiff(ctx, resolvedBaseRef, workDir)
+	if err != nil {
+		logger.Logf(terminal.StyleError, "Failed to get diff: %v", err)
+		return domain.ExitError
 	}
+
+	// Short-circuit: no changes means nothing to review
+	if diff == "" {
+		logger.Logf(terminal.StyleSuccess, "No changes detected between HEAD and %s. Nothing to review.", resolvedBaseRef)
+		return domain.ExitNoFindings
+	}
+
+	if verbose {
+		logger.Logf(terminal.StyleDim, "Diff size: %d bytes", len(diff))
+	}
+
+	// Pass precomputed diff to agents that need it (Claude, Gemini).
+	// Codex ignores it (built-in diff via --base).
+	diffPrecomputed := agent.AgentsNeedDiff(reviewAgents)
 
 	if verbose && useRefFile {
 		logger.Logf(terminal.StyleDim, "Ref-file mode enabled")
