@@ -3,6 +3,7 @@ package github
 import (
 	"errors"
 	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -452,5 +453,147 @@ func TestUrlMatches_CaseInsensitive(t *testing.T) {
 	result := urlMatches("https://github.com/OWNER/REPO", "https://github.com/owner/repo")
 	if !result {
 		t.Error("expected true for case-insensitive comparison")
+	}
+}
+
+func TestIsGHAvailable(t *testing.T) {
+	// Smoke test: just verify it doesn't panic and returns a bool
+	result := IsGHAvailable()
+	_ = result // We can't assert the value since gh may or may not be installed
+}
+
+func TestCheckGHAvailable(t *testing.T) {
+	err := CheckGHAvailable()
+	if err != nil {
+		// gh not installed - verify it's a descriptive error
+		if !strings.Contains(err.Error(), "gh CLI not available") {
+			t.Errorf("expected descriptive error, got %q", err.Error())
+		}
+	}
+	// If err == nil, gh is installed - also fine
+}
+
+func TestCIStatus_FieldAccess(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    CIStatus
+		allPassed bool
+		pending   int
+		failed    int
+		hasError  bool
+	}{
+		{
+			name:      "all passed no checks",
+			status:    CIStatus{AllPassed: true},
+			allPassed: true,
+		},
+		{
+			name:      "with pending",
+			status:    CIStatus{AllPassed: false, Pending: []string{"build", "test"}},
+			allPassed: false,
+			pending:   2,
+		},
+		{
+			name:      "with failures",
+			status:    CIStatus{AllPassed: false, Failed: []string{"lint"}},
+			allPassed: false,
+			failed:    1,
+		},
+		{
+			name:      "with error",
+			status:    CIStatus{Error: "something went wrong"},
+			allPassed: false,
+			hasError:  true,
+		},
+		{
+			name:      "mixed pending and failed",
+			status:    CIStatus{AllPassed: false, Pending: []string{"deploy"}, Failed: []string{"lint", "test"}},
+			allPassed: false,
+			pending:   1,
+			failed:    2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.status.AllPassed != tt.allPassed {
+				t.Errorf("AllPassed = %v, want %v", tt.status.AllPassed, tt.allPassed)
+			}
+			if len(tt.status.Pending) != tt.pending {
+				t.Errorf("Pending count = %d, want %d", len(tt.status.Pending), tt.pending)
+			}
+			if len(tt.status.Failed) != tt.failed {
+				t.Errorf("Failed count = %d, want %d", len(tt.status.Failed), tt.failed)
+			}
+			if tt.hasError && tt.status.Error == "" {
+				t.Error("expected non-empty Error")
+			}
+			if !tt.hasError && tt.status.Error != "" {
+				t.Errorf("expected empty Error, got %q", tt.status.Error)
+			}
+		})
+	}
+}
+
+func TestParsePRViewJSON_EmptyJSON(t *testing.T) {
+	head, base, err := parsePRViewJSON([]byte(`{}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if head != "" {
+		t.Errorf("expected empty head, got %q", head)
+	}
+	if base != "" {
+		t.Errorf("expected empty base, got %q", base)
+	}
+}
+
+func TestParsePRViewJSON_ExtraFields(t *testing.T) {
+	jsonStr := `{"headRefName": "feature", "baseRefName": "main", "title": "My PR", "number": 42}`
+	head, base, err := parsePRViewJSON([]byte(jsonStr))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if head != "feature" {
+		t.Errorf("head = %q, want %q", head, "feature")
+	}
+	if base != "main" {
+		t.Errorf("base = %q, want %q", base, "main")
+	}
+}
+
+func TestUrlMatches_HTTPFormat(t *testing.T) {
+	result := urlMatches("http://github.com/owner/repo.git", "https://github.com/owner/repo")
+	if !result {
+		t.Error("expected true for http vs https URLs")
+	}
+}
+
+func TestUrlMatches_EmptyStrings(t *testing.T) {
+	// Two empty strings should match (both normalize to "")
+	result := urlMatches("", "")
+	if !result {
+		t.Error("expected true for two empty strings")
+	}
+
+	// Empty vs non-empty should not match
+	result = urlMatches("", "https://github.com/owner/repo")
+	if result {
+		t.Error("expected false for empty vs non-empty")
+	}
+}
+
+func TestUrlMatches_SameURL(t *testing.T) {
+	urls := []string{
+		"https://github.com/owner/repo",
+		"https://github.com/owner/repo.git",
+		"git@github.com:owner/repo.git",
+		"ssh://git@github.com/owner/repo.git",
+	}
+
+	for _, url := range urls {
+		if !urlMatches(url, url) {
+			t.Errorf("expected true for identical URL: %q", url)
+		}
 	}
 }

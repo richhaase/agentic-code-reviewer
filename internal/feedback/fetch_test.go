@@ -2,6 +2,8 @@ package feedback
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -124,5 +126,50 @@ func TestParseNDJSON_FieldExtraction(t *testing.T) {
 	}
 	if results[0].Body != "review comment" {
 		t.Errorf("Body = %q, want %q", results[0].Body, "review comment")
+	}
+}
+
+func TestParseNDJSON_LargePayload(t *testing.T) {
+	// Build 150 NDJSON objects
+	var lines []string
+	for i := 0; i < 150; i++ {
+		lines = append(lines, fmt.Sprintf(`{"user":{"login":"user%d"},"body":"comment %d"}`, i, i))
+	}
+	input := []byte(strings.Join(lines, "\n"))
+
+	results, err := parseNDJSON(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 150 {
+		t.Errorf("expected 150 results, got %d", len(results))
+	}
+	// Verify first and last
+	if results[0].User.Login != "user0" {
+		t.Errorf("first login = %q, want %q", results[0].User.Login, "user0")
+	}
+	if results[149].User.Login != "user149" {
+		t.Errorf("last login = %q, want %q", results[149].User.Login, "user149")
+	}
+}
+
+func TestParseNDJSON_UnicodeContent(t *testing.T) {
+	input := []byte(`{"user":{"login":"日本語ユーザー"},"body":"这是一个评论 🚀 émojis and àccents"}`)
+
+	results, err := parseNDJSON(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].User.Login != "日本語ユーザー" {
+		t.Errorf("User.Login = %q, want unicode username", results[0].User.Login)
+	}
+	if !strings.Contains(results[0].Body, "🚀") {
+		t.Error("Body should contain emoji")
+	}
+	if !strings.Contains(results[0].Body, "àccents") {
+		t.Error("Body should contain accented characters")
 	}
 }
