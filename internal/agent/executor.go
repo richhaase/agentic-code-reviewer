@@ -33,11 +33,13 @@ func newCappedBuffer(max int) *cappedBuffer {
 func (c *cappedBuffer) Write(p []byte) (int, error) {
 	remaining := c.max - c.buf.Len()
 	if remaining <= 0 {
-		// Silently discard — report full length to avoid cmd.Wait errors
+		// Silently discard — report full length to avoid io.ErrShortWrite
 		return len(p), nil
 	}
 	if len(p) > remaining {
-		p = p[:remaining]
+		// Write what we can, but report full length consumed
+		c.buf.Write(p[:remaining])
+		return len(p), nil
 	}
 	return c.buf.Write(p)
 }

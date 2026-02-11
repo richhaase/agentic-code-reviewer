@@ -395,11 +395,11 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	retries = resolved.Retries
 	summarizerAgentName = resolved.SummarizerAgent
 
-	// Resolve phase timeouts from env vars if not set via flags
-	if summarizerTimeout == 0 {
+	// Resolve phase timeouts (precedence: flags > env vars > defaults)
+	if !cmd.Flags().Changed("summarizer-timeout") {
 		summarizerTimeout = getEnvDuration("ACR_SUMMARIZER_TIMEOUT", 5*time.Minute)
 	}
-	if fpFilterTimeout == 0 {
+	if !cmd.Flags().Changed("fp-filter-timeout") {
 		fpFilterTimeout = getEnvDuration("ACR_FP_FILTER_TIMEOUT", 5*time.Minute)
 	}
 

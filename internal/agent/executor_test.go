@@ -37,13 +37,13 @@ func TestCappedBuffer_AtLimit(t *testing.T) {
 func TestCappedBuffer_PartialWrite(t *testing.T) {
 	buf := newCappedBuffer(8)
 	buf.Write([]byte("hello"))
-	// 3 bytes remaining — should write partial
+	// 3 bytes remaining — should write partial but report full length
 	n, err := buf.Write([]byte(" world"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if n != 3 {
-		t.Errorf("Write() = %d, want 3 (partial)", n)
+	if n != 6 {
+		t.Errorf("Write() should report full length to avoid io.ErrShortWrite, got %d", n)
 	}
 	if buf.String() != "hello wo" {
 		t.Errorf("String() = %q, want %q", buf.String(), "hello wo")

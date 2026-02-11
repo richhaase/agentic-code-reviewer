@@ -224,9 +224,9 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		}()
 
 		fpCtx, fpCancel := context.WithTimeout(ctx, fpFilterTimeout)
+		defer fpCancel()
 		fpFilter := fpfilter.New(summarizerAgentName, fpThreshold, verbose, logger)
 		fpResult := fpFilter.Apply(fpCtx, summaryResult.Grouped, priorFeedback)
-		fpCancel()
 		fpSpinnerCancel()
 		<-fpSpinnerDone
 
