@@ -4,6 +4,16 @@ All notable changes to ACR are documented in this file.
 
 This changelog is generated from git tag annotations.
 
+## [v0.11.6] - 2026-02-10
+
+# v0.11.6
+
+## What's Changed
+
+- **feat**: Group CLI flags into 6 logical categories in help output (#136)
+- **refactor**: Apply expert review quick fixes across codebase
+- **docs**: Update README for v0.11.x changes
+
 ## [v0.11.5] - 2026-02-09
 
 # v0.11.5
