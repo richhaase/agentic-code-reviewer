@@ -50,6 +50,12 @@ type SummaryParser interface {
 	// The data parameter contains the raw output from ExecuteSummary.
 	// Returns an error if parsing fails.
 	Parse(data []byte) (*domain.GroupedFindings, error)
+
+	// ExtractText extracts the raw response text from agent output,
+	// stripping agent-specific wrappers (JSONL events, metadata envelopes, etc.)
+	// and markdown code fences. The returned text is the LLM's actual response
+	// content, suitable for parsing into any type (not just GroupedFindings).
+	ExtractText(data []byte) (string, error)
 }
 
 // StripMarkdownCodeFence removes markdown code fences from a string.

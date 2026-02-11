@@ -32,11 +32,10 @@ type codexEvent struct {
 	} `json:"item"`
 }
 
-// Parse parses the summary output and returns grouped findings.
-// Handles JSONL event stream format from codex --json output.
-// Events may be newline-separated or concatenated without separators.
-func (p *CodexSummaryParser) Parse(data []byte) (*domain.GroupedFindings, error) {
-	// Use json.Decoder to handle both newline-separated and concatenated JSON
+// ExtractText extracts the raw response text from codex JSONL output.
+// Decodes the event stream and returns the text from the last item.completed agent_message,
+// with markdown code fences stripped.
+func (p *CodexSummaryParser) ExtractText(data []byte) (string, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	var messageText string
 	var decodeErr error
@@ -61,22 +60,28 @@ func (p *CodexSummaryParser) Parse(data []byte) (*domain.GroupedFindings, error)
 		}
 	}
 
-	// Fail on any decode error - don't silently proceed with partial output
 	if decodeErr != nil {
-		return nil, fmt.Errorf("failed to decode codex JSONL output: %w", decodeErr)
+		return "", fmt.Errorf("failed to decode codex JSONL output: %w", decodeErr)
 	}
 
 	if messageText == "" {
-		// Provide more context about what was received
 		preview := truncate(string(data), 200)
-		return nil, fmt.Errorf("no agent_message found in codex output (received: %s)", preview)
+		return "", fmt.Errorf("no agent_message found in codex output (received: %s)", preview)
 	}
 
-	// Strip markdown code fences if present
-	cleaned := StripMarkdownCodeFence(messageText)
+	return StripMarkdownCodeFence(messageText), nil
+}
 
-	// Parse the JSON from the agent_message text field
-	decoder = json.NewDecoder(strings.NewReader(cleaned))
+// Parse parses the summary output and returns grouped findings.
+// Handles JSONL event stream format from codex --json output.
+// Events may be newline-separated or concatenated without separators.
+func (p *CodexSummaryParser) Parse(data []byte) (*domain.GroupedFindings, error) {
+	cleaned, err := p.ExtractText(data)
+	if err != nil {
+		return nil, err
+	}
+
+	decoder := json.NewDecoder(strings.NewReader(cleaned))
 	var grouped domain.GroupedFindings
 	if err := decoder.Decode(&grouped); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON in agent_message: %w (content: %s)", err, truncate(cleaned, 200))
