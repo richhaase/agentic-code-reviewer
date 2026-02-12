@@ -4,6 +4,17 @@ All notable changes to ACR are documented in this file.
 
 This changelog is generated from git tag annotations.
 
+## [v0.12.2] - 2026-02-12
+
+# v0.12.2
+
+## Testing
+- test: Replace BATS integration tests with Go tests using mock agent CLIs (#126, #154)
+  - 22 tests covering all 3 agents, FP filter, error paths, output format
+  - Mock shell scripts instead of real LLM backends (zero cost, ~9s runtime)
+  - Covers --version, --help, config subcommands, --guidance-file, --verbose, --no-fetch
+  - Binary built once via sync.Once for fast test execution
+
 ## [v0.12.1] - 2026-02-11
 
 # v0.12.1
