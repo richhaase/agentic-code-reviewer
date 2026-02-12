@@ -36,3 +36,4 @@ bin/acr
 
 # Claude Code local settings
 .claude/settings.local.json
+bin/acr-test
