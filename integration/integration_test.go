@@ -662,7 +662,16 @@ func TestMissingAgentCLI(t *testing.T) {
 		"--summarizer-agent", "codex", "--base", "HEAD~1")
 	cmd.Dir = env.repoDir
 	// Prepend noAgentDir to PATH (keeps system tools like git available)
-	cmd.Env = append(os.Environ(), "PATH="+noAgentDir+":"+env.origPath)
+	// Replace PATH in env slice to avoid duplicate entries
+	sysEnv := os.Environ()
+	newPath := noAgentDir + ":" + env.origPath
+	for i, v := range sysEnv {
+		if strings.HasPrefix(v, "PATH=") {
+			sysEnv[i] = "PATH=" + newPath
+			break
+		}
+	}
+	cmd.Env = sysEnv
 
 	out, err := cmd.CombinedOutput()
 	exitCode := 0
@@ -705,6 +714,30 @@ func TestVerboseOutput(t *testing.T) {
 
 	if !strings.Contains(stderr, "Diff size:") {
 		t.Errorf("verbose output should contain 'Diff size:', stderr:\n%s", stderr)
+	}
+}
+
+func TestGuidanceFile(t *testing.T) {
+	env := setupTestEnv(t)
+	writeMockCodex(t, env.mockDir, codexReviewerResponse, codexSummarizerResponse)
+	writeMockGH(t, env.mockDir)
+
+	// Create a guidance file
+	guidanceFile := filepath.Join(env.repoDir, "guidance.md")
+	if err := os.WriteFile(guidanceFile, []byte("Focus on error handling issues."), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, exitCode := env.run("--local", "--reviewers", "1",
+		"--reviewer-agent", "codex", "--summarizer-agent", "codex",
+		"--base", "HEAD~1", "--no-fp-filter", "--guidance-file", guidanceFile)
+
+	// Should succeed (0 or 1)
+	if exitCode != 0 && exitCode != 1 {
+		t.Errorf("exit code = %d, want 0 or 1\nstderr: %s", exitCode, stderr)
+	}
+	if exitCode == 1 && !strings.Contains(stdout, "finding") {
+		t.Errorf("exit 1 but no findings in output:\n%s", stdout)
 	}
 }
 
