@@ -134,22 +134,34 @@ func createTestRepo(t *testing.T) string {
 
 	// Initial commit
 	testFile := filepath.Join(dir, "main.go")
-	os.WriteFile(testFile, []byte("package main\n\nfunc main() {}\n"), 0644)
-	gitAdd := exec.Command("git", "add", ".")
-	gitAdd.Dir = dir
-	gitAdd.Run()
-	gitCommit := exec.Command("git", "commit", "-m", "initial")
-	gitCommit.Dir = dir
-	gitCommit.Run()
+	if err := os.WriteFile(testFile, []byte("package main\n\nfunc main() {}\n"), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+	for _, c := range [][]string{
+		{"git", "add", "."},
+		{"git", "commit", "-m", "initial"},
+	} {
+		cmd := exec.Command(c[0], c[1:]...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", c, err, out)
+		}
+	}
 
 	// Second commit with a change (creates a diff)
-	os.WriteFile(testFile, []byte("package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n"), 0644)
-	gitAdd2 := exec.Command("git", "add", ".")
-	gitAdd2.Dir = dir
-	gitAdd2.Run()
-	gitCommit2 := exec.Command("git", "commit", "-m", "add print")
-	gitCommit2.Dir = dir
-	gitCommit2.Run()
+	if err := os.WriteFile(testFile, []byte("package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n"), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+	for _, c := range [][]string{
+		{"git", "add", "."},
+		{"git", "commit", "-m", "add print"},
+	} {
+		cmd := exec.Command(c[0], c[1:]...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", c, err, out)
+		}
+	}
 
 	return dir
 }
@@ -619,23 +631,34 @@ func TestInvalidAgentName(t *testing.T) {
 
 func TestMissingAgentCLI(t *testing.T) {
 	env := setupTestEnv(t)
-	// Don't write any mock agents — they won't be found in PATH
-	// But we need to not find the real ones either
-	emptyDir := t.TempDir()
-	writeMockGH(t, emptyDir)
+	// Create a dir with gh mock but no agent CLIs
+	// Prepend it to PATH so it shadows any real agent CLIs
+	noAgentDir := t.TempDir()
+	writeMockGH(t, noAgentDir)
 
-	// Override PATH to only include the empty dir (no agent CLIs)
+	// Write dummy scripts that shadow real agent CLIs but exit with "not found"
+	for _, name := range []string{"codex", "claude", "gemini"} {
+		script := "#!/bin/sh\nexit 127\n"
+		if err := os.WriteFile(filepath.Join(noAgentDir, name), []byte(script), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	cmd := exec.Command(env.acrBin, "--local", "--reviewer-agent", "codex",
 		"--summarizer-agent", "codex", "--base", "HEAD~1")
 	cmd.Dir = env.repoDir
-	cmd.Env = []string{
-		"PATH=" + emptyDir,
-		"HOME=" + t.TempDir(),
-	}
+	// Prepend noAgentDir to PATH (keeps system tools like git available)
+	cmd.Env = append(os.Environ(), "PATH="+noAgentDir+":"+env.origPath)
 
-	out, _ := cmd.CombinedOutput()
-	if cmd.ProcessState.ExitCode() != 2 {
-		t.Errorf("exit code = %d, want 2 (error)\noutput: %s", cmd.ProcessState.ExitCode(), out)
+	out, err := cmd.CombinedOutput()
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		}
+	}
+	if exitCode != 2 {
+		t.Errorf("exit code = %d, want 2 (error)\noutput: %s", exitCode, out)
 	}
 }
 
