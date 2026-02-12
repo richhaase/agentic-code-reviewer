@@ -59,17 +59,7 @@ If there are uncommitted changes, stop and ask the user what to do.
 
    This triggers `.github/workflows/release.yml` which builds binaries for Linux/macOS (amd64/arm64), creates GitHub releases, and updates the Homebrew tap. The tag annotation is used as the GitHub Release body.
 
-That's it. No further steps needed — the release history lives in git tag annotations and GitHub Releases.
-
-## Viewing Release History
-
-To view the full changelog from tag annotations:
-
-```bash
-git for-each-ref --sort=-v:refname --format='%(refname:short) - %(creatordate:short)
-%(contents)
-' refs/tags
-```
+That's it. No further steps needed.
 
 ## Important
 
