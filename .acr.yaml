@@ -1,0 +1,46 @@
+# acr configuration file
+# See https://github.com/richhaase/agentic-code-reviewer for documentation.
+
+# Number of parallel reviewers to run (default: 5)
+reviewers: 6
+
+# Maximum concurrent reviewers (default: same as reviewers)
+# concurrency: 0
+
+# Base branch for diff comparison (default: main)
+# base: main
+
+# Timeout per reviewer, Go duration format (default: 10m)
+# timeout: 10m
+
+# Retry failed reviewers N times (default: 1)
+# retries: 1
+
+# Fetch latest base ref from origin before diff (default: true)
+# fetch: true
+
+# Agent(s) for reviews: codex, claude, gemini
+reviewer_agents:
+  - codex
+  - claude
+  - gemini
+
+# Agent for summarization: codex, claude, gemini
+summarizer_agent: claude
+# Path to file containing review guidance
+# guidance_file: ""
+
+# Filtering configuration
+# filters:
+#   exclude_patterns:
+#     - "pattern to exclude"
+
+# False positive filtering
+# fp_filter:
+#   enabled: true
+#   threshold: 75
+
+# PR feedback summarization
+# pr_feedback:
+#   enabled: true
+#   agent: ""
