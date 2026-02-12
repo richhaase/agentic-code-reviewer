@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"os/exec"
@@ -21,7 +20,7 @@ type cmdReader struct {
 	io.Reader
 	cmd          *exec.Cmd
 	ctx          context.Context
-	stderr       *bytes.Buffer
+	stderr       stderrBuffer
 	exitCode     int
 	closeOnce    sync.Once
 	tempFilePath string // temp file to clean up on Close (used by ref-file pattern)

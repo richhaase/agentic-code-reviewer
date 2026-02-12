@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
@@ -16,7 +17,7 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
-func executeReview(ctx context.Context, workDir string, excludePatterns []string, guidance string, reviewerAgentNames []string, summarizerAgentName string, fetchRemote bool, useRefFile bool, fpFilterEnabled bool, fpThreshold int, prFeedbackEnabled bool, prFeedbackAgent string, prNumber string, logger *terminal.Logger) domain.ExitCode {
+func executeReview(ctx context.Context, workDir string, excludePatterns []string, guidance string, reviewerAgentNames []string, summarizerAgentName string, fetchRemote bool, useRefFile bool, fpFilterEnabled bool, fpThreshold int, summarizerTimeout time.Duration, fpFilterTimeout time.Duration, prFeedbackEnabled bool, prFeedbackAgent string, prNumber string, logger *terminal.Logger) domain.ExitCode {
 	if concurrency < reviewers {
 		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, %d concurrent, base=%s)%s",
 			terminal.Color(terminal.Dim), reviewers, concurrency, baseRef, terminal.Color(terminal.Reset))
@@ -192,12 +193,18 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 		close(spinnerDone)
 	}()
 
-	summaryResult, err := summarizer.Summarize(ctx, summarizerAgentName, aggregated, verbose, logger)
+	summarizerCtx, summarizerCancel := context.WithTimeout(ctx, summarizerTimeout)
+	defer summarizerCancel()
+	summaryResult, err := summarizer.Summarize(summarizerCtx, summarizerAgentName, aggregated, verbose, logger)
 	spinnerCancel()
 	<-spinnerDone
 
 	if err != nil {
-		logger.Logf(terminal.StyleError, "Summarizer error: %v", err)
+		if summarizerCtx.Err() == context.DeadlineExceeded {
+			logger.Logf(terminal.StyleError, "Summarizer timed out after %s", summarizerTimeout)
+		} else {
+			logger.Logf(terminal.StyleError, "Summarizer error: %v", err)
+		}
 		return domain.ExitError
 	}
 
@@ -216,8 +223,10 @@ func executeReview(ctx context.Context, workDir string, excludePatterns []string
 			close(fpSpinnerDone)
 		}()
 
+		fpCtx, fpCancel := context.WithTimeout(ctx, fpFilterTimeout)
+		defer fpCancel()
 		fpFilter := fpfilter.New(summarizerAgentName, fpThreshold, verbose, logger)
-		fpResult := fpFilter.Apply(ctx, summaryResult.Grouped, priorFeedback)
+		fpResult := fpFilter.Apply(fpCtx, summaryResult.Grouped, priorFeedback)
 		fpSpinnerCancel()
 		<-fpSpinnerDone
 

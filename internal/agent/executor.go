@@ -9,6 +9,49 @@ import (
 	"syscall"
 )
 
+// maxStderrSize is the maximum bytes captured from agent subprocess stderr.
+// Prevents unbounded memory growth from misbehaving CLI tools.
+const maxStderrSize = 1 << 20 // 1MB
+
+// stderrBuffer is the interface for stderr capture buffers.
+type stderrBuffer interface {
+	io.Writer
+	String() string
+}
+
+// cappedBuffer is a bytes.Buffer that stops writing after a size limit.
+// Once the limit is reached, further writes are silently discarded.
+type cappedBuffer struct {
+	buf bytes.Buffer
+	max int
+}
+
+func newCappedBuffer(max int) *cappedBuffer {
+	return &cappedBuffer{max: max}
+}
+
+func (c *cappedBuffer) Write(p []byte) (int, error) {
+	remaining := c.max - c.buf.Len()
+	if remaining <= 0 {
+		// Silently discard — report full length to avoid io.ErrShortWrite
+		return len(p), nil
+	}
+	if len(p) > remaining {
+		// Write what we can, but report full length consumed
+		c.buf.Write(p[:remaining])
+		return len(p), nil
+	}
+	return c.buf.Write(p)
+}
+
+func (c *cappedBuffer) Bytes() []byte {
+	return c.buf.Bytes()
+}
+
+func (c *cappedBuffer) String() string {
+	return c.buf.String()
+}
+
 // executeOptions configures command execution for agent CLI invocations.
 type executeOptions struct {
 	// Command is the CLI executable name (e.g., "codex", "claude", "gemini").
@@ -48,8 +91,8 @@ func executeCommand(ctx context.Context, opts executeOptions) (*ExecutionResult,
 	// Set process group for proper signal handling
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	// Capture stderr for error diagnostics
-	stderr := &bytes.Buffer{}
+	// Capture stderr for error diagnostics (capped to prevent unbounded memory)
+	stderr := newCappedBuffer(maxStderrSize)
 	cmd.Stderr = stderr
 
 	stdout, err := cmd.StdoutPipe()

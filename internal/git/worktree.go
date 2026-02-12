@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Worktree represents a git worktree with a path.
@@ -85,6 +86,62 @@ func ensureWorktreesExcluded(commonDir string) error {
 	if _, err := f.WriteString(".worktrees/\n"); err != nil {
 		return fmt.Errorf("failed to write to exclude file: %w", err)
 	}
+
+	return nil
+}
+
+// staleWorktreeAge is the minimum age before an ACR worktree is considered stale.
+// This ensures we never remove worktrees from a currently-running review.
+const staleWorktreeAge = 2 * time.Hour
+
+// PruneStaleWorktrees removes ACR-created worktrees older than staleWorktreeAge.
+// Only removes directories matching the "review-*" naming convention under .worktrees/.
+// Also runs "git worktree prune" to clean up git's internal bookkeeping.
+func PruneStaleWorktrees() error {
+	root, err := GetRoot()
+	if err != nil {
+		return err
+	}
+
+	worktreesDir := filepath.Join(root, ".worktrees")
+	entries, err := os.ReadDir(worktreesDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // No .worktrees directory — nothing to prune
+		}
+		return fmt.Errorf("failed to read worktrees directory: %w", err)
+	}
+
+	cutoff := time.Now().Add(-staleWorktreeAge)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		// Only touch ACR-created worktrees (review-* prefix)
+		if !strings.HasPrefix(name, "review-") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(cutoff) {
+			wtPath := filepath.Join(worktreesDir, name)
+			// Try git worktree remove first (clean git bookkeeping)
+			cmd := exec.Command("git", "worktree", "remove", "--force", wtPath)
+			cmd.Dir = root
+			if err := cmd.Run(); err != nil {
+				// Fallback: remove directory directly
+				_ = os.RemoveAll(wtPath)
+			}
+		}
+	}
+
+	// Clean up git's internal worktree bookkeeping for any missing directories
+	cmd := exec.Command("git", "worktree", "prune")
+	cmd.Dir = root
+	_ = cmd.Run()
 
 	return nil
 }

@@ -42,6 +42,8 @@ var (
 	refFile             bool
 	noFPFilter          bool
 	fpThreshold         int
+	summarizerTimeout   time.Duration
+	fpFilterTimeout     time.Duration
 	noPRFeedback        bool
 	prFeedbackAgent     string
 )
@@ -115,6 +117,10 @@ Exit codes:
 		"Disable false positive filtering (env: ACR_FP_FILTER=false to disable)")
 	rootCmd.Flags().IntVar(&fpThreshold, "fp-threshold", 75,
 		"False positive confidence threshold 1-100 (default: 75, env: ACR_FP_THRESHOLD)")
+	rootCmd.Flags().DurationVar(&summarizerTimeout, "summarizer-timeout", 0,
+		"Timeout for summarizer phase (default: 5m, env: ACR_SUMMARIZER_TIMEOUT)")
+	rootCmd.Flags().DurationVar(&fpFilterTimeout, "fp-filter-timeout", 0,
+		"Timeout for false positive filter phase (default: 5m, env: ACR_FP_FILTER_TIMEOUT)")
 	rootCmd.Flags().BoolVar(&noPRFeedback, "no-pr-feedback", false,
 		"Disable reading PR comments for feedback context (env: ACR_PR_FEEDBACK=false)")
 	rootCmd.Flags().StringVar(&prFeedbackAgent, "pr-feedback-agent", "",
@@ -143,6 +149,11 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	}
 
 	logger := terminal.NewLogger()
+
+	// Prune stale ACR worktrees from previous runs (only review-* dirs older than 2h)
+	if err := git.PruneStaleWorktrees(); err != nil && verbose {
+		logger.Logf(terminal.StyleDim, "Worktree prune: %v", err)
+	}
 
 	// Set up context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
@@ -384,6 +395,22 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	retries = resolved.Retries
 	summarizerAgentName = resolved.SummarizerAgent
 
+	// Resolve phase timeouts (precedence: flags > env vars > defaults)
+	defaultPhaseTimeout := 5 * time.Minute
+	if !cmd.Flags().Changed("summarizer-timeout") {
+		summarizerTimeout = getEnvDuration("ACR_SUMMARIZER_TIMEOUT", defaultPhaseTimeout)
+	}
+	if !cmd.Flags().Changed("fp-filter-timeout") {
+		fpFilterTimeout = getEnvDuration("ACR_FP_FILTER_TIMEOUT", defaultPhaseTimeout)
+	}
+	// Ensure zero timeout doesn't create an instantly-expiring context
+	if summarizerTimeout <= 0 {
+		summarizerTimeout = defaultPhaseTimeout
+	}
+	if fpFilterTimeout <= 0 {
+		fpFilterTimeout = defaultPhaseTimeout
+	}
+
 	// For PR mode: fetch and qualify the base ref so git diff works in the detached worktree
 	// Only do this for unqualified branch names - skip for SHAs, tags, HEAD, or already-qualified refs
 	// When baseAutoDetected is true, always qualify (PR base refs are always unqualified branches)
@@ -436,6 +463,21 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Run the review
-	code := executeReview(ctx, workDir, allExcludePatterns, resolvedGuidance, resolved.ReviewerAgents, resolved.SummarizerAgent, resolved.Fetch, refFile, resolved.FPFilterEnabled, resolved.FPThreshold, resolved.PRFeedbackEnabled, resolved.PRFeedbackAgent, detectedPR, logger)
+	code := executeReview(ctx, workDir, allExcludePatterns, resolvedGuidance, resolved.ReviewerAgents, resolved.SummarizerAgent, resolved.Fetch, refFile, resolved.FPFilterEnabled, resolved.FPThreshold, summarizerTimeout, fpFilterTimeout, resolved.PRFeedbackEnabled, resolved.PRFeedbackAgent, detectedPR, logger)
 	return exitCode(code)
+}
+
+// getEnvDuration reads a duration from an environment variable, returning the default if unset or invalid.
+// Logs a warning to stderr if the value is set but unparseable.
+func getEnvDuration(key string, defaultVal time.Duration) time.Duration {
+	val := os.Getenv(key)
+	if val == "" {
+		return defaultVal
+	}
+	d, err := time.ParseDuration(val)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[W] Invalid %s=%q (expected format like '5m' or '300s'), using default %s\n", key, val, defaultVal)
+		return defaultVal
+	}
+	return d
 }
