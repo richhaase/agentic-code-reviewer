@@ -220,6 +220,9 @@ func writeMockCodex(t *testing.T, dir string, reviewResponse, summaryResponse st
 	t.Helper()
 	// Codex uses --json for structured output (summarizer) vs no --json (reviewer)
 	script := fmt.Sprintf(`#!/bin/sh
+# Consume stdin to prevent broken pipe on large diffs
+cat /dev/stdin >/dev/null 2>&1
+
 has_json=false
 for arg in "$@"; do
     if [ "$arg" = "--json" ]; then
@@ -564,7 +567,11 @@ func TestFPFilter_CodexAgent(t *testing.T) {
 	if strings.Contains(stderr, "FP filter skipped") {
 		t.Errorf("FP filter should not be skipped, stderr:\n%s", stderr)
 	}
-	_ = stdout
+	// Verify the FP filter ran (output should contain report or LGTM)
+	combined := stdout + stderr
+	if !strings.Contains(combined, "finding") && !strings.Contains(combined, "LGTM") && !strings.Contains(combined, "skipping PR") {
+		t.Errorf("expected findings report or LGTM after FP filter, got:\nstdout: %s\nstderr: %s", stdout, stderr)
+	}
 }
 
 func TestOutputFormat_FindingsReport(t *testing.T) {
@@ -600,20 +607,27 @@ func TestOutputFormat_FindingsReport(t *testing.T) {
 
 func TestOutputFormat_TimingSection(t *testing.T) {
 	env := setupTestEnv(t)
-	writeMockCodex(t, env.mockDir, codexLGTMReview, codexLGTMSummary)
+	writeMockCodex(t, env.mockDir, codexReviewerResponse, codexSummarizerResponse)
 	writeMockGH(t, env.mockDir)
 
 	stdout, _, exitCode := env.run("--local", "--reviewers", "2",
 		"--reviewer-agent", "codex", "--summarizer-agent", "codex",
-		"--base", "HEAD~1")
+		"--base", "HEAD~1", "--no-fp-filter")
 
-	if exitCode != 0 {
-		t.Fatalf("exit code = %d, want 0", exitCode)
+	if exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1 (findings)", exitCode)
 	}
 
-	// LGTM output goes to stderr — stdout should have timing in report (if any)
-	// For LGTM, minimal output is expected
-	_ = stdout
+	// Verify timing section is present with expected fields
+	if !strings.Contains(stdout, "Timing:") {
+		t.Error("report missing Timing: section")
+	}
+	if !strings.Contains(stdout, "min") || !strings.Contains(stdout, "avg") || !strings.Contains(stdout, "max") {
+		t.Error("timing section missing min/avg/max stats")
+	}
+	if !strings.Contains(stdout, "total:") {
+		t.Error("timing section missing total")
+	}
 }
 
 // --- Error Path Tests ---
