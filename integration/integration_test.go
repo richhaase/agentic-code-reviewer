@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -28,18 +29,38 @@ type testEnv struct {
 	origPath string // Original PATH to restore
 }
 
-// setupTestEnv builds the acr binary and creates a temporary git repo with a diff.
+// buildOnce ensures the acr binary is built exactly once across all tests.
+var (
+	buildOnce    sync.Once
+	builtAcrBin  string
+	builtAcrRoot string
+	buildErr     error
+)
+
+func ensureBinary(t *testing.T) string {
+	t.Helper()
+	buildOnce.Do(func() {
+		builtAcrRoot = findRepoRoot(t)
+		// Use a stable path under the build dir so it persists across tests
+		builtAcrBin = filepath.Join(builtAcrRoot, "bin", "acr-test")
+		build := exec.Command("go", "build", "-o", builtAcrBin, "./cmd/acr")
+		build.Dir = builtAcrRoot
+		out, err := build.CombinedOutput()
+		if err != nil {
+			buildErr = fmt.Errorf("failed to build acr: %v\n%s", err, out)
+		}
+	})
+	if buildErr != nil {
+		t.Fatal(buildErr)
+	}
+	return builtAcrBin
+}
+
+// setupTestEnv builds the acr binary (once) and creates a temporary git repo with a diff.
 func setupTestEnv(t *testing.T) *testEnv {
 	t.Helper()
 
-	// Build acr binary
-	rootDir := findRepoRoot(t)
-	acrBin := filepath.Join(t.TempDir(), "acr")
-	build := exec.Command("go", "build", "-o", acrBin, "./cmd/acr")
-	build.Dir = rootDir
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("failed to build acr: %v\n%s", err, out)
-	}
+	acrBin := ensureBinary(t)
 
 	// Create mock CLI directory
 	mockDir := filepath.Join(t.TempDir(), "mocks")
