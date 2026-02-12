@@ -11,9 +11,11 @@ import (
 // Compile-time interface check
 var _ Agent = (*ClaudeAgent)(nil)
 
-// claudeSummarySchema is the JSON schema for Claude's structured summary output.
-// This ensures Claude returns properly formatted JSON without markdown wrapping.
-const claudeSummarySchema = `{"type":"object","properties":{"findings":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"summary":{"type":"string"},"messages":{"type":"array","items":{"type":"string"}},"reviewer_count":{"type":"integer"},"sources":{"type":"array","items":{"type":"integer"}}},"required":["title","summary","messages","reviewer_count","sources"]}},"info":{"type":"array","items":{"type":"object","properties":{"title":{"type":"string"},"summary":{"type":"string"},"messages":{"type":"array","items":{"type":"string"}},"reviewer_count":{"type":"integer"},"sources":{"type":"array","items":{"type":"integer"}}},"required":["title","summary","messages","reviewer_count","sources"]}}},"required":["findings","info"]}`
+// Note: We intentionally do NOT use --json-schema with Claude's ExecuteSummary.
+// While --json-schema forces structured output for one schema, ExecuteSummary is
+// called by multiple subsystems (summarizer, FP filter, feedback) that each expect
+// different JSON formats. The prompts already specify "Return ONLY valid JSON"
+// which Claude follows reliably with --output-format json.
 
 // ClaudeAgent implements the Agent interface for the Claude CLI backend.
 type ClaudeAgent struct{}
@@ -85,9 +87,9 @@ func (c *ClaudeAgent) ExecuteSummary(ctx context.Context, prompt string, input [
 		stdin = bytes.NewReader([]byte(fullPrompt))
 	}
 
-	// Build command with JSON schema for structured output
+	// Build command with JSON output format (no --json-schema — see note above)
 	// -: Read prompt from stdin (avoids ARG_MAX limits on large inputs)
-	args := []string{"--print", "--output-format", "json", "--json-schema", claudeSummarySchema, "-"}
+	args := []string{"--print", "--output-format", "json", "-"}
 
 	return executeCommand(ctx, executeOptions{
 		Command:      "claude",

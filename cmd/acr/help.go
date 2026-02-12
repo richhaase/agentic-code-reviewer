@@ -46,7 +46,17 @@ var flagGroups = []flagGroup{
 // setGroupedUsage configures the command to display flags in logical groups.
 func setGroupedUsage(cmd *cobra.Command) {
 	cmd.SetUsageFunc(func(c *cobra.Command) error {
-		fmt.Fprintf(c.OutOrStderr(), "Usage:\n  %s\n", c.UseLine())
+		if c.HasAvailableSubCommands() {
+			fmt.Fprintf(c.OutOrStderr(), "Usage:\n  %s [command]\n  %s [flags]\n", c.CommandPath(), c.CommandPath())
+			fmt.Fprintf(c.OutOrStderr(), "\nAvailable Commands:\n")
+			for _, sub := range c.Commands() {
+				if !sub.Hidden && sub.Name() != "help" {
+					fmt.Fprintf(c.OutOrStderr(), "  %-16s %s\n", sub.Name(), sub.Short)
+				}
+			}
+		} else {
+			fmt.Fprintf(c.OutOrStderr(), "Usage:\n  %s\n", c.UseLine())
+		}
 
 		// Track which flags have been placed in a group
 		grouped := make(map[string]bool)

@@ -144,6 +144,13 @@ func LoadFromPathWithWarnings(path string) (*LoadResult, error) {
 		return nil, fmt.Errorf("%s: %w", ConfigFileName, err)
 	}
 
+	if cfg.ReviewerAgent != nil {
+		warnings = append(warnings, `"reviewer_agent" is deprecated, use "reviewer_agents" list instead`)
+		if len(cfg.ReviewerAgents) > 0 {
+			warnings = append(warnings, `both "reviewer_agent" and "reviewer_agents" are set; "reviewer_agents" takes precedence`)
+		}
+	}
+
 	return &LoadResult{Config: &cfg, ConfigDir: filepath.Dir(path), Warnings: warnings}, nil
 }
 
@@ -429,19 +436,25 @@ type EnvState struct {
 }
 
 // LoadEnvState reads environment variables and returns their state.
-func LoadEnvState() EnvState {
+// Returns warnings for any environment variables that are set but have invalid values.
+func LoadEnvState() (EnvState, []string) {
 	var state EnvState
+	var warnings []string
 
 	if v := os.Getenv("ACR_REVIEWERS"); v != "" {
 		if i, err := strconv.Atoi(v); err == nil {
 			state.Reviewers = i
 			state.ReviewersSet = true
+		} else {
+			warnings = append(warnings, fmt.Sprintf("ACR_REVIEWERS=%q is not a valid integer, ignoring", v))
 		}
 	}
 	if v := os.Getenv("ACR_CONCURRENCY"); v != "" {
 		if i, err := strconv.Atoi(v); err == nil {
 			state.Concurrency = i
 			state.ConcurrencySet = true
+		} else {
+			warnings = append(warnings, fmt.Sprintf("ACR_CONCURRENCY=%q is not a valid integer, ignoring", v))
 		}
 	}
 	if v := os.Getenv("ACR_BASE_REF"); v != "" {
@@ -455,12 +468,16 @@ func LoadEnvState() EnvState {
 		} else if secs, err := strconv.Atoi(v); err == nil {
 			state.Timeout = time.Duration(secs) * time.Second
 			state.TimeoutSet = true
+		} else {
+			warnings = append(warnings, fmt.Sprintf("ACR_TIMEOUT=%q is not a valid duration or integer, ignoring", v))
 		}
 	}
 	if v := os.Getenv("ACR_RETRIES"); v != "" {
 		if i, err := strconv.Atoi(v); err == nil {
 			state.Retries = i
 			state.RetriesSet = true
+		} else {
+			warnings = append(warnings, fmt.Sprintf("ACR_RETRIES=%q is not a valid integer, ignoring", v))
 		}
 	}
 	if v := os.Getenv("ACR_FETCH"); v != "" {
@@ -471,6 +488,8 @@ func LoadEnvState() EnvState {
 		case "false", "0", "no":
 			state.Fetch = false
 			state.FetchSet = true
+		default:
+			warnings = append(warnings, fmt.Sprintf("ACR_FETCH=%q is not a valid boolean (use true/false/1/0/yes/no), ignoring", v))
 		}
 	}
 	if v := os.Getenv("ACR_REVIEWER_AGENT"); v != "" {
@@ -500,6 +519,8 @@ func LoadEnvState() EnvState {
 		case "false", "0":
 			state.FPFilterEnabled = false
 			state.FPFilterSet = true
+		default:
+			warnings = append(warnings, fmt.Sprintf("ACR_FP_FILTER=%q is not a valid boolean (use true/false/1/0), ignoring", v))
 		}
 	}
 
@@ -507,6 +528,10 @@ func LoadEnvState() EnvState {
 		if i, err := strconv.Atoi(v); err == nil && i >= 1 && i <= 100 {
 			state.FPThreshold = i
 			state.FPThresholdSet = true
+		} else if err != nil {
+			warnings = append(warnings, fmt.Sprintf("ACR_FP_THRESHOLD=%q is not a valid integer, ignoring", v))
+		} else {
+			warnings = append(warnings, fmt.Sprintf("ACR_FP_THRESHOLD=%q is out of range (must be 1-100), ignoring", v))
 		}
 	}
 
@@ -518,6 +543,8 @@ func LoadEnvState() EnvState {
 		case "false", "0":
 			state.PRFeedbackEnabled = false
 			state.PRFeedbackEnabledSet = true
+		default:
+			warnings = append(warnings, fmt.Sprintf("ACR_PR_FEEDBACK=%q is not a valid boolean (use true/false/1/0), ignoring", v))
 		}
 	}
 
@@ -526,7 +553,7 @@ func LoadEnvState() EnvState {
 		state.PRFeedbackAgentSet = true
 	}
 
-	return state
+	return state, warnings
 }
 
 // Resolve merges config file values with env vars and flags.

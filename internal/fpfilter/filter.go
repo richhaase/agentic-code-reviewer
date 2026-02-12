@@ -144,10 +144,21 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 		return skippedResult(grouped, start, "response read failed: "+err.Error())
 	}
 
-	cleanedOutput := agent.StripMarkdownCodeFence(string(output))
+	// Extract the response text using the agent-specific summary parser.
+	// Each agent wraps output differently (codex: JSONL events, claude: structured_output,
+	// gemini: response field). The parser's ExtractText strips these wrappers.
+	parser, err := agent.NewSummaryParser(f.agentName)
+	if err != nil {
+		return skippedResult(grouped, start, "parser creation failed: "+err.Error())
+	}
+
+	responseText, err := parser.ExtractText(output)
+	if err != nil {
+		return skippedResult(grouped, start, "response extraction failed: "+err.Error())
+	}
 
 	var response evaluationResponse
-	if err := json.Unmarshal([]byte(cleanedOutput), &response); err != nil {
+	if err := json.Unmarshal([]byte(responseText), &response); err != nil {
 		r := skippedResult(grouped, start, "response parse failed: "+err.Error())
 		r.EvalErrors = len(grouped.Findings)
 		return r
