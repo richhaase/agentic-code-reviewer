@@ -4,6 +4,22 @@ All notable changes to ACR are documented in this file.
 
 This changelog is generated from git tag annotations.
 
+## [v0.12.1] - 2026-02-11
+
+# v0.12.1
+
+## Features
+- feat: Add elapsed time to spinner and phase indicators (#129)
+- feat: Add per-phase timeouts for summarizer and FP filter (#118)
+  - --summarizer-timeout (default 5m, env ACR_SUMMARIZER_TIMEOUT)
+  - --fp-filter-timeout (default 5m, env ACR_FP_FILTER_TIMEOUT)
+
+## Fixes
+- fix: Cap stderr buffer at 1MB for agent subprocesses (#117)
+- fix: Prune stale ACR worktrees (review-* only) on startup (#119)
+- fix: Warn on invalid duration env vars, guard against zero timeouts
+- fix: Context leak in FP filter phase (missing defer cancel)
+
 ## [v0.12.0] - 2026-02-11
 
 # v0.12.0
