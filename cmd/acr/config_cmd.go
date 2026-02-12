@@ -160,10 +160,17 @@ func newConfigValidateCmd() *cobra.Command {
 				hasIssues = true
 			}
 
-			// Check env vars
-			_, envWarnings := config.LoadEnvState()
+			// Check env vars for parse warnings
+			envState, envWarnings := config.LoadEnvState()
 			for _, warning := range envWarnings {
 				logger.Logf(terminal.StyleWarning, "Env: %s", warning)
+				hasIssues = true
+			}
+
+			// Resolve full config and validate semantically
+			resolved := config.Resolve(result.Config, envState, config.FlagState{}, config.ResolvedConfig{})
+			if err := resolved.Validate(); err != nil {
+				logger.Logf(terminal.StyleError, "Validation error: %v", err)
 				hasIssues = true
 			}
 
