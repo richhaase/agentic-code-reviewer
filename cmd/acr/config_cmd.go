@@ -40,7 +40,7 @@ func newConfigShowCmd() *cobra.Command {
 
 			envState, _ := config.LoadEnvState()
 
-			resolved := config.Resolve(result.Config, envState, config.FlagState{}, config.ResolvedConfig{})
+			resolved := config.Resolve(result.Config, envState, config.FlagState{}, config.Defaults)
 
 			fmt.Println("Resolved configuration:")
 			fmt.Println()
@@ -154,6 +154,7 @@ func newConfigValidateCmd() *cobra.Command {
 
 			// Load and validate config file (don't early-return so env var issues are also reported)
 			cfg := &config.Config{}
+			configDir := ""
 			configFileError := false
 			result, err := config.LoadWithWarnings()
 			if err != nil {
@@ -162,6 +163,7 @@ func newConfigValidateCmd() *cobra.Command {
 			}
 			if result != nil {
 				cfg = result.Config
+				configDir = result.ConfigDir
 				warnings = append(warnings, result.Warnings...)
 			}
 
@@ -182,6 +184,12 @@ func newConfigValidateCmd() *cobra.Command {
 			resolved := config.Resolve(resolveConfig, envState, config.FlagState{}, config.Defaults)
 			validationErrs := resolved.ValidateAll()
 			errors = append(errors, validationErrs...)
+
+			// Validate guidance file is readable (uses same resolution logic as runtime)
+			_, guidanceErr := config.ResolveGuidance(cfg, envState, config.FlagState{}, config.ResolvedConfig{}, configDir)
+			if guidanceErr != nil {
+				errors = append(errors, guidanceErr.Error())
+			}
 
 			// Report warnings
 			for _, w := range warnings {

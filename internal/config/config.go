@@ -141,8 +141,7 @@ func LoadFromPathWithWarnings(path string) (*LoadResult, error) {
 
 	// Validate config values
 	if err := cfg.Validate(); err != nil {
-		return &LoadResult{Config: &cfg, ConfigDir: filepath.Dir(path), Warnings: warnings},
-			fmt.Errorf("%s: %w", ConfigFileName, err)
+		return nil, fmt.Errorf("%s: %w", ConfigFileName, err)
 	}
 
 	if cfg.ReviewerAgent != nil {

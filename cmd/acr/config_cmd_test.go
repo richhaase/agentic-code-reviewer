@@ -171,3 +171,45 @@ func TestConfigValidate_MalformedEnvVarIsError(t *testing.T) {
 		t.Fatal("expected error for malformed ACR_REVIEWERS, got nil")
 	}
 }
+
+func TestConfigValidate_InvalidGuidanceFile(t *testing.T) {
+	dir := t.TempDir()
+	chdir(t, dir)
+	initGitRepo(t, dir)
+
+	t.Setenv("ACR_GUIDANCE_FILE", "/nonexistent/guidance.md")
+
+	cmd := newConfigCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"validate"})
+	err := cmd.Execute()
+
+	if err == nil {
+		t.Fatal("expected error for nonexistent guidance file, got nil")
+	}
+}
+
+func TestConfigValidate_ValidGuidanceFile(t *testing.T) {
+	dir := t.TempDir()
+	chdir(t, dir)
+	initGitRepo(t, dir)
+
+	guidancePath := filepath.Join(dir, "guidance.md")
+	if err := os.WriteFile(guidancePath, []byte("review carefully"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ACR_GUIDANCE_FILE", guidancePath)
+
+	cmd := newConfigCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"validate"})
+	err := cmd.Execute()
+
+	if err != nil {
+		t.Fatalf("expected valid guidance file to pass, got: %v", err)
+	}
+}
