@@ -154,11 +154,11 @@ func newConfigValidateCmd() *cobra.Command {
 
 			// Load and validate config file (don't early-return so env var issues are also reported)
 			cfg := &config.Config{}
-			configHasValidationError := false
+			configFileError := false
 			result, err := config.LoadWithWarnings()
 			if err != nil {
 				errors = append(errors, fmt.Sprintf("config file: %v", err))
-				configHasValidationError = true
+				configFileError = true
 			}
 			if result != nil {
 				cfg = result.Config
@@ -171,13 +171,17 @@ func newConfigValidateCmd() *cobra.Command {
 			envState, envWarnings := config.LoadEnvState()
 			errors = append(errors, envWarnings...)
 
-			// Resolve full config and validate semantically (skip if config file
-			// already failed validation to avoid duplicate error messages)
-			if !configHasValidationError {
-				resolved := config.Resolve(cfg, envState, config.FlagState{}, config.Defaults)
-				validationErrs := resolved.ValidateAll()
-				errors = append(errors, validationErrs...)
+			// Resolve full config and validate semantically.
+			// When the config file has errors, resolve env vars against defaults only
+			// (skip the broken config) to avoid duplicating config-file errors while
+			// still catching env-var semantic issues like ACR_REVIEWERS=0.
+			resolveConfig := cfg
+			if configFileError {
+				resolveConfig = &config.Config{}
 			}
+			resolved := config.Resolve(resolveConfig, envState, config.FlagState{}, config.Defaults)
+			validationErrs := resolved.ValidateAll()
+			errors = append(errors, validationErrs...)
 
 			// Report warnings
 			for _, w := range warnings {
