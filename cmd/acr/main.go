@@ -456,7 +456,20 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Run the review
-	code := executeReview(ctx, resolved, workDir, allExcludePatterns, refFile, summarizerTimeout, fpFilterTimeout, detectedPR, logger)
+	opts := ReviewOpts{
+		ResolvedConfig:    resolved,
+		Verbose:           verbose,
+		Local:             local,
+		AutoYes:           autoYes,
+		PRNumber:          detectedPR,
+		WorktreeBranch:    worktreeBranch,
+		UseRefFile:        refFile,
+		SummarizerTimeout: summarizerTimeout,
+		FPFilterTimeout:   fpFilterTimeout,
+		ExcludePatterns:   allExcludePatterns,
+		WorkDir:           workDir,
+	}
+	code := executeReview(ctx, opts, logger)
 	return exitCode(code)
 }
 
