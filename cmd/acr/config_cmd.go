@@ -149,24 +149,24 @@ func newConfigValidateCmd() *cobra.Command {
 			var errors []string
 			var warnings []string
 
-			// Load and validate config file
+			// Load and validate config file (don't early-return so env var issues are also reported)
+			cfg := &config.Config{}
 			result, err := config.LoadWithWarnings()
 			if err != nil {
-				logger.Logf(terminal.StyleError, "Config file error: %v", err)
-				return err
+				errors = append(errors, fmt.Sprintf("config file: %v", err))
+			} else {
+				cfg = result.Config
+				warnings = append(warnings, result.Warnings...)
 			}
-
-			warnings = append(warnings, result.Warnings...)
 
 			// Check env vars for parse warnings (these are errors — the values will be ignored)
 			envState, envWarnings := config.LoadEnvState()
 			errors = append(errors, envWarnings...)
 
 			// Resolve full config and validate semantically
-			resolved := config.Resolve(result.Config, envState, config.FlagState{}, config.ResolvedConfig{})
-			if err := resolved.Validate(); err != nil {
-				errors = append(errors, err.Error())
-			}
+			resolved := config.Resolve(cfg, envState, config.FlagState{}, config.ResolvedConfig{})
+			_, validationErrs := resolved.ValidateAll()
+			errors = append(errors, validationErrs...)
 
 			// Report warnings
 			for _, w := range warnings {

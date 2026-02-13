@@ -322,44 +322,21 @@ func Merge(cfg *Config, cliPatterns []string) []string {
 }
 
 // Validate checks that all config values are valid.
+// Validate checks that all config file values are semantically valid.
+// Delegates to ResolvedConfig.Validate() by resolving config-only values against defaults,
+// so validation rules are defined in one place.
 func (c *Config) Validate() error {
-	if c.Reviewers != nil && *c.Reviewers < 1 {
-		return fmt.Errorf("reviewers must be >= 1, got %d", *c.Reviewers)
-	}
-	if c.Concurrency != nil && *c.Concurrency < 0 {
-		return fmt.Errorf("concurrency must be >= 0, got %d", *c.Concurrency)
-	}
-	if c.Retries != nil && *c.Retries < 0 {
-		return fmt.Errorf("retries must be >= 0, got %d", *c.Retries)
-	}
-	if c.Timeout != nil && *c.Timeout <= 0 {
-		return fmt.Errorf("timeout must be > 0, got %s", time.Duration(*c.Timeout))
-	}
-	if c.ReviewerAgent != nil && !slices.Contains(agent.SupportedAgents, *c.ReviewerAgent) {
-		return fmt.Errorf("reviewer_agent must be one of %v, got %q", agent.SupportedAgents, *c.ReviewerAgent)
-	}
-	for _, agentName := range c.ReviewerAgents {
-		if !slices.Contains(agent.SupportedAgents, agentName) {
-			return fmt.Errorf("reviewer_agents contains unsupported agent %q, must be one of %v", agentName, agent.SupportedAgents)
-		}
-	}
-	if c.SummarizerAgent != nil && !slices.Contains(agent.SupportedAgents, *c.SummarizerAgent) {
-		return fmt.Errorf("summarizer_agent must be one of %v, got %q", agent.SupportedAgents, *c.SummarizerAgent)
-	}
-	if c.FPFilter.Threshold != nil && (*c.FPFilter.Threshold < 1 || *c.FPFilter.Threshold > 100) {
-		return fmt.Errorf("fp_filter.threshold must be 1-100, got %d", *c.FPFilter.Threshold)
-	}
-	if c.PRFeedback.Agent != nil && !slices.Contains(agent.SupportedAgents, *c.PRFeedback.Agent) {
-		return fmt.Errorf("pr_feedback.agent must be one of %v, got %q", agent.SupportedAgents, *c.PRFeedback.Agent)
+	resolved := Resolve(c, EnvState{}, FlagState{}, ResolvedConfig{})
+	_, errs := resolved.ValidateAll()
+	if len(errs) > 0 {
+		return fmt.Errorf("%s", errs[0])
 	}
 	return nil
 }
 
-// Validate checks that all resolved config values are semantically valid.
-// This catches issues from any precedence layer (env vars, config file, defaults).
-func (r *ResolvedConfig) Validate() error {
-	var errs []string
-
+// ValidateAll checks that all resolved config values are semantically valid.
+// Returns individual error strings so callers can count and report them accurately.
+func (r *ResolvedConfig) ValidateAll() (warnings []string, errs []string) {
 	if r.Reviewers < 1 {
 		errs = append(errs, fmt.Sprintf("reviewers must be >= 1, got %d", r.Reviewers))
 	}
@@ -389,7 +366,13 @@ func (r *ResolvedConfig) Validate() error {
 	if r.PRFeedbackAgent != "" && !slices.Contains(agent.SupportedAgents, r.PRFeedbackAgent) {
 		errs = append(errs, fmt.Sprintf("pr_feedback.agent must be one of %v, got %q", agent.SupportedAgents, r.PRFeedbackAgent))
 	}
+	return warnings, errs
+}
 
+// Validate checks that all resolved config values are semantically valid.
+// Returns a single error summarizing all issues, or nil if valid.
+func (r *ResolvedConfig) Validate() error {
+	_, errs := r.ValidateAll()
 	if len(errs) == 0 {
 		return nil
 	}
