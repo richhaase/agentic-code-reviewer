@@ -139,9 +139,10 @@ func LoadFromPathWithWarnings(path string) (*LoadResult, error) {
 		return nil, err
 	}
 
-	// Validate config values
+	// Validate config values (return result with warnings even on error so callers
+	// can access the parsed config and unknown-key warnings)
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("%s: %w", ConfigFileName, err)
+		return &LoadResult{Config: &cfg, ConfigDir: filepath.Dir(path), Warnings: warnings}, fmt.Errorf("%s: %w", ConfigFileName, err)
 	}
 
 	if cfg.ReviewerAgent != nil {

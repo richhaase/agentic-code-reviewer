@@ -387,14 +387,6 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	// Resolve final configuration (precedence: flags > env vars > config file > defaults)
 	resolved := config.Resolve(cfg, envState, flagState, flagValues)
 
-	// Apply resolved values
-	reviewers = resolved.Reviewers
-	concurrency = resolved.Concurrency
-	baseRef = resolved.Base
-	timeout = resolved.Timeout
-	retries = resolved.Retries
-	summarizerAgentName = resolved.SummarizerAgent
-
 	// Resolve phase timeouts (precedence: flags > env vars > defaults)
 	defaultPhaseTimeout := 5 * time.Minute
 	if !cmd.Flags().Changed("summarizer-timeout") {
@@ -414,14 +406,14 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	// For PR mode: fetch and qualify the base ref so git diff works in the detached worktree
 	// Only do this for unqualified branch names - skip for SHAs, tags, HEAD, or already-qualified refs
 	// When baseAutoDetected is true, always qualify (PR base refs are always unqualified branches)
-	if prRemote != "" && git.ShouldQualifyBaseRef(baseRef, baseAutoDetected) {
+	if prRemote != "" && git.ShouldQualifyBaseRef(resolved.Base, baseAutoDetected) {
 		// Fetch the base ref from the remote so it exists locally
-		if err := git.FetchBaseRef(prRepoRoot, prRemote, baseRef); err != nil {
+		if err := git.FetchBaseRef(prRepoRoot, prRemote, resolved.Base); err != nil {
 			logger.Logf(terminal.StyleWarning, "Could not fetch base ref: %v", err)
 			// Don't qualify - keep original ref so git diff can try it directly
 		} else {
 			// Only qualify the base ref if fetch succeeded
-			baseRef = git.QualifyBaseRef(prRemote, baseRef)
+			resolved.Base = git.QualifyBaseRef(prRemote, resolved.Base)
 		}
 	}
 
@@ -432,11 +424,11 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Default concurrency to reviewers if not specified (0 means same as reviewers)
-	if concurrency <= 0 {
-		concurrency = reviewers
+	if resolved.Concurrency <= 0 {
+		resolved.Concurrency = resolved.Reviewers
 	}
-	if concurrency > reviewers {
-		concurrency = reviewers
+	if resolved.Concurrency > resolved.Reviewers {
+		resolved.Concurrency = resolved.Reviewers
 	}
 
 	// Merge exclude patterns (config patterns + CLI patterns)
@@ -448,6 +440,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		logger.Logf(terminal.StyleError, "Failed to resolve guidance: %v", err)
 		return exitCode(domain.ExitError)
 	}
+	resolved.Guidance = resolvedGuidance
 
 	// Auto-detect PR for current branch if not explicitly specified and not in local mode
 	// This enables PR feedback summarization even without --pr flag
@@ -463,7 +456,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Run the review
-	code := executeReview(ctx, workDir, allExcludePatterns, resolvedGuidance, resolved.ReviewerAgents, resolved.SummarizerAgent, resolved.Fetch, refFile, resolved.FPFilterEnabled, resolved.FPThreshold, summarizerTimeout, fpFilterTimeout, resolved.PRFeedbackEnabled, resolved.PRFeedbackAgent, detectedPR, logger)
+	code := executeReview(ctx, resolved, workDir, allExcludePatterns, refFile, summarizerTimeout, fpFilterTimeout, detectedPR, logger)
 	return exitCode(code)
 }
 

@@ -511,6 +511,36 @@ func TestLoadFromPathWithWarnings_InvalidTimeout(t *testing.T) {
 	}
 }
 
+func TestLoadFromPathWithWarnings_PreservesWarningsOnValidationError(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	// Config with both an unknown key (produces warning) and invalid value (produces error)
+	content := `reviewers: 0
+unknown_field: true
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := LoadFromPathWithWarnings(configPath)
+	if err == nil {
+		t.Fatal("expected error for reviewers=0")
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result even on validation error")
+	}
+	if result.Config == nil {
+		t.Fatal("expected non-nil Config in result")
+	}
+	if result.Config.Reviewers == nil || *result.Config.Reviewers != 0 {
+		t.Error("expected parsed Config to contain reviewers=0")
+	}
+	if len(result.Warnings) == 0 {
+		t.Error("expected unknown-key warning to be preserved alongside validation error")
+	}
+}
+
 // Tests for unknown key warnings
 
 func TestLoadFromPathWithWarnings_UnknownTopLevelKey(t *testing.T) {
