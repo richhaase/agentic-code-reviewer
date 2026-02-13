@@ -145,6 +145,9 @@ func newConfigValidateCmd() *cobra.Command {
 		Short: "Validate configuration and environment variables",
 		Long:  "Load and validate the config file and environment variables, reporting any warnings or errors.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !terminal.IsStdoutTTY() {
+				terminal.DisableColors()
+			}
 			logger := terminal.NewLogger()
 			var errors []string
 			var warnings []string
@@ -159,13 +162,15 @@ func newConfigValidateCmd() *cobra.Command {
 				warnings = append(warnings, result.Warnings...)
 			}
 
-			// Check env vars for parse warnings (these are errors — the values will be ignored)
+			// Check env vars for parse issues. At runtime these are warnings (values are
+			// ignored and defaults used), but in validation mode we report them as errors
+			// since the user should fix their environment configuration.
 			envState, envWarnings := config.LoadEnvState()
 			errors = append(errors, envWarnings...)
 
 			// Resolve full config and validate semantically
-			resolved := config.Resolve(cfg, envState, config.FlagState{}, config.ResolvedConfig{})
-			_, validationErrs := resolved.ValidateAll()
+			resolved := config.Resolve(cfg, envState, config.FlagState{}, config.Defaults)
+			validationErrs := resolved.ValidateAll()
 			errors = append(errors, validationErrs...)
 
 			// Report warnings

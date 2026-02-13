@@ -141,7 +141,8 @@ func LoadFromPathWithWarnings(path string) (*LoadResult, error) {
 
 	// Validate config values
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("%s: %w", ConfigFileName, err)
+		return &LoadResult{Config: &cfg, ConfigDir: filepath.Dir(path), Warnings: warnings},
+			fmt.Errorf("%s: %w", ConfigFileName, err)
 	}
 
 	if cfg.ReviewerAgent != nil {
@@ -321,22 +322,22 @@ func Merge(cfg *Config, cliPatterns []string) []string {
 	return append(cfg.Filters.ExcludePatterns, cliPatterns...)
 }
 
-// Validate checks that all config values are valid.
 // Validate checks that all config file values are semantically valid.
-// Delegates to ResolvedConfig.Validate() by resolving config-only values against defaults,
+// Delegates to ResolvedConfig.ValidateAll() by resolving config-only values against defaults,
 // so validation rules are defined in one place.
 func (c *Config) Validate() error {
-	resolved := Resolve(c, EnvState{}, FlagState{}, ResolvedConfig{})
-	_, errs := resolved.ValidateAll()
+	resolved := Resolve(c, EnvState{}, FlagState{}, Defaults)
+	errs := resolved.ValidateAll()
 	if len(errs) > 0 {
-		return fmt.Errorf("%s", errs[0])
+		return fmt.Errorf("%s", strings.Join(errs, "; "))
 	}
 	return nil
 }
 
 // ValidateAll checks that all resolved config values are semantically valid.
 // Returns individual error strings so callers can count and report them accurately.
-func (r *ResolvedConfig) ValidateAll() (warnings []string, errs []string) {
+func (r *ResolvedConfig) ValidateAll() []string {
+	var errs []string
 	if r.Reviewers < 1 {
 		errs = append(errs, fmt.Sprintf("reviewers must be >= 1, got %d", r.Reviewers))
 	}
@@ -366,13 +367,13 @@ func (r *ResolvedConfig) ValidateAll() (warnings []string, errs []string) {
 	if r.PRFeedbackAgent != "" && !slices.Contains(agent.SupportedAgents, r.PRFeedbackAgent) {
 		errs = append(errs, fmt.Sprintf("pr_feedback.agent must be one of %v, got %q", agent.SupportedAgents, r.PRFeedbackAgent))
 	}
-	return warnings, errs
+	return errs
 }
 
 // Validate checks that all resolved config values are semantically valid.
 // Returns a single error summarizing all issues, or nil if valid.
 func (r *ResolvedConfig) Validate() error {
-	_, errs := r.ValidateAll()
+	errs := r.ValidateAll()
 	if len(errs) == 0 {
 		return nil
 	}

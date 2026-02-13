@@ -427,7 +427,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 
 	// Validate resolved config
 	if err := resolved.Validate(); err != nil {
-		logger.Logf(terminal.StyleError, "Invalid configuration: %v", err)
+		logger.Logf(terminal.StyleError, "%v", err)
 		return exitCode(domain.ExitError)
 	}
 
