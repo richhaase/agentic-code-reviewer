@@ -142,6 +142,161 @@ Exit codes:
 	return 0
 }
 
+// worktreeResult holds the outputs from worktree setup.
+type worktreeResult struct {
+	workDir          string
+	baseAutoDetected bool
+	prRemote         string
+	prRepoRoot       string
+	cleanup          func() // Call to remove worktree; nil if no worktree created
+}
+
+// setupWorktree handles --pr and --worktree-branch modes.
+// Returns a worktreeResult with the working directory and cleanup function.
+// If neither flag is set, returns zero-value result (no worktree).
+func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Logger) (worktreeResult, error) {
+	var result worktreeResult
+
+	// Validate mutual exclusivity
+	if prNumber != "" && worktreeBranch != "" {
+		logger.Log("--pr and --worktree-branch are mutually exclusive", terminal.StyleError)
+		return result, exitCode(domain.ExitError)
+	}
+
+	// Handle PR-based review
+	if prNumber != "" {
+		if err := github.CheckGHAvailable(); err != nil {
+			logger.Logf(terminal.StyleError, "--pr requires gh CLI: %v", err)
+			return result, exitCode(domain.ExitError)
+		}
+
+		// Early validation: check PR exists and auth is valid
+		if err := github.ValidatePR(ctx, prNumber); err != nil {
+			if errors.Is(err, github.ErrNoPRFound) {
+				logger.Logf(terminal.StyleError, "PR #%s not found", prNumber)
+			} else if errors.Is(err, github.ErrAuthFailed) {
+				logger.Logf(terminal.StyleError, "GitHub authentication failed. Run 'gh auth login' to authenticate.")
+			} else {
+				logger.Logf(terminal.StyleError, "Failed to access PR #%s: %v", prNumber, err)
+			}
+			return result, exitCode(domain.ExitError)
+		}
+
+		logger.Logf(terminal.StyleInfo, "Fetching PR %s#%s%s",
+			terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset))
+
+		// Auto-detect base ref only if not explicitly set via flag OR env var
+		// This respects user's intentional base configuration
+		explicitBaseSet := cmd.Flags().Changed("base") || os.Getenv("ACR_BASE_REF") != ""
+		if !explicitBaseSet {
+			if detectedBase, err := github.GetPRBaseRef(ctx, prNumber); err == nil && detectedBase != "" {
+				baseRef = detectedBase
+				result.baseAutoDetected = true // Ensures config.Resolve won't override it
+				logger.Logf(terminal.StyleDim, "Auto-detected base: %s", baseRef)
+			}
+		}
+
+		// Get repo root for worktree creation
+		repoRoot, err := git.GetRoot()
+		if err != nil {
+			logger.Logf(terminal.StyleError, "%v", err)
+			return result, exitCode(domain.ExitError)
+		}
+		result.prRepoRoot = repoRoot
+
+		// Detect the correct remote for PR refs (handles fork workflows)
+		remote := github.GetRepoRemote(ctx)
+		result.prRemote = remote
+
+		// Create worktree from PR - uses FETCH_HEAD to avoid branch conflicts
+		wt, err := git.CreateWorktreeFromPR(repoRoot, remote, prNumber)
+		if err != nil {
+			logger.Logf(terminal.StyleError, "%v", err)
+			return result, exitCode(domain.ExitError)
+		}
+		result.cleanup = func() {
+			logger.Log("Cleaning up worktree", terminal.StyleDim)
+			_ = wt.Remove()
+		}
+
+		logger.Logf(terminal.StyleSuccess, "Worktree ready %s(%s)%s",
+			terminal.Color(terminal.Dim), wt.Path, terminal.Color(terminal.Reset))
+		result.workDir = wt.Path
+	} else if worktreeBranch != "" {
+		logger.Logf(terminal.StyleInfo, "Creating worktree for %s%s%s",
+			terminal.Color(terminal.Bold), worktreeBranch, terminal.Color(terminal.Reset))
+
+		// Check if this is fork notation (username:branch)
+		var actualRef string
+		var cleanupRemote func()
+
+		forkRef, err := github.ResolveForkRef(ctx, worktreeBranch)
+		if err != nil {
+			logger.Logf(terminal.StyleError, "%v", err)
+			return result, exitCode(domain.ExitError)
+		}
+
+		if forkRef != nil {
+			// Fork flow: add remote, fetch, set ref
+			logger.Logf(terminal.StyleInfo, "Resolved fork PR #%d from %s",
+				forkRef.PRNumber, forkRef.Username)
+
+			repoRoot, err := git.GetRoot()
+			if err != nil {
+				logger.Logf(terminal.StyleError, "Error getting repo root: %v", err)
+				return result, exitCode(domain.ExitError)
+			}
+
+			// Add temporary remote
+			if err := git.AddRemote(repoRoot, forkRef.RemoteName, forkRef.RepoURL); err != nil {
+				logger.Logf(terminal.StyleError, "Error adding remote: %v", err)
+				return result, exitCode(domain.ExitError)
+			}
+			cleanupRemote = func() {
+				_ = git.RemoveRemote(repoRoot, forkRef.RemoteName)
+			}
+
+			// Fetch the branch
+			logger.Logf(terminal.StyleDim, "Fetching %s from %s", forkRef.Branch, forkRef.RepoURL)
+			if err := git.FetchBranch(ctx, repoRoot, forkRef.RemoteName, forkRef.Branch); err != nil {
+				cleanupRemote()
+				logger.Logf(terminal.StyleError, "Error fetching fork branch: %v", err)
+				return result, exitCode(domain.ExitError)
+			}
+
+			actualRef = fmt.Sprintf("%s/%s", forkRef.RemoteName, forkRef.Branch)
+		} else {
+			// Normal branch
+			actualRef = worktreeBranch
+		}
+
+		wt, err := git.CreateWorktree(actualRef)
+		if err != nil {
+			if cleanupRemote != nil {
+				cleanupRemote()
+			}
+			logger.Logf(terminal.StyleError, "%v", err)
+			return result, exitCode(domain.ExitError)
+		}
+
+		// Cleanup remote after worktree is created (worktree has the files, remote no longer needed)
+		if cleanupRemote != nil {
+			cleanupRemote()
+		}
+
+		result.cleanup = func() {
+			logger.Log("Cleaning up worktree", terminal.StyleDim)
+			_ = wt.Remove()
+		}
+
+		logger.Logf(terminal.StyleSuccess, "Worktree ready %s(%s)%s",
+			terminal.Color(terminal.Dim), wt.Path, terminal.Color(terminal.Reset))
+		result.workDir = wt.Path
+	}
+
+	return result, nil
+}
+
 func runReview(cmd *cobra.Command, _ []string) error {
 	// Disable colors if stdout is not a TTY
 	if !terminal.IsStdoutTTY() {
@@ -169,147 +324,13 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		cancel()
 	}()
 
-	// Handle worktree-based review
-	var workDir string
-	var baseAutoDetected bool // Track if base was auto-detected from PR
-	var prRemote string       // Track remote for PR mode (used to qualify base ref)
-	var prRepoRoot string     // Track repo root for PR mode (used to fetch base ref)
-
-	// Validate mutual exclusivity
-	if prNumber != "" && worktreeBranch != "" {
-		logger.Log("--pr and --worktree-branch are mutually exclusive", terminal.StyleError)
-		return exitCode(domain.ExitError)
+	// Set up worktree (--pr or --worktree-branch)
+	wt, err := setupWorktree(ctx, cmd, logger)
+	if err != nil {
+		return err
 	}
-
-	// Handle PR-based review
-	if prNumber != "" {
-		if err := github.CheckGHAvailable(); err != nil {
-			logger.Logf(terminal.StyleError, "--pr requires gh CLI: %v", err)
-			return exitCode(domain.ExitError)
-		}
-
-		// Early validation: check PR exists and auth is valid
-		if err := github.ValidatePR(ctx, prNumber); err != nil {
-			if errors.Is(err, github.ErrNoPRFound) {
-				logger.Logf(terminal.StyleError, "PR #%s not found", prNumber)
-			} else if errors.Is(err, github.ErrAuthFailed) {
-				logger.Logf(terminal.StyleError, "GitHub authentication failed. Run 'gh auth login' to authenticate.")
-			} else {
-				logger.Logf(terminal.StyleError, "Failed to access PR #%s: %v", prNumber, err)
-			}
-			return exitCode(domain.ExitError)
-		}
-
-		logger.Logf(terminal.StyleInfo, "Fetching PR %s#%s%s",
-			terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset))
-
-		// Auto-detect base ref only if not explicitly set via flag OR env var
-		// This respects user's intentional base configuration
-		explicitBaseSet := cmd.Flags().Changed("base") || os.Getenv("ACR_BASE_REF") != ""
-		if !explicitBaseSet {
-			if detectedBase, err := github.GetPRBaseRef(ctx, prNumber); err == nil && detectedBase != "" {
-				baseRef = detectedBase
-				baseAutoDetected = true // Ensures config.Resolve won't override it
-				logger.Logf(terminal.StyleDim, "Auto-detected base: %s", baseRef)
-			}
-		}
-
-		// Get repo root for worktree creation
-		repoRoot, err := git.GetRoot()
-		if err != nil {
-			logger.Logf(terminal.StyleError, "%v", err)
-			return exitCode(domain.ExitError)
-		}
-		prRepoRoot = repoRoot
-
-		// Detect the correct remote for PR refs (handles fork workflows)
-		remote := github.GetRepoRemote(ctx)
-		prRemote = remote
-
-		// Create worktree from PR - uses FETCH_HEAD to avoid branch conflicts
-		wt, err := git.CreateWorktreeFromPR(repoRoot, remote, prNumber)
-		if err != nil {
-			logger.Logf(terminal.StyleError, "%v", err)
-			return exitCode(domain.ExitError)
-		}
-		defer func() {
-			logger.Log("Cleaning up worktree", terminal.StyleDim)
-			_ = wt.Remove()
-		}()
-
-		logger.Logf(terminal.StyleSuccess, "Worktree ready %s(%s)%s",
-			terminal.Color(terminal.Dim), wt.Path, terminal.Color(terminal.Reset))
-		workDir = wt.Path
-	} else if worktreeBranch != "" {
-		logger.Logf(terminal.StyleInfo, "Creating worktree for %s%s%s",
-			terminal.Color(terminal.Bold), worktreeBranch, terminal.Color(terminal.Reset))
-
-		// Check if this is fork notation (username:branch)
-		var actualRef string
-		var cleanupRemote func()
-
-		forkRef, err := github.ResolveForkRef(ctx, worktreeBranch)
-		if err != nil {
-			logger.Logf(terminal.StyleError, "%v", err)
-			return exitCode(domain.ExitError)
-		}
-
-		if forkRef != nil {
-			// Fork flow: add remote, fetch, set ref
-			logger.Logf(terminal.StyleInfo, "Resolved fork PR #%d from %s",
-				forkRef.PRNumber, forkRef.Username)
-
-			repoRoot, err := git.GetRoot()
-			if err != nil {
-				logger.Logf(terminal.StyleError, "Error getting repo root: %v", err)
-				return exitCode(domain.ExitError)
-			}
-
-			// Add temporary remote
-			if err := git.AddRemote(repoRoot, forkRef.RemoteName, forkRef.RepoURL); err != nil {
-				logger.Logf(terminal.StyleError, "Error adding remote: %v", err)
-				return exitCode(domain.ExitError)
-			}
-			cleanupRemote = func() {
-				_ = git.RemoveRemote(repoRoot, forkRef.RemoteName)
-			}
-
-			// Fetch the branch
-			logger.Logf(terminal.StyleDim, "Fetching %s from %s", forkRef.Branch, forkRef.RepoURL)
-			if err := git.FetchBranch(ctx, repoRoot, forkRef.RemoteName, forkRef.Branch); err != nil {
-				cleanupRemote()
-				logger.Logf(terminal.StyleError, "Error fetching fork branch: %v", err)
-				return exitCode(domain.ExitError)
-			}
-
-			actualRef = fmt.Sprintf("%s/%s", forkRef.RemoteName, forkRef.Branch)
-		} else {
-			// Normal branch
-			actualRef = worktreeBranch
-		}
-
-		wt, err := git.CreateWorktree(actualRef)
-		if err != nil {
-			if cleanupRemote != nil {
-				cleanupRemote()
-			}
-			logger.Logf(terminal.StyleError, "%v", err)
-			return exitCode(domain.ExitError)
-		}
-
-		// Cleanup remote after worktree is created (worktree has the files, remote no longer needed)
-		if cleanupRemote != nil {
-			cleanupRemote()
-		}
-
-		defer func() {
-			logger.Log("Cleaning up worktree", terminal.StyleDim)
-			_ = wt.Remove()
-		}()
-
-		logger.Logf(terminal.StyleSuccess, "Worktree ready %s(%s)%s",
-			terminal.Color(terminal.Dim), wt.Path, terminal.Color(terminal.Reset))
-		workDir = wt.Path
+	if wt.cleanup != nil {
+		defer wt.cleanup()
 	}
 
 	// Load config file (unless --no-config)
@@ -319,8 +340,8 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	if !noConfig {
 		var result *config.LoadResult
 		var err error
-		if workDir != "" {
-			result, err = config.LoadFromDirWithWarnings(workDir)
+		if wt.workDir != "" {
+			result, err = config.LoadFromDirWithWarnings(wt.workDir)
 		} else {
 			result, err = config.LoadWithWarnings()
 		}
@@ -342,7 +363,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	flagState := config.FlagState{
 		ReviewersSet:       cmd.Flags().Changed("reviewers"),
 		ConcurrencySet:     cmd.Flags().Changed("concurrency"),
-		BaseSet:            cmd.Flags().Changed("base") || baseAutoDetected,
+		BaseSet:            cmd.Flags().Changed("base") || wt.baseAutoDetected,
 		TimeoutSet:         cmd.Flags().Changed("timeout"),
 		RetriesSet:         cmd.Flags().Changed("retries"),
 		FetchSet:           fetchFlagSet,
@@ -406,14 +427,14 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	// For PR mode: fetch and qualify the base ref so git diff works in the detached worktree
 	// Only do this for unqualified branch names - skip for SHAs, tags, HEAD, or already-qualified refs
 	// When baseAutoDetected is true, always qualify (PR base refs are always unqualified branches)
-	if prRemote != "" && git.ShouldQualifyBaseRef(resolved.Base, baseAutoDetected) {
+	if wt.prRemote != "" && git.ShouldQualifyBaseRef(resolved.Base, wt.baseAutoDetected) {
 		// Fetch the base ref from the remote so it exists locally
-		if err := git.FetchBaseRef(prRepoRoot, prRemote, resolved.Base); err != nil {
+		if err := git.FetchBaseRef(wt.prRepoRoot, wt.prRemote, resolved.Base); err != nil {
 			logger.Logf(terminal.StyleWarning, "Could not fetch base ref: %v", err)
 			// Don't qualify - keep original ref so git diff can try it directly
 		} else {
 			// Only qualify the base ref if fetch succeeded
-			resolved.Base = git.QualifyBaseRef(prRemote, resolved.Base)
+			resolved.Base = git.QualifyBaseRef(wt.prRemote, resolved.Base)
 		}
 	}
 
@@ -467,7 +488,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		SummarizerTimeout: summarizerTimeout,
 		FPFilterTimeout:   fpFilterTimeout,
 		ExcludePatterns:   allExcludePatterns,
-		WorkDir:           workDir,
+		WorkDir:           wt.workDir,
 	}
 	code := executeReview(ctx, opts, logger)
 	return exitCode(code)
