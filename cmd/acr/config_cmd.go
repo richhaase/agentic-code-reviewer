@@ -186,7 +186,7 @@ func newConfigValidateCmd() *cobra.Command {
 			errors = append(errors, validationErrs...)
 
 			// Validate guidance file is readable (uses same resolution logic as runtime)
-			_, guidanceErr := config.ResolveGuidance(cfg, envState, config.FlagState{}, config.ResolvedConfig{}, configDir)
+			_, guidanceErr := config.ResolveGuidance(cfg, envState, config.FlagState{}, config.Defaults, configDir)
 			if guidanceErr != nil {
 				errors = append(errors, guidanceErr.Error())
 			}
