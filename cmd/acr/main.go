@@ -297,42 +297,18 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 	return result, nil
 }
 
-func runReview(cmd *cobra.Command, _ []string) error {
-	// Disable colors if stdout is not a TTY
-	if !terminal.IsStdoutTTY() {
-		terminal.DisableColors()
-	}
+// configResult holds the outputs from config loading and resolution.
+type configResult struct {
+	resolved          config.ResolvedConfig
+	excludePatterns   []string
+	summarizerTimeout time.Duration
+	fpFilterTimeout   time.Duration
+}
 
-	logger := terminal.NewLogger()
-
-	// Prune stale ACR worktrees from previous runs (only review-* dirs older than 2h)
-	if err := git.PruneStaleWorktrees(); err != nil && verbose {
-		logger.Logf(terminal.StyleDim, "Worktree prune: %v", err)
-	}
-
-	// Set up context with cancellation
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Handle signals
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		fmt.Fprintln(os.Stderr)
-		logger.Log("Interrupted, shutting down...", terminal.StyleWarning)
-		cancel()
-	}()
-
-	// Set up worktree (--pr or --worktree-branch)
-	wt, err := setupWorktree(ctx, cmd, logger)
-	if err != nil {
-		return err
-	}
-	if wt.cleanup != nil {
-		defer wt.cleanup()
-	}
-
+// loadAndResolveConfig loads the config file, builds flag/env state, resolves
+// configuration precedence, qualifies the base ref for PR mode, validates,
+// and resolves guidance. It encapsulates all config-related setup.
+func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *terminal.Logger) (configResult, error) {
 	// Load config file (unless --no-config)
 	// When using a worktree, load config from the worktree (branch-specific settings)
 	var cfg *config.Config
@@ -347,7 +323,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		}
 		if err != nil {
 			logger.Logf(terminal.StyleError, "Config error: %v", err)
-			return exitCode(domain.ExitError)
+			return configResult{}, exitCode(domain.ExitError)
 		}
 		cfg = result.Config
 		configDir = result.ConfigDir
@@ -409,19 +385,21 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	resolved := config.Resolve(cfg, envState, flagState, flagValues)
 
 	// Resolve phase timeouts (precedence: flags > env vars > defaults)
+	resolvedSummarizerTimeout := summarizerTimeout
+	resolvedFPFilterTimeout := fpFilterTimeout
 	defaultPhaseTimeout := 5 * time.Minute
 	if !cmd.Flags().Changed("summarizer-timeout") {
-		summarizerTimeout = getEnvDuration("ACR_SUMMARIZER_TIMEOUT", defaultPhaseTimeout)
+		resolvedSummarizerTimeout = getEnvDuration("ACR_SUMMARIZER_TIMEOUT", defaultPhaseTimeout)
 	}
 	if !cmd.Flags().Changed("fp-filter-timeout") {
-		fpFilterTimeout = getEnvDuration("ACR_FP_FILTER_TIMEOUT", defaultPhaseTimeout)
+		resolvedFPFilterTimeout = getEnvDuration("ACR_FP_FILTER_TIMEOUT", defaultPhaseTimeout)
 	}
 	// Ensure zero timeout doesn't create an instantly-expiring context
-	if summarizerTimeout <= 0 {
-		summarizerTimeout = defaultPhaseTimeout
+	if resolvedSummarizerTimeout <= 0 {
+		resolvedSummarizerTimeout = defaultPhaseTimeout
 	}
-	if fpFilterTimeout <= 0 {
-		fpFilterTimeout = defaultPhaseTimeout
+	if resolvedFPFilterTimeout <= 0 {
+		resolvedFPFilterTimeout = defaultPhaseTimeout
 	}
 
 	// For PR mode: fetch and qualify the base ref so git diff works in the detached worktree
@@ -441,7 +419,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	// Validate resolved config
 	if err := resolved.Validate(); err != nil {
 		logger.Logf(terminal.StyleError, "%v", err)
-		return exitCode(domain.ExitError)
+		return configResult{}, exitCode(domain.ExitError)
 	}
 
 	// Default concurrency to reviewers if not specified (0 means same as reviewers)
@@ -459,15 +437,65 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	resolvedGuidance, err := config.ResolveGuidance(cfg, envState, flagState, flagValues, configDir)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Failed to resolve guidance: %v", err)
-		return exitCode(domain.ExitError)
+		return configResult{}, exitCode(domain.ExitError)
 	}
 	resolved.Guidance = resolvedGuidance
+
+	return configResult{
+		resolved:          resolved,
+		excludePatterns:   allExcludePatterns,
+		summarizerTimeout: resolvedSummarizerTimeout,
+		fpFilterTimeout:   resolvedFPFilterTimeout,
+	}, nil
+}
+
+func runReview(cmd *cobra.Command, _ []string) error {
+	// Disable colors if stdout is not a TTY
+	if !terminal.IsStdoutTTY() {
+		terminal.DisableColors()
+	}
+
+	logger := terminal.NewLogger()
+
+	// Prune stale ACR worktrees from previous runs (only review-* dirs older than 2h)
+	if err := git.PruneStaleWorktrees(); err != nil && verbose {
+		logger.Logf(terminal.StyleDim, "Worktree prune: %v", err)
+	}
+
+	// Set up context with cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle signals
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		fmt.Fprintln(os.Stderr)
+		logger.Log("Interrupted, shutting down...", terminal.StyleWarning)
+		cancel()
+	}()
+
+	// Set up worktree (--pr or --worktree-branch)
+	wt, err := setupWorktree(ctx, cmd, logger)
+	if err != nil {
+		return err
+	}
+	if wt.cleanup != nil {
+		defer wt.cleanup()
+	}
+
+	// Load and resolve configuration
+	cfgResult, err := loadAndResolveConfig(cmd, wt, logger)
+	if err != nil {
+		return err
+	}
 
 	// Auto-detect PR for current branch if not explicitly specified and not in local mode
 	// This enables PR feedback summarization even without --pr flag
 	// Skip auto-detection if PR feedback is disabled since the PR number is only used for feedback
 	detectedPR := prNumber
-	if detectedPR == "" && !local && resolved.PRFeedbackEnabled && github.IsGHAvailable() {
+	if detectedPR == "" && !local && cfgResult.resolved.PRFeedbackEnabled && github.IsGHAvailable() {
 		if detected, err := github.GetCurrentPRNumber(ctx, worktreeBranch); err == nil {
 			detectedPR = detected
 			if verbose {
@@ -478,16 +506,16 @@ func runReview(cmd *cobra.Command, _ []string) error {
 
 	// Run the review
 	opts := ReviewOpts{
-		ResolvedConfig:    resolved,
+		ResolvedConfig:    cfgResult.resolved,
 		Verbose:           verbose,
 		Local:             local,
 		AutoYes:           autoYes,
 		PRNumber:          detectedPR,
 		WorktreeBranch:    worktreeBranch,
 		UseRefFile:        refFile,
-		SummarizerTimeout: summarizerTimeout,
-		FPFilterTimeout:   fpFilterTimeout,
-		ExcludePatterns:   allExcludePatterns,
+		SummarizerTimeout: cfgResult.summarizerTimeout,
+		FPFilterTimeout:   cfgResult.fpFilterTimeout,
+		ExcludePatterns:   cfgResult.excludePatterns,
 		WorkDir:           wt.workDir,
 	}
 	code := executeReview(ctx, opts, logger)
