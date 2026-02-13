@@ -259,8 +259,8 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 
 	// Handle PR actions
 	if !summaryResult.Grouped.HasFindings() {
-		return handleLGTM(ctx, allFindings, stats, logger)
+		return handleLGTM(ctx, opts, allFindings, stats, logger)
 	}
 
-	return handleFindings(ctx, summaryResult.Grouped, aggregated, stats, logger)
+	return handleFindings(ctx, opts, summaryResult.Grouped, aggregated, stats, logger)
 }
