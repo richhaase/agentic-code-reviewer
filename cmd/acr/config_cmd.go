@@ -154,10 +154,13 @@ func newConfigValidateCmd() *cobra.Command {
 
 			// Load and validate config file (don't early-return so env var issues are also reported)
 			cfg := &config.Config{}
+			configHasValidationError := false
 			result, err := config.LoadWithWarnings()
 			if err != nil {
 				errors = append(errors, fmt.Sprintf("config file: %v", err))
-			} else {
+				configHasValidationError = true
+			}
+			if result != nil {
 				cfg = result.Config
 				warnings = append(warnings, result.Warnings...)
 			}
@@ -168,10 +171,13 @@ func newConfigValidateCmd() *cobra.Command {
 			envState, envWarnings := config.LoadEnvState()
 			errors = append(errors, envWarnings...)
 
-			// Resolve full config and validate semantically
-			resolved := config.Resolve(cfg, envState, config.FlagState{}, config.Defaults)
-			validationErrs := resolved.ValidateAll()
-			errors = append(errors, validationErrs...)
+			// Resolve full config and validate semantically (skip if config file
+			// already failed validation to avoid duplicate error messages)
+			if !configHasValidationError {
+				resolved := config.Resolve(cfg, envState, config.FlagState{}, config.Defaults)
+				validationErrs := resolved.ValidateAll()
+				errors = append(errors, validationErrs...)
+			}
 
 			// Report warnings
 			for _, w := range warnings {
