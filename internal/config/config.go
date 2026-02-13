@@ -139,17 +139,19 @@ func LoadFromPathWithWarnings(path string) (*LoadResult, error) {
 		return nil, err
 	}
 
-	// Validate config values (return result with warnings even on error so callers
-	// can access the parsed config and unknown-key warnings)
-	if err := cfg.Validate(); err != nil {
-		return &LoadResult{Config: &cfg, ConfigDir: filepath.Dir(path), Warnings: warnings}, fmt.Errorf("%s: %w", ConfigFileName, err)
-	}
-
+	// Check for deprecated fields before validation so warnings are reported
+	// even when the config has semantic errors
 	if cfg.ReviewerAgent != nil {
 		warnings = append(warnings, `"reviewer_agent" is deprecated, use "reviewer_agents" list instead`)
 		if len(cfg.ReviewerAgents) > 0 {
 			warnings = append(warnings, `both "reviewer_agent" and "reviewer_agents" are set; "reviewer_agents" takes precedence`)
 		}
+	}
+
+	// Validate config values (return result with warnings even on error so callers
+	// can access the parsed config and unknown-key warnings)
+	if err := cfg.Validate(); err != nil {
+		return &LoadResult{Config: &cfg, ConfigDir: filepath.Dir(path), Warnings: warnings}, fmt.Errorf("%s: %w", ConfigFileName, err)
 	}
 
 	return &LoadResult{Config: &cfg, ConfigDir: filepath.Dir(path), Warnings: warnings}, nil
