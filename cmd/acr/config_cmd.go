@@ -40,7 +40,7 @@ func newConfigShowCmd() *cobra.Command {
 
 			envState, _ := config.LoadEnvState()
 
-			resolved := config.Resolve(result.Config, envState, config.FlagState{}, config.ResolvedConfig{})
+			resolved := config.Resolve(result.Config, envState, config.FlagState{}, config.Defaults)
 
 			fmt.Println("Resolved configuration:")
 			fmt.Println()
@@ -145,29 +145,69 @@ func newConfigValidateCmd() *cobra.Command {
 		Short: "Validate configuration and environment variables",
 		Long:  "Load and validate the config file and environment variables, reporting any warnings or errors.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if !terminal.IsStdoutTTY() {
+				terminal.DisableColors()
+			}
 			logger := terminal.NewLogger()
-			hasIssues := false
+			var errors []string
+			var warnings []string
 
-			// Load and validate config file
+			// Load and validate config file (don't early-return so env var issues are also reported)
+			cfg := &config.Config{}
+			configDir := ""
+			configFileError := false
 			result, err := config.LoadWithWarnings()
 			if err != nil {
-				logger.Logf(terminal.StyleError, "Config file error: %v", err)
-				return err
+				errors = append(errors, fmt.Sprintf("config file: %v", err))
+				configFileError = true
+			}
+			if result != nil {
+				cfg = result.Config
+				configDir = result.ConfigDir
+				warnings = append(warnings, result.Warnings...)
 			}
 
-			for _, warning := range result.Warnings {
-				logger.Logf(terminal.StyleWarning, "Config: %s", warning)
-				hasIssues = true
+			// Check env vars for parse issues. At runtime these are warnings (values are
+			// ignored and defaults used), but in validation mode we report them as errors
+			// since the user should fix their environment configuration.
+			envState, envWarnings := config.LoadEnvState()
+			errors = append(errors, envWarnings...)
+
+			// Resolve full config and validate semantically.
+			// When the config file has errors, resolve env vars against defaults only
+			// (skip the broken config) to avoid duplicating config-file errors while
+			// still catching env-var semantic issues like ACR_REVIEWERS=0.
+			resolveConfig := cfg
+			if configFileError {
+				resolveConfig = &config.Config{}
+			}
+			resolved := config.Resolve(resolveConfig, envState, config.FlagState{}, config.Defaults)
+			validationErrs := resolved.ValidateAll()
+			errors = append(errors, validationErrs...)
+
+			// Validate guidance file is readable (uses same resolution logic as runtime)
+			_, guidanceErr := config.ResolveGuidance(cfg, envState, config.FlagState{}, config.Defaults, configDir)
+			if guidanceErr != nil {
+				errors = append(errors, guidanceErr.Error())
 			}
 
-			// Check env vars
-			_, envWarnings := config.LoadEnvState()
-			for _, warning := range envWarnings {
-				logger.Logf(terminal.StyleWarning, "Env: %s", warning)
-				hasIssues = true
+			// Report warnings
+			for _, w := range warnings {
+				logger.Logf(terminal.StyleWarning, "Config: %s", w)
 			}
 
-			if !hasIssues {
+			// Report errors
+			for _, e := range errors {
+				logger.Logf(terminal.StyleError, "%s", e)
+			}
+
+			if len(errors) > 0 {
+				return fmt.Errorf("configuration has %d error(s)", len(errors))
+			}
+
+			if len(warnings) > 0 {
+				logger.Log("Configuration is valid (with warnings).", terminal.StyleSuccess)
+			} else {
 				logger.Log("Configuration is valid.", terminal.StyleSuccess)
 			}
 

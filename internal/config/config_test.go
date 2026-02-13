@@ -511,6 +511,36 @@ func TestLoadFromPathWithWarnings_InvalidTimeout(t *testing.T) {
 	}
 }
 
+func TestLoadFromPathWithWarnings_PreservesWarningsOnValidationError(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	// Config with both an unknown key (produces warning) and invalid value (produces error)
+	content := `reviewers: 0
+unknown_field: true
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := LoadFromPathWithWarnings(configPath)
+	if err == nil {
+		t.Fatal("expected error for reviewers=0")
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result even on validation error")
+	}
+	if result.Config == nil {
+		t.Fatal("expected non-nil Config in result")
+	}
+	if result.Config.Reviewers == nil || *result.Config.Reviewers != 0 {
+		t.Error("expected parsed Config to contain reviewers=0")
+	}
+	if len(result.Warnings) == 0 {
+		t.Error("expected unknown-key warning to be preserved alongside validation error")
+	}
+}
+
 // Tests for unknown key warnings
 
 func TestLoadFromPathWithWarnings_UnknownTopLevelKey(t *testing.T) {
@@ -1366,5 +1396,119 @@ func TestLoadFromPathWithWarnings_NoDeprecationWithoutReviewerAgent(t *testing.T
 		if strings.Contains(w, "deprecated") {
 			t.Errorf("unexpected deprecation warning: %s", w)
 		}
+	}
+}
+
+func TestResolvedConfig_Validate_Valid(t *testing.T) {
+	cfg := Defaults
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected defaults to be valid, got: %v", err)
+	}
+}
+
+func TestResolvedConfig_Validate_Errors(t *testing.T) {
+	tests := []struct {
+		name    string
+		modify  func(*ResolvedConfig)
+		wantMsg string
+	}{
+		{
+			name:    "reviewers too low",
+			modify:  func(c *ResolvedConfig) { c.Reviewers = 0 },
+			wantMsg: "reviewers must be >= 1",
+		},
+		{
+			name:    "negative concurrency",
+			modify:  func(c *ResolvedConfig) { c.Concurrency = -1 },
+			wantMsg: "concurrency must be >= 0",
+		},
+		{
+			name:    "negative retries",
+			modify:  func(c *ResolvedConfig) { c.Retries = -1 },
+			wantMsg: "retries must be >= 0",
+		},
+		{
+			name:    "zero timeout",
+			modify:  func(c *ResolvedConfig) { c.Timeout = 0 },
+			wantMsg: "timeout must be > 0",
+		},
+		{
+			name:    "empty reviewer agents",
+			modify:  func(c *ResolvedConfig) { c.ReviewerAgents = []string{} },
+			wantMsg: "reviewer_agents must not be empty",
+		},
+		{
+			name:    "invalid reviewer agent",
+			modify:  func(c *ResolvedConfig) { c.ReviewerAgents = []string{"unsupported"} },
+			wantMsg: "unsupported agent",
+		},
+		{
+			name:    "invalid summarizer agent",
+			modify:  func(c *ResolvedConfig) { c.SummarizerAgent = "unsupported" },
+			wantMsg: "summarizer_agent must be one of",
+		},
+		{
+			name:    "fp threshold too low",
+			modify:  func(c *ResolvedConfig) { c.FPThreshold = 0 },
+			wantMsg: "fp_filter.threshold must be 1-100",
+		},
+		{
+			name:    "fp threshold too high",
+			modify:  func(c *ResolvedConfig) { c.FPThreshold = 101 },
+			wantMsg: "fp_filter.threshold must be 1-100",
+		},
+		{
+			name:    "invalid pr feedback agent",
+			modify:  func(c *ResolvedConfig) { c.PRFeedbackAgent = "bad" },
+			wantMsg: "pr_feedback.agent must be one of",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Defaults
+			tt.modify(&cfg)
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.wantMsg) {
+				t.Errorf("expected error containing %q, got: %v", tt.wantMsg, err)
+			}
+		})
+	}
+}
+
+func TestResolvedConfig_Validate_MultipleErrors(t *testing.T) {
+	cfg := Defaults
+	cfg.Reviewers = 0
+	cfg.Retries = -1
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "reviewers") || !strings.Contains(msg, "retries") {
+		t.Errorf("expected both reviewers and retries errors, got: %v", err)
+	}
+}
+
+func TestResolvedConfig_Validate_EmptyPRFeedbackAgent(t *testing.T) {
+	cfg := Defaults
+	cfg.PRFeedbackAgent = "" // empty means use summarizer agent, should be valid
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("expected empty pr_feedback.agent to be valid, got: %v", err)
+	}
+}
+
+func TestResolvedConfig_Validate_EmptyReviewerAgents(t *testing.T) {
+	cfg := Defaults
+	cfg.ReviewerAgents = []string{}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for empty reviewer_agents, got nil")
+	}
+	if !strings.Contains(err.Error(), "reviewer_agents must not be empty") {
+		t.Errorf("expected 'reviewer_agents must not be empty' in error, got: %v", err)
 	}
 }
