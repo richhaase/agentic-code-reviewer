@@ -1403,6 +1403,11 @@ func TestResolvedConfig_Validate_Errors(t *testing.T) {
 			wantMsg: "timeout must be > 0",
 		},
 		{
+			name:    "empty reviewer agents",
+			modify:  func(c *ResolvedConfig) { c.ReviewerAgents = []string{} },
+			wantMsg: "reviewer_agents must not be empty",
+		},
+		{
 			name:    "invalid reviewer agent",
 			modify:  func(c *ResolvedConfig) { c.ReviewerAgents = []string{"unsupported"} },
 			wantMsg: "unsupported agent",
@@ -1463,5 +1468,17 @@ func TestResolvedConfig_Validate_EmptyPRFeedbackAgent(t *testing.T) {
 	cfg.PRFeedbackAgent = "" // empty means use summarizer agent, should be valid
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("expected empty pr_feedback.agent to be valid, got: %v", err)
+	}
+}
+
+func TestResolvedConfig_Validate_EmptyReviewerAgents(t *testing.T) {
+	cfg := Defaults
+	cfg.ReviewerAgents = []string{}
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("expected error for empty reviewer_agents, got nil")
+	}
+	if !strings.Contains(err.Error(), "reviewer_agents must not be empty") {
+		t.Errorf("expected 'reviewer_agents must not be empty' in error, got: %v", err)
 	}
 }

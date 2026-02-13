@@ -146,7 +146,8 @@ func newConfigValidateCmd() *cobra.Command {
 		Long:  "Load and validate the config file and environment variables, reporting any warnings or errors.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := terminal.NewLogger()
-			hasIssues := false
+			var errors []string
+			var warnings []string
 
 			// Load and validate config file
 			result, err := config.LoadWithWarnings()
@@ -155,26 +156,35 @@ func newConfigValidateCmd() *cobra.Command {
 				return err
 			}
 
-			for _, warning := range result.Warnings {
-				logger.Logf(terminal.StyleWarning, "Config: %s", warning)
-				hasIssues = true
-			}
+			warnings = append(warnings, result.Warnings...)
 
-			// Check env vars for parse warnings
+			// Check env vars for parse warnings (these are errors — the values will be ignored)
 			envState, envWarnings := config.LoadEnvState()
-			for _, warning := range envWarnings {
-				logger.Logf(terminal.StyleWarning, "Env: %s", warning)
-				hasIssues = true
-			}
+			errors = append(errors, envWarnings...)
 
 			// Resolve full config and validate semantically
 			resolved := config.Resolve(result.Config, envState, config.FlagState{}, config.ResolvedConfig{})
 			if err := resolved.Validate(); err != nil {
-				logger.Logf(terminal.StyleError, "Validation error: %v", err)
-				hasIssues = true
+				errors = append(errors, err.Error())
 			}
 
-			if !hasIssues {
+			// Report warnings
+			for _, w := range warnings {
+				logger.Logf(terminal.StyleWarning, "Config: %s", w)
+			}
+
+			// Report errors
+			for _, e := range errors {
+				logger.Logf(terminal.StyleError, "%s", e)
+			}
+
+			if len(errors) > 0 {
+				return fmt.Errorf("configuration has %d error(s)", len(errors))
+			}
+
+			if len(warnings) > 0 {
+				logger.Log("Configuration is valid (with warnings).", terminal.StyleSuccess)
+			} else {
 				logger.Log("Configuration is valid.", terminal.StyleSuccess)
 			}
 

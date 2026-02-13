@@ -372,6 +372,9 @@ func (r *ResolvedConfig) Validate() error {
 	if r.Timeout <= 0 {
 		errs = append(errs, fmt.Sprintf("timeout must be > 0, got %s", r.Timeout))
 	}
+	if len(r.ReviewerAgents) == 0 {
+		errs = append(errs, "reviewer_agents must not be empty")
+	}
 	for _, a := range r.ReviewerAgents {
 		if !slices.Contains(agent.SupportedAgents, a) {
 			errs = append(errs, fmt.Sprintf("reviewer_agents contains unsupported agent %q, must be one of %v", a, agent.SupportedAgents))

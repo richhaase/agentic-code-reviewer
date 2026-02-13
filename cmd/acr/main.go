@@ -426,8 +426,8 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Validate resolved config
-	if reviewers < 1 {
-		logger.Log("reviewers must be >= 1", terminal.StyleError)
+	if err := resolved.Validate(); err != nil {
+		logger.Logf(terminal.StyleError, "Invalid configuration: %v", err)
 		return exitCode(domain.ExitError)
 	}
 
