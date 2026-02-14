@@ -133,9 +133,9 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 	// Skip if FP filter is disabled since the feedback summary is only consumed by the FP filter
 	var priorFeedback string
 	var feedbackWg sync.WaitGroup
-	if opts.PRFeedbackEnabled && opts.PRNumber != "" && opts.FPFilterEnabled {
+	if opts.PRFeedbackEnabled && opts.DetectedPR != "" && opts.FPFilterEnabled {
 		logger.Logf(terminal.StyleInfo, "Summarizing PR #%s feedback %s(in parallel)%s",
-			opts.PRNumber, terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
+			opts.DetectedPR, terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
 		feedbackWg.Add(1)
 		go func() {
 			defer feedbackWg.Done()
@@ -147,7 +147,7 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 			}
 
 			summarizer := feedback.NewSummarizer(feedbackAgentName, opts.Verbose, logger)
-			summary, err := summarizer.Summarize(ctx, opts.PRNumber)
+			summary, err := summarizer.Summarize(ctx, opts.DetectedPR)
 			if err != nil {
 				logger.Logf(terminal.StyleWarning, "PR feedback summarizer failed: %v", err)
 				return

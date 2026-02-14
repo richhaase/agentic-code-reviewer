@@ -20,6 +20,7 @@ type ReviewOpts struct {
 	Local             bool
 	AutoYes           bool
 	PRNumber          string // Explicit --pr flag value (empty if not set)
+	DetectedPR        string // Auto-detected or explicit PR number for feedback summarization
 	WorktreeBranch    string // Explicit --worktree-branch flag value
 	UseRefFile        bool
 	SummarizerTimeout time.Duration
