@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
-	"github.com/richhaase/agentic-code-reviewer/internal/config"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/feedback"
 	"github.com/richhaase/agentic-code-reviewer/internal/filter"
@@ -18,57 +16,57 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
-func executeReview(ctx context.Context, resolved config.ResolvedConfig, workDir string, excludePatterns []string, useRefFile bool, summarizerTimeout time.Duration, fpFilterTimeout time.Duration, prNumber string, logger *terminal.Logger) domain.ExitCode {
-	if resolved.Concurrency < resolved.Reviewers {
+func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger) domain.ExitCode {
+	if opts.Concurrency < opts.Reviewers {
 		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, %d concurrent, base=%s)%s",
-			terminal.Color(terminal.Dim), resolved.Reviewers, resolved.Concurrency, resolved.Base, terminal.Color(terminal.Reset))
+			terminal.Color(terminal.Dim), opts.Reviewers, opts.Concurrency, opts.Base, terminal.Color(terminal.Reset))
 	} else {
 		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, base=%s)%s",
-			terminal.Color(terminal.Dim), resolved.Reviewers, resolved.Base, terminal.Color(terminal.Reset))
+			terminal.Color(terminal.Dim), opts.Reviewers, opts.Base, terminal.Color(terminal.Reset))
 	}
 
-	if err := agent.ValidateAgentNames(resolved.ReviewerAgents); err != nil {
+	if err := agent.ValidateAgentNames(opts.ReviewerAgents); err != nil {
 		logger.Logf(terminal.StyleError, "Invalid agent: %v", err)
 		return domain.ExitError
 	}
 
-	reviewAgents, err := agent.CreateAgents(resolved.ReviewerAgents)
+	reviewAgents, err := agent.CreateAgents(opts.ReviewerAgents)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "%v", err)
 		return domain.ExitError
 	}
 
-	summarizerAgent, err := agent.NewAgent(resolved.SummarizerAgent)
+	summarizerAgent, err := agent.NewAgent(opts.SummarizerAgent)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Invalid summarizer agent: %v", err)
 		return domain.ExitError
 	}
 	if err := summarizerAgent.IsAvailable(); err != nil {
-		logger.Logf(terminal.StyleError, "%s CLI not found (summarizer): %v", resolved.SummarizerAgent, err)
+		logger.Logf(terminal.StyleError, "%s CLI not found (summarizer): %v", opts.SummarizerAgent, err)
 		return domain.ExitError
 	}
 
 	// Show agent distribution if multiple agents
 	if len(reviewAgents) > 1 {
-		distribution := agent.FormatDistribution(reviewAgents, resolved.Reviewers)
+		distribution := agent.FormatDistribution(reviewAgents, opts.Reviewers)
 		logger.Logf(terminal.StyleInfo, "Agent distribution: %s%s%s",
 			terminal.Color(terminal.Dim), distribution, terminal.Color(terminal.Reset))
-	} else if verbose && len(resolved.ReviewerAgents) > 0 {
+	} else if opts.Verbose && len(opts.ReviewerAgents) > 0 {
 		logger.Logf(terminal.StyleDim, "%sUsing agent: %s%s",
-			terminal.Color(terminal.Dim), resolved.ReviewerAgents[0], terminal.Color(terminal.Reset))
+			terminal.Color(terminal.Dim), opts.ReviewerAgents[0], terminal.Color(terminal.Reset))
 	}
 
 	// Resolve the base ref once before launching parallel reviewers.
 	// This ensures all reviewers compare against the same ref, avoiding
 	// inconsistent results if network conditions vary during parallel execution.
-	resolvedBaseRef := resolved.Base
-	if resolved.Fetch {
+	resolvedBaseRef := opts.Base
+	if opts.Fetch {
 		// Update current branch from remote (fast-forward only).
 		// Skip when the base ref is relative to HEAD (e.g., HEAD~3) since
 		// fast-forwarding would change what those refs resolve to.
-		if !git.IsRelativeRef(resolved.Base) {
-			branchResult := git.UpdateCurrentBranch(ctx, workDir)
-			if branchResult.Updated && verbose {
+		if !git.IsRelativeRef(opts.Base) {
+			branchResult := git.UpdateCurrentBranch(ctx, opts.WorkDir)
+			if branchResult.Updated && opts.Verbose {
 				logger.Logf(terminal.StyleDim, "Updated branch %s from origin", branchResult.BranchName)
 			}
 			if branchResult.Error != nil {
@@ -77,18 +75,18 @@ func executeReview(ctx context.Context, resolved config.ResolvedConfig, workDir 
 		}
 
 		// Fetch base ref
-		result := git.FetchRemoteRef(ctx, resolved.Base, workDir)
+		result := git.FetchRemoteRef(ctx, opts.Base, opts.WorkDir)
 		resolvedBaseRef = result.ResolvedRef
 		if result.FetchAttempted && !result.RefResolved {
-			logger.Logf(terminal.StyleWarning, "Failed to fetch %s from origin, comparing against local %s (may be stale)", resolved.Base, resolvedBaseRef)
-		} else if verbose && result.FetchAttempted && result.RefResolved {
+			logger.Logf(terminal.StyleWarning, "Failed to fetch %s from origin, comparing against local %s (may be stale)", opts.Base, resolvedBaseRef)
+		} else if opts.Verbose && result.FetchAttempted && result.RefResolved {
 			logger.Logf(terminal.StyleDim, "Comparing against %s (fetched from origin)", resolvedBaseRef)
 		}
 	}
 
 	// Pre-compute the git diff once and share it across all reviewers.
 	// Always compute (even for codex-only) so we can short-circuit empty diffs.
-	diff, err := git.GetDiff(ctx, resolvedBaseRef, workDir)
+	diff, err := git.GetDiff(ctx, resolvedBaseRef, opts.WorkDir)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Failed to get diff: %v", err)
 		return domain.ExitError
@@ -100,7 +98,7 @@ func executeReview(ctx context.Context, resolved config.ResolvedConfig, workDir 
 		return domain.ExitNoFindings
 	}
 
-	if verbose {
+	if opts.Verbose {
 		logger.Logf(terminal.StyleDim, "Diff size: %d bytes", len(diff))
 	}
 
@@ -108,21 +106,21 @@ func executeReview(ctx context.Context, resolved config.ResolvedConfig, workDir 
 	// Codex ignores it (built-in diff via --base).
 	diffPrecomputed := agent.AgentsNeedDiff(reviewAgents)
 
-	if verbose && useRefFile {
+	if opts.Verbose && opts.UseRefFile {
 		logger.Logf(terminal.StyleDim, "Ref-file mode enabled")
 	}
 
 	// Run reviewers
 	r, err := runner.New(runner.Config{
-		Reviewers:       resolved.Reviewers,
-		Concurrency:     resolved.Concurrency,
+		Reviewers:       opts.Reviewers,
+		Concurrency:     opts.Concurrency,
 		BaseRef:         resolvedBaseRef,
-		Timeout:         resolved.Timeout,
-		Retries:         resolved.Retries,
-		Verbose:         verbose,
-		WorkDir:         workDir,
-		Guidance:        resolved.Guidance,
-		UseRefFile:      useRefFile,
+		Timeout:         opts.Timeout,
+		Retries:         opts.Retries,
+		Verbose:         opts.Verbose,
+		WorkDir:         opts.WorkDir,
+		Guidance:        opts.Guidance,
+		UseRefFile:      opts.UseRefFile,
 		Diff:            diff,
 		DiffPrecomputed: diffPrecomputed,
 	}, reviewAgents, logger)
@@ -135,21 +133,21 @@ func executeReview(ctx context.Context, resolved config.ResolvedConfig, workDir 
 	// Skip if FP filter is disabled since the feedback summary is only consumed by the FP filter
 	var priorFeedback string
 	var feedbackWg sync.WaitGroup
-	if resolved.PRFeedbackEnabled && prNumber != "" && resolved.FPFilterEnabled {
+	if opts.PRFeedbackEnabled && opts.DetectedPR != "" && opts.FPFilterEnabled {
 		logger.Logf(terminal.StyleInfo, "Summarizing PR #%s feedback %s(in parallel)%s",
-			prNumber, terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
+			opts.DetectedPR, terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
 		feedbackWg.Add(1)
 		go func() {
 			defer feedbackWg.Done()
 
 			// Determine which agent to use for feedback summarization
-			feedbackAgentName := resolved.PRFeedbackAgent
+			feedbackAgentName := opts.PRFeedbackAgent
 			if feedbackAgentName == "" {
-				feedbackAgentName = resolved.SummarizerAgent
+				feedbackAgentName = opts.SummarizerAgent
 			}
 
-			summarizer := feedback.NewSummarizer(feedbackAgentName, verbose, logger)
-			summary, err := summarizer.Summarize(ctx, prNumber)
+			summarizer := feedback.NewSummarizer(feedbackAgentName, opts.Verbose, logger)
+			summary, err := summarizer.Summarize(ctx, opts.DetectedPR)
 			if err != nil {
 				logger.Logf(terminal.StyleWarning, "PR feedback summarizer failed: %v", err)
 				return
@@ -173,7 +171,7 @@ func executeReview(ctx context.Context, resolved config.ResolvedConfig, workDir 
 	}
 
 	// Build statistics
-	stats := runner.BuildStats(results, resolved.Reviewers, wallClock)
+	stats := runner.BuildStats(results, opts.Reviewers, wallClock)
 
 	// Check if all reviewers failed
 	if stats.AllFailed() {
@@ -194,15 +192,15 @@ func executeReview(ctx context.Context, resolved config.ResolvedConfig, workDir 
 		close(spinnerDone)
 	}()
 
-	summarizerCtx, summarizerCancel := context.WithTimeout(ctx, summarizerTimeout)
+	summarizerCtx, summarizerCancel := context.WithTimeout(ctx, opts.SummarizerTimeout)
 	defer summarizerCancel()
-	summaryResult, err := summarizer.Summarize(summarizerCtx, resolved.SummarizerAgent, aggregated, verbose, logger)
+	summaryResult, err := summarizer.Summarize(summarizerCtx, opts.SummarizerAgent, aggregated, opts.Verbose, logger)
 	spinnerCancel()
 	<-spinnerDone
 
 	if err != nil {
 		if summarizerCtx.Err() == context.DeadlineExceeded {
-			logger.Logf(terminal.StyleError, "Summarizer timed out after %s", summarizerTimeout)
+			logger.Logf(terminal.StyleError, "Summarizer timed out after %s", opts.SummarizerTimeout)
 		} else {
 			logger.Logf(terminal.StyleError, "Summarizer error: %v", err)
 		}
@@ -215,7 +213,7 @@ func executeReview(ctx context.Context, resolved config.ResolvedConfig, workDir 
 	feedbackWg.Wait()
 
 	var fpFilteredCount int
-	if resolved.FPFilterEnabled && summaryResult.ExitCode == 0 && len(summaryResult.Grouped.Findings) > 0 && ctx.Err() == nil {
+	if opts.FPFilterEnabled && summaryResult.ExitCode == 0 && len(summaryResult.Grouped.Findings) > 0 && ctx.Err() == nil {
 		fpSpinner := terminal.NewPhaseSpinner("Filtering false positives")
 		fpSpinnerCtx, fpSpinnerCancel := context.WithCancel(ctx)
 		fpSpinnerDone := make(chan struct{})
@@ -224,9 +222,9 @@ func executeReview(ctx context.Context, resolved config.ResolvedConfig, workDir 
 			close(fpSpinnerDone)
 		}()
 
-		fpCtx, fpCancel := context.WithTimeout(ctx, fpFilterTimeout)
+		fpCtx, fpCancel := context.WithTimeout(ctx, opts.FPFilterTimeout)
 		defer fpCancel()
-		fpFilter := fpfilter.New(resolved.SummarizerAgent, resolved.FPThreshold, verbose, logger)
+		fpFilter := fpfilter.New(opts.SummarizerAgent, opts.FPThreshold, opts.Verbose, logger)
 		fpResult := fpFilter.Apply(fpCtx, summaryResult.Grouped, priorFeedback)
 		fpSpinnerCancel()
 		<-fpSpinnerDone
@@ -242,8 +240,8 @@ func executeReview(ctx context.Context, resolved config.ResolvedConfig, workDir 
 	}
 	stats.FPFilteredCount = fpFilteredCount
 
-	if len(excludePatterns) > 0 {
-		f, err := filter.New(excludePatterns)
+	if len(opts.ExcludePatterns) > 0 {
+		f, err := filter.New(opts.ExcludePatterns)
 		if err != nil {
 			logger.Logf(terminal.StyleError, "Invalid exclude pattern: %v", err)
 			return domain.ExitError
@@ -261,8 +259,8 @@ func executeReview(ctx context.Context, resolved config.ResolvedConfig, workDir 
 
 	// Handle PR actions
 	if !summaryResult.Grouped.HasFindings() {
-		return handleLGTM(ctx, allFindings, stats, logger)
+		return handleLGTM(ctx, opts, allFindings, stats, logger)
 	}
 
-	return handleFindings(ctx, summaryResult.Grouped, aggregated, stats, logger)
+	return handleFindings(ctx, opts, summaryResult.Grouped, aggregated, stats, logger)
 }

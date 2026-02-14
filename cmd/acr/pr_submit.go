@@ -25,22 +25,22 @@ type prContext struct {
 
 // getPRContext retrieves PR number and self-review status for the current branch.
 // If --pr flag was used, uses that PR number directly instead of looking it up.
-func getPRContext(ctx context.Context) prContext {
-	if local || !github.IsGHAvailable() {
+func getPRContext(ctx context.Context, opts ReviewOpts) prContext {
+	if opts.Local || !github.IsGHAvailable() {
 		return prContext{}
 	}
 
 	// If --pr flag was used, we already have the PR number
 	// This is important for detached worktrees where branch lookup would fail
-	if prNumber != "" {
+	if opts.PRNumber != "" {
 		return prContext{
-			number:       prNumber,
-			isSelfReview: github.IsSelfReview(ctx, prNumber),
+			number:       opts.PRNumber,
+			isSelfReview: github.IsSelfReview(ctx, opts.PRNumber),
 		}
 	}
 
 	// Otherwise, look up PR from branch
-	foundPR, err := github.GetCurrentPRNumber(ctx, worktreeBranch)
+	foundPR, err := github.GetCurrentPRNumber(ctx, opts.WorktreeBranch)
 	if err != nil {
 		return prContext{err: err}
 	}
@@ -52,7 +52,7 @@ func getPRContext(ctx context.Context) prContext {
 
 // checkPRAvailable verifies gh CLI is available and PR exists.
 // Returns error if gh CLI unavailable or auth failed, true if PR exists, false if no PR found.
-func checkPRAvailable(pr prContext, logger *terminal.Logger) (bool, error) {
+func checkPRAvailable(pr prContext, opts ReviewOpts, logger *terminal.Logger) (bool, error) {
 	if err := github.CheckGHAvailable(); err != nil {
 		return false, err
 	}
@@ -64,8 +64,8 @@ func checkPRAvailable(pr prContext, logger *terminal.Logger) (bool, error) {
 		}
 		if errors.Is(pr.err, github.ErrNoPRFound) {
 			branchDesc := "current branch"
-			if worktreeBranch != "" {
-				branchDesc = fmt.Sprintf("branch '%s'", worktreeBranch)
+			if opts.WorktreeBranch != "" {
+				branchDesc = fmt.Sprintf("branch '%s'", opts.WorktreeBranch)
 			}
 			logger.Logf(terminal.StyleWarning, "No open PR found for %s.", branchDesc)
 			return false, nil
@@ -76,8 +76,8 @@ func checkPRAvailable(pr prContext, logger *terminal.Logger) (bool, error) {
 
 	if pr.number == "" {
 		branchDesc := "current branch"
-		if worktreeBranch != "" {
-			branchDesc = fmt.Sprintf("branch '%s'", worktreeBranch)
+		if opts.WorktreeBranch != "" {
+			branchDesc = fmt.Sprintf("branch '%s'", opts.WorktreeBranch)
 		}
 		logger.Logf(terminal.StyleWarning, "No open PR found for %s.", branchDesc)
 		return false, nil
@@ -108,27 +108,27 @@ func formatPRRef(prNumber string) string {
 	return fmt.Sprintf("%s#%s%s", terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset))
 }
 
-func handleLGTM(ctx context.Context, allFindings []domain.Finding, stats domain.ReviewStats, logger *terminal.Logger) domain.ExitCode {
+func handleLGTM(ctx context.Context, opts ReviewOpts, allFindings []domain.Finding, stats domain.ReviewStats, logger *terminal.Logger) domain.ExitCode {
 	reviewerComments := make(map[int]string)
 	for _, f := range allFindings {
 		reviewerComments[f.ReviewerID] = f.Text
 	}
 
 	lgtmBody := runner.RenderLGTMMarkdown(stats.TotalReviewers, stats.SuccessfulReviewers, reviewerComments, version)
-	pr := getPRContext(ctx)
+	pr := getPRContext(ctx, opts)
 
-	if err := confirmAndSubmitLGTM(ctx, lgtmBody, pr, logger); err != nil {
+	if err := confirmAndSubmitLGTM(ctx, lgtmBody, pr, opts, logger); err != nil {
 		return domain.ExitError
 	}
 
 	return domain.ExitNoFindings
 }
 
-func handleFindings(ctx context.Context, grouped domain.GroupedFindings, aggregated []domain.AggregatedFinding, stats domain.ReviewStats, logger *terminal.Logger) domain.ExitCode {
+func handleFindings(ctx context.Context, opts ReviewOpts, grouped domain.GroupedFindings, aggregated []domain.AggregatedFinding, stats domain.ReviewStats, logger *terminal.Logger) domain.ExitCode {
 	selectedFindings := grouped.Findings
 
 	// Interactive selection when in TTY and not auto-submitting (skip in local mode)
-	if !local && !autoYes && terminal.IsStdoutTTY() {
+	if !opts.Local && !opts.AutoYes && terminal.IsStdoutTTY() {
 		indices, canceled, err := terminal.RunSelector(grouped.Findings)
 		if err != nil {
 			logger.Logf(terminal.StyleError, "Selector error: %v", err)
@@ -144,15 +144,15 @@ func handleFindings(ctx context.Context, grouped domain.GroupedFindings, aggrega
 			logger.Log("No findings selected to post.", terminal.StyleDim)
 
 			lgtmBody := runner.RenderDismissedLGTMMarkdown(grouped.Findings, stats, version)
-			pr := getPRContext(ctx)
+			pr := getPRContext(ctx, opts)
 			// Best-effort: LGTM posting is optional when dismissing findings.
 			// Auth/network errors should not fail the run.
-			_ = confirmAndSubmitLGTM(ctx, lgtmBody, pr, logger)
+			_ = confirmAndSubmitLGTM(ctx, lgtmBody, pr, opts, logger)
 			return domain.ExitNoFindings
 		}
 	}
 
-	pr := getPRContext(ctx)
+	pr := getPRContext(ctx, opts)
 
 	filteredGrouped := domain.GroupedFindings{
 		Findings: selectedFindings,
@@ -160,20 +160,20 @@ func handleFindings(ctx context.Context, grouped domain.GroupedFindings, aggrega
 	}
 	reviewBody := runner.RenderCommentMarkdown(filteredGrouped, stats.TotalReviewers, aggregated, version)
 
-	if err := confirmAndSubmitReview(ctx, reviewBody, pr, logger); err != nil {
+	if err := confirmAndSubmitReview(ctx, reviewBody, pr, opts, logger); err != nil {
 		return domain.ExitError
 	}
 
 	return domain.ExitFindings
 }
 
-func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, logger *terminal.Logger) error {
-	if local {
+func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts ReviewOpts, logger *terminal.Logger) error {
+	if opts.Local {
 		logger.Log("Local mode enabled; skipping PR review.", terminal.StyleDim)
 		return nil
 	}
 
-	available, err := checkPRAvailable(pr, logger)
+	available, err := checkPRAvailable(pr, opts, logger)
 	if err != nil {
 		return err
 	}
@@ -184,7 +184,7 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, logg
 	// Determine review type (self-review can only comment)
 	requestChanges := !pr.isSelfReview
 
-	if !autoYes {
+	if !opts.AutoYes {
 		// Check if stdin is a TTY before prompting to avoid hanging in CI
 		if !terminal.IsStdinTTY() {
 			logger.Log("Non-interactive mode without --yes flag; skipping PR review.", terminal.StyleDim)
@@ -248,13 +248,13 @@ const (
 	actionSkip
 )
 
-func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, logger *terminal.Logger) error {
-	if local {
+func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts ReviewOpts, logger *terminal.Logger) error {
+	if opts.Local {
 		logger.Log("Local mode enabled; skipping PR approval.", terminal.StyleDim)
 		return nil
 	}
 
-	available, err := checkPRAvailable(pr, logger)
+	available, err := checkPRAvailable(pr, opts, logger)
 	if err != nil {
 		return err
 	}
@@ -267,7 +267,7 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, logger
 		action = actionComment
 	}
 
-	if !autoYes {
+	if !opts.AutoYes {
 		if !terminal.IsStdinTTY() {
 			logger.Log("Non-interactive mode without --yes flag; skipping LGTM.", terminal.StyleDim)
 			return nil
@@ -283,7 +283,7 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, logger
 	// Check CI status before approving
 	if action == actionApprove {
 		var err error
-		action, err = checkCIAndMaybeDowngrade(ctx, pr.number, action, logger)
+		action, err = checkCIAndMaybeDowngrade(ctx, pr.number, action, opts, logger)
 		if err != nil {
 			return err
 		}
@@ -342,8 +342,8 @@ func logCIChecks(logger *terminal.Logger, checks []string) {
 
 // checkCIAndMaybeDowngrade checks CI status and downgrades to comment if CI is not green.
 // Returns error if CI status check fails (network/auth issues).
-func checkCIAndMaybeDowngrade(ctx context.Context, prNumber string, action lgtmAction, logger *terminal.Logger) (lgtmAction, error) {
-	ciStatus := github.CheckCIStatus(ctx, prNumber)
+func checkCIAndMaybeDowngrade(ctx context.Context, prNum string, action lgtmAction, opts ReviewOpts, logger *terminal.Logger) (lgtmAction, error) {
+	ciStatus := github.CheckCIStatus(ctx, prNum)
 
 	if ciStatus.Error != "" {
 		logger.Logf(terminal.StyleError, "Failed to check CI status: %s", ciStatus.Error)
@@ -363,7 +363,7 @@ func checkCIAndMaybeDowngrade(ctx context.Context, prNumber string, action lgtmA
 		logCIChecks(logger, ciStatus.Pending)
 	}
 
-	if autoYes {
+	if opts.AutoYes {
 		logger.Log("CI not green; posting as comment instead of approval.", terminal.StyleDim)
 		return actionComment, nil
 	}
