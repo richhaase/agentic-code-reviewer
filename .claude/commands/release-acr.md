@@ -50,46 +50,9 @@ If there are uncommitted changes, stop and ask the user what to do.
 
    This triggers `.github/workflows/release.yml` which builds binaries for Linux/macOS (amd64/arm64), creates GitHub releases, and updates the Homebrew tap.
 
-7. Regenerate CHANGELOG.md and commit via PR:
-
-   Create a branch, regenerate, and open a PR:
-
-   ```
-   git checkout -b docs/changelog-<version>
-   ```
-
-   ```bash
-   # Generate changelog from tag annotations
-   {
-     echo "# Changelog"
-     echo ""
-     echo "All notable changes to ACR are documented in this file."
-     echo ""
-     echo "This changelog is generated from git tag annotations."
-     echo ""
-     git for-each-ref --sort=-v:refname --format='## [%(refname:short)] - %(creatordate:short)
-
-%(contents)' refs/tags
-   } > CHANGELOG.md
-   ```
-
-   Review the generated CHANGELOG.md for formatting, then commit, push, and create a PR:
-   ```
-   git add CHANGELOG.md
-   git commit -m "docs: update CHANGELOG.md for <version>"
-   git push origin docs/changelog-<version>
-   gh pr create --title "docs: update CHANGELOG.md for <version>" --body "Regenerated CHANGELOG.md from tag annotations after <version> release."
-   ```
-
-   Then return to main:
-   ```
-   git checkout main
-   ```
-
 ## Important
 
 - Always wait for user approval before creating the tag
 - The tag message should summarize the changes since the previous version
 - Use conventional commit style for the tag message (list features, fixes, etc.)
-- The CHANGELOG.md is regenerated from tags after each release - it reflects released versions only
-- Never push directly to main — always use a PR for the changelog update
+- Change history lives in GitHub release notes and annotated git tags (`git tag -l -n999`)
