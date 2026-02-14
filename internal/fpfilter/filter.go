@@ -88,6 +88,28 @@ type findingEvaluation struct {
 	Reasoning string `json:"reasoning"`
 }
 
+// agreementBonus returns an fp_score bonus for low-agreement findings.
+// Findings with weak reviewer consensus get a positive bonus, making them
+// more likely to exceed the FP threshold and be filtered out.
+// The bonus is ratio-based so it works correctly regardless of how many
+// reviewers are configured (2, 5, 10, 20, etc.).
+func agreementBonus(reviewerCount, totalReviewers int) int {
+	if totalReviewers <= 1 || reviewerCount <= 0 {
+		return 0
+	}
+
+	ratio := float64(reviewerCount) / float64(totalReviewers)
+
+	switch {
+	case ratio < 0.2:
+		return 15
+	case ratio < 0.4:
+		return 10
+	default:
+		return 0
+	}
+}
+
 func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, priorFeedback string, totalReviewers int) *Result {
 	start := time.Now()
 

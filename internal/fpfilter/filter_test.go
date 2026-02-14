@@ -350,6 +350,56 @@ func TestEvaluationResponse_Unmarshal(t *testing.T) {
 	}
 }
 
+func TestAgreementBonus(t *testing.T) {
+	tests := []struct {
+		name           string
+		reviewerCount  int
+		totalReviewers int
+		wantBonus      int
+	}{
+		// < 20% agreement — strong penalty (+15)
+		{"1 of 6 reviewers (17%)", 1, 6, 15},
+		{"1 of 8 reviewers (13%)", 1, 8, 15},
+		{"1 of 10 reviewers (10%)", 1, 10, 15},
+		{"2 of 12 reviewers (17%)", 2, 12, 15},
+		{"1 of 20 reviewers (5%)", 1, 20, 15},
+
+		// 20-39% agreement — moderate penalty (+10)
+		{"1 of 5 reviewers (20%)", 1, 5, 10},
+		{"1 of 3 reviewers (33%)", 1, 3, 10},
+		{"1 of 4 reviewers (25%)", 1, 4, 10},
+		{"2 of 6 reviewers (33%)", 2, 6, 10},
+		{"3 of 10 reviewers (30%)", 3, 10, 10},
+		{"2 of 8 reviewers (25%)", 2, 8, 10},
+
+		// >= 40% agreement — no penalty
+		{"2 of 5 reviewers (40%)", 2, 5, 0},
+		{"2 of 4 reviewers (50%)", 2, 4, 0},
+		{"3 of 6 reviewers (50%)", 3, 6, 0},
+		{"4 of 10 reviewers (40%)", 4, 10, 0},
+		{"5 of 6 reviewers (83%)", 5, 6, 0},
+		{"6 of 6 reviewers (100%)", 6, 6, 0},
+		{"1 of 2 reviewers (50%)", 1, 2, 0},
+		{"2 of 3 reviewers (67%)", 2, 3, 0},
+		{"2 of 2 reviewers (100%)", 2, 2, 0},
+
+		// Edge cases — no penalty
+		{"1 of 1 reviewer", 1, 1, 0},
+		{"0 totalReviewers", 1, 0, 0},
+		{"0 reviewerCount", 0, 6, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := agreementBonus(tt.reviewerCount, tt.totalReviewers)
+			if got != tt.wantBonus {
+				t.Errorf("agreementBonus(%d, %d) = %d, want %d",
+					tt.reviewerCount, tt.totalReviewers, got, tt.wantBonus)
+			}
+		})
+	}
+}
+
 func TestFilteringLogic(t *testing.T) {
 	// This test simulates the core filtering logic from Apply() without
 	// needing an external agent. We replicate the evalMap + threshold logic.
