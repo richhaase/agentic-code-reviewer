@@ -225,7 +225,7 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		fpCtx, fpCancel := context.WithTimeout(ctx, opts.FPFilterTimeout)
 		defer fpCancel()
 		fpFilter := fpfilter.New(opts.SummarizerAgent, opts.FPThreshold, opts.Verbose, logger)
-		fpResult := fpFilter.Apply(fpCtx, summaryResult.Grouped, priorFeedback)
+		fpResult := fpFilter.Apply(fpCtx, summaryResult.Grouped, priorFeedback, stats.TotalReviewers)
 		fpSpinnerCancel()
 		<-fpSpinnerDone
 

@@ -199,7 +199,7 @@ func TestApply_EmptyFindings(t *testing.T) {
 		Findings: []domain.FindingGroup{},
 	}
 
-	result := f.Apply(context.Background(), grouped, "")
+	result := f.Apply(context.Background(), grouped, "", 0)
 
 	if result == nil {
 		t.Fatal("Apply returned nil")
@@ -218,6 +218,20 @@ func TestApply_EmptyFindings(t *testing.T) {
 	}
 }
 
+func TestApply_EmptyFindings_WithTotalReviewers(t *testing.T) {
+	f := New("codex", 75, false, terminal.NewLogger())
+	grouped := domain.GroupedFindings{
+		Findings: []domain.FindingGroup{},
+	}
+	result := f.Apply(context.Background(), grouped, "", 5)
+	if result == nil {
+		t.Fatal("Apply returned nil")
+	}
+	if len(result.Grouped.Findings) != 0 {
+		t.Errorf("expected 0 findings, got %d", len(result.Grouped.Findings))
+	}
+}
+
 func TestApply_EmptyFindingsPreservesInfo(t *testing.T) {
 	f := New("codex", 75, false, terminal.NewLogger())
 	grouped := domain.GroupedFindings{
@@ -228,7 +242,7 @@ func TestApply_EmptyFindingsPreservesInfo(t *testing.T) {
 		},
 	}
 
-	result := f.Apply(context.Background(), grouped, "")
+	result := f.Apply(context.Background(), grouped, "", 0)
 
 	if len(result.Grouped.Info) != 2 {
 		t.Errorf("expected 2 info items preserved, got %d", len(result.Grouped.Info))

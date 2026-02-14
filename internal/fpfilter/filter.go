@@ -88,7 +88,7 @@ type findingEvaluation struct {
 	Reasoning string `json:"reasoning"`
 }
 
-func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, priorFeedback string) *Result {
+func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, priorFeedback string, totalReviewers int) *Result {
 	start := time.Now()
 
 	if len(grouped.Findings) == 0 {
