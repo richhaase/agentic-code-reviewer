@@ -145,6 +145,7 @@ Exit codes:
 // worktreeResult holds the outputs from worktree setup.
 type worktreeResult struct {
 	workDir          string
+	detectedBase     string // PR base ref detected from GitHub (empty if not auto-detected)
 	baseAutoDetected bool
 	prRemote         string
 	prRepoRoot       string
@@ -190,9 +191,9 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 		explicitBaseSet := cmd.Flags().Changed("base") || os.Getenv("ACR_BASE_REF") != ""
 		if !explicitBaseSet {
 			if detectedBase, err := github.GetPRBaseRef(ctx, prNumber); err == nil && detectedBase != "" {
-				baseRef = detectedBase
+				result.detectedBase = detectedBase
 				result.baseAutoDetected = true // Ensures config.Resolve won't override it
-				logger.Logf(terminal.StyleDim, "Auto-detected base: %s", baseRef)
+				logger.Logf(terminal.StyleDim, "Auto-detected base: %s", detectedBase)
 			}
 		}
 
@@ -364,10 +365,16 @@ func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *termina
 	// Example: alias acr-nofetch='acr --no-fetch'
 	// When both flags are set (unlikely), noFetch takes precedence.
 	fetchValue := fetch && !noFetch
+	// Use auto-detected base ref from PR if available, otherwise use the flag value
+	resolvedBaseRef := baseRef
+	if wt.detectedBase != "" {
+		resolvedBaseRef = wt.detectedBase
+	}
+
 	flagValues := config.ResolvedConfig{
 		Reviewers:         reviewers,
 		Concurrency:       concurrency,
-		Base:              baseRef,
+		Base:              resolvedBaseRef,
 		Timeout:           timeout,
 		Retries:           retries,
 		Fetch:             fetchValue,
@@ -394,7 +401,9 @@ func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *termina
 	if !cmd.Flags().Changed("fp-filter-timeout") {
 		resolvedFPFilterTimeout = getEnvDuration("ACR_FP_FILTER_TIMEOUT", defaultPhaseTimeout)
 	}
-	// Ensure zero timeout doesn't create an instantly-expiring context
+	// Guard against zero/negative timeouts. context.WithTimeout(ctx, 0) expires
+	// instantly, which would always fail. This can happen when the flag default
+	// is 0 (meaning "not set") and no env var overrides it.
 	if resolvedSummarizerTimeout <= 0 {
 		resolvedSummarizerTimeout = defaultPhaseTimeout
 	}
