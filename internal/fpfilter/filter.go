@@ -203,10 +203,12 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 			continue
 		}
 
-		if eval.FPScore >= f.threshold {
+		adjusted := min(eval.FPScore+agreementBonus(finding.ReviewerCount, totalReviewers), 100)
+
+		if adjusted >= f.threshold {
 			removed = append(removed, EvaluatedFinding{
 				Finding:   finding,
-				FPScore:   eval.FPScore,
+				FPScore:   adjusted,
 				Reasoning: eval.Reasoning,
 			})
 		} else {
