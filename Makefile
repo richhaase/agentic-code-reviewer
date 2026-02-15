@@ -89,7 +89,7 @@ find-deadcode:
 # Run staticcheck
 staticcheck:
 	@echo "Running staticcheck..."
-	@go run honnef.co/go/tools/cmd/staticcheck@v0.6.0 ./...
+	@go run honnef.co/go/tools/cmd/staticcheck@latest ./...
 	@echo "Staticcheck passed!"
 
 # Run all quality checks (format, lint, vet, staticcheck, tests)
