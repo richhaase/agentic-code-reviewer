@@ -8,7 +8,7 @@ func TestBuildDispositions_InfoGroups(t *testing.T) {
 		[]FindingGroup{
 			{Title: "Style note", Sources: []int{0, 2}},
 		},
-		nil, nil, false,
+		nil, nil,
 	)
 
 	if d := dispositions[0]; d.Kind != DispositionInfo || d.GroupTitle != "Style note" {
@@ -30,7 +30,7 @@ func TestBuildDispositions_FPFiltered(t *testing.T) {
 		[]FPRemovedInfo{
 			{Sources: []int{1}, FPScore: 85, Reasoning: "likely false positive", Title: "FP Group"},
 		},
-		nil, false,
+		nil,
 	)
 
 	d := dispositions[1]
@@ -55,7 +55,6 @@ func TestBuildDispositions_Survived(t *testing.T) {
 		[]FindingGroup{
 			{Title: "Real bug", Sources: []int{0, 2}},
 		},
-		false,
 	)
 
 	if d := dispositions[0]; d.Kind != DispositionSurvived {
@@ -69,14 +68,15 @@ func TestBuildDispositions_Survived(t *testing.T) {
 	}
 }
 
-func TestBuildDispositions_ExcludePatternsFallback(t *testing.T) {
-	dispositions := BuildDispositions(2, nil, nil, nil, true)
+func TestBuildDispositions_UnmappedRemainUnmapped(t *testing.T) {
+	// Unmapped findings should stay unmapped regardless of other config
+	dispositions := BuildDispositions(2, nil, nil, nil)
 
-	if d := dispositions[0]; d.Kind != DispositionFilteredExclude {
-		t.Errorf("index 0: got %+v, want FilteredExclude", d)
+	if d := dispositions[0]; d.Kind != DispositionUnmapped {
+		t.Errorf("index 0: got %+v, want Unmapped", d)
 	}
-	if d := dispositions[1]; d.Kind != DispositionFilteredExclude {
-		t.Errorf("index 1: got %+v, want FilteredExclude", d)
+	if d := dispositions[1]; d.Kind != DispositionUnmapped {
+		t.Errorf("index 1: got %+v, want Unmapped", d)
 	}
 }
 
@@ -93,7 +93,6 @@ func TestBuildDispositions_PriorityOverride(t *testing.T) {
 		[]FindingGroup{
 			{Title: "Survived", Sources: []int{2}},
 		},
-		false,
 	)
 
 	if d := dispositions[0]; d.Kind != DispositionInfo {
@@ -108,7 +107,7 @@ func TestBuildDispositions_PriorityOverride(t *testing.T) {
 }
 
 func TestBuildDispositions_Empty(t *testing.T) {
-	dispositions := BuildDispositions(0, nil, nil, nil, false)
+	dispositions := BuildDispositions(0, nil, nil, nil)
 	if len(dispositions) != 0 {
 		t.Errorf("expected empty map for 0 aggregated, got %d entries", len(dispositions))
 	}
@@ -126,7 +125,6 @@ func TestBuildDispositions_AllKindsCombined(t *testing.T) {
 		[]FindingGroup{
 			{Title: "Real issue", Sources: []int{2}},
 		},
-		true, // exclude patterns active
 	)
 
 	tests := []struct {
@@ -136,8 +134,8 @@ func TestBuildDispositions_AllKindsCombined(t *testing.T) {
 		{0, DispositionInfo},
 		{1, DispositionFilteredFP},
 		{2, DispositionSurvived},
-		{3, DispositionFilteredExclude}, // unmapped with exclude patterns
-		{4, DispositionFilteredExclude},
+		{3, DispositionUnmapped},
+		{4, DispositionUnmapped},
 	}
 
 	for _, tt := range tests {

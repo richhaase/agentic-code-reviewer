@@ -265,7 +265,6 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		summaryResult.Grouped.Info,
 		fpRemoved,
 		summaryResult.Grouped.Findings,
-		len(opts.ExcludePatterns) > 0,
 	)
 	// Render and print report
 	report := runner.RenderReport(summaryResult.Grouped, summaryResult, stats)

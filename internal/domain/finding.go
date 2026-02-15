@@ -48,11 +48,11 @@ func (g *GroupedFindings) TotalGroups() int {
 type DispositionKind int
 
 const (
-	DispositionInfo            DispositionKind = iota // Categorized as informational by summarizer
+	DispositionUnmapped        DispositionKind = iota // Could not trace through pipeline (zero value)
+	DispositionInfo                                   // Categorized as informational by summarizer
 	DispositionFilteredFP                             // Removed by FP filter
 	DispositionFilteredExclude                        // Removed by exclude pattern
 	DispositionSurvived                               // Survived all filters (became a posted finding)
-	DispositionUnmapped                               // Could not trace through pipeline
 )
 
 // Disposition describes the pipeline outcome of an aggregated finding.
@@ -77,7 +77,6 @@ func BuildDispositions(
 	infoGroups []FindingGroup,
 	fpRemoved []FPRemovedInfo,
 	survivingFindings []FindingGroup,
-	hasExcludePatterns bool,
 ) map[int]Disposition {
 	dispositions := make(map[int]Disposition, aggregatedCount)
 
@@ -113,14 +112,10 @@ func BuildDispositions(
 		}
 	}
 
-	// 4. Remaining unmapped indices
+	// 4. Fill remaining unmapped indices (zero value is DispositionUnmapped)
 	for i := range aggregatedCount {
 		if _, ok := dispositions[i]; !ok {
-			kind := DispositionUnmapped
-			if hasExcludePatterns {
-				kind = DispositionFilteredExclude
-			}
-			dispositions[i] = Disposition{Kind: kind}
+			dispositions[i] = Disposition{}
 		}
 	}
 
