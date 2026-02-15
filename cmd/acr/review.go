@@ -250,13 +250,16 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 	}
 	stats.FPFilteredCount = fpFilteredCount
 
+	var excludeFiltered []domain.FindingGroup
 	if len(opts.ExcludePatterns) > 0 {
 		f, err := filter.New(opts.ExcludePatterns)
 		if err != nil {
 			logger.Logf(terminal.StyleError, "Invalid exclude pattern: %v", err)
 			return domain.ExitError
 		}
+		preExclude := summaryResult.Grouped.Findings
 		summaryResult.Grouped = f.Apply(summaryResult.Grouped)
+		excludeFiltered = diffFindingGroups(preExclude, summaryResult.Grouped.Findings)
 	}
 
 	// Build disposition map for LGTM annotation
@@ -264,6 +267,7 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		len(aggregated),
 		summaryResult.Grouped.Info,
 		fpRemoved,
+		excludeFiltered,
 		summaryResult.Grouped.Findings,
 	)
 	// Render and print report
@@ -280,4 +284,19 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 	}
 
 	return handleFindings(ctx, opts, summaryResult.Grouped, aggregated, stats, logger)
+}
+
+// diffFindingGroups returns groups present in before but not in after.
+func diffFindingGroups(before, after []domain.FindingGroup) []domain.FindingGroup {
+	afterSet := make(map[string]bool, len(after))
+	for i := range after {
+		afterSet[after[i].Title] = true
+	}
+	var removed []domain.FindingGroup
+	for _, g := range before {
+		if !afterSet[g.Title] {
+			removed = append(removed, g)
+		}
+	}
+	return removed
 }

@@ -76,6 +76,7 @@ func BuildDispositions(
 	aggregatedCount int,
 	infoGroups []FindingGroup,
 	fpRemoved []FPRemovedInfo,
+	excludeFiltered []FindingGroup,
 	survivingFindings []FindingGroup,
 ) map[int]Disposition {
 	dispositions := make(map[int]Disposition, aggregatedCount)
@@ -102,7 +103,17 @@ func BuildDispositions(
 		}
 	}
 
-	// 3. Mark survivors
+	// 3. Mark exclude-filtered
+	for _, g := range excludeFiltered {
+		for _, src := range g.Sources {
+			dispositions[src] = Disposition{
+				Kind:       DispositionFilteredExclude,
+				GroupTitle: g.Title,
+			}
+		}
+	}
+
+	// 4. Mark survivors
 	for _, g := range survivingFindings {
 		for _, src := range g.Sources {
 			dispositions[src] = Disposition{
@@ -112,7 +123,7 @@ func BuildDispositions(
 		}
 	}
 
-	// 4. Fill remaining unmapped indices (zero value is DispositionUnmapped)
+	// 5. Fill remaining unmapped indices (zero value is DispositionUnmapped)
 	for i := range aggregatedCount {
 		if _, ok := dispositions[i]; !ok {
 			dispositions[i] = Disposition{}
