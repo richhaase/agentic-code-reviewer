@@ -199,7 +199,7 @@ func TestApply_EmptyFindings(t *testing.T) {
 		Findings: []domain.FindingGroup{},
 	}
 
-	result := f.Apply(context.Background(), grouped, "")
+	result := f.Apply(context.Background(), grouped, "", 0)
 
 	if result == nil {
 		t.Fatal("Apply returned nil")
@@ -218,6 +218,20 @@ func TestApply_EmptyFindings(t *testing.T) {
 	}
 }
 
+func TestApply_EmptyFindings_WithTotalReviewers(t *testing.T) {
+	f := New("codex", 75, false, terminal.NewLogger())
+	grouped := domain.GroupedFindings{
+		Findings: []domain.FindingGroup{},
+	}
+	result := f.Apply(context.Background(), grouped, "", 5)
+	if result == nil {
+		t.Fatal("Apply returned nil")
+	}
+	if len(result.Grouped.Findings) != 0 {
+		t.Errorf("expected 0 findings, got %d", len(result.Grouped.Findings))
+	}
+}
+
 func TestApply_EmptyFindingsPreservesInfo(t *testing.T) {
 	f := New("codex", 75, false, terminal.NewLogger())
 	grouped := domain.GroupedFindings{
@@ -228,7 +242,7 @@ func TestApply_EmptyFindingsPreservesInfo(t *testing.T) {
 		},
 	}
 
-	result := f.Apply(context.Background(), grouped, "")
+	result := f.Apply(context.Background(), grouped, "", 0)
 
 	if len(result.Grouped.Info) != 2 {
 		t.Errorf("expected 2 info items preserved, got %d", len(result.Grouped.Info))
@@ -333,6 +347,273 @@ func TestEvaluationResponse_Unmarshal(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestAgreementBonus(t *testing.T) {
+	tests := []struct {
+		name           string
+		reviewerCount  int
+		totalReviewers int
+		wantBonus      int
+	}{
+		// < 20% agreement — strong penalty (+15)
+		{"1 of 6 reviewers (17%)", 1, 6, 15},
+		{"1 of 8 reviewers (13%)", 1, 8, 15},
+		{"1 of 10 reviewers (10%)", 1, 10, 15},
+		{"2 of 12 reviewers (17%)", 2, 12, 15},
+		{"1 of 20 reviewers (5%)", 1, 20, 15},
+
+		// 20-39% agreement — moderate penalty (+10)
+		{"1 of 5 reviewers (20%)", 1, 5, 10},
+		{"1 of 3 reviewers (33%)", 1, 3, 10},
+		{"1 of 4 reviewers (25%)", 1, 4, 10},
+		{"2 of 6 reviewers (33%)", 2, 6, 10},
+		{"3 of 10 reviewers (30%)", 3, 10, 10},
+		{"2 of 8 reviewers (25%)", 2, 8, 10},
+
+		// >= 40% agreement — no penalty
+		{"2 of 5 reviewers (40%)", 2, 5, 0},
+		{"2 of 4 reviewers (50%)", 2, 4, 0},
+		{"3 of 6 reviewers (50%)", 3, 6, 0},
+		{"4 of 10 reviewers (40%)", 4, 10, 0},
+		{"5 of 6 reviewers (83%)", 5, 6, 0},
+		{"6 of 6 reviewers (100%)", 6, 6, 0},
+		{"1 of 2 reviewers (50%)", 1, 2, 0},
+		{"2 of 3 reviewers (67%)", 2, 3, 0},
+		{"2 of 2 reviewers (100%)", 2, 2, 0},
+
+		// Edge cases — no penalty
+		{"1 of 1 reviewer", 1, 1, 0},
+		{"0 totalReviewers", 1, 0, 0},
+		{"0 reviewerCount", 0, 6, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := agreementBonus(tt.reviewerCount, tt.totalReviewers)
+			if got != tt.wantBonus {
+				t.Errorf("agreementBonus(%d, %d) = %d, want %d",
+					tt.reviewerCount, tt.totalReviewers, got, tt.wantBonus)
+			}
+		})
+	}
+}
+
+func TestFilteringLogic_WithAgreementBonus(t *testing.T) {
+	threshold := 75
+	totalReviewers := 6
+
+	findings := []domain.FindingGroup{
+		{Title: "Finding 0", Summary: "1 of 6, fp=65", ReviewerCount: 1}, // 17% → +15 = 80 → removed
+		{Title: "Finding 1", Summary: "5 of 6, fp=65", ReviewerCount: 5}, // 83% → +0  = 65 → kept
+		{Title: "Finding 2", Summary: "2 of 6, fp=68", ReviewerCount: 2}, // 33% → +10 = 78 → removed
+		{Title: "Finding 3", Summary: "3 of 6, fp=85", ReviewerCount: 3}, // 50% → +0  = 85 → removed
+		{Title: "Finding 4", Summary: "2 of 6, fp=60", ReviewerCount: 2}, // 33% → +10 = 70 → kept
+	}
+
+	response := evaluationResponse{
+		Evaluations: []findingEvaluation{
+			{ID: 0, FPScore: 65, Reasoning: "maybe false positive"},
+			{ID: 1, FPScore: 65, Reasoning: "maybe false positive"},
+			{ID: 2, FPScore: 68, Reasoning: "uncertain"},
+			{ID: 3, FPScore: 85, Reasoning: "clearly false positive"},
+			{ID: 4, FPScore: 60, Reasoning: "borderline"},
+		},
+	}
+
+	evalMap := make(map[int]findingEvaluation)
+	for _, eval := range response.Evaluations {
+		evalMap[eval.ID] = eval
+	}
+
+	var kept []domain.FindingGroup
+	var removed []EvaluatedFinding
+
+	for i, finding := range findings {
+		eval, ok := evalMap[i]
+		if !ok {
+			kept = append(kept, finding)
+			continue
+		}
+		adjusted := min(eval.FPScore+agreementBonus(finding.ReviewerCount, totalReviewers), 100)
+		if adjusted >= threshold {
+			removed = append(removed, EvaluatedFinding{
+				Finding:   finding,
+				FPScore:   adjusted,
+				Reasoning: eval.Reasoning,
+			})
+		} else {
+			kept = append(kept, finding)
+		}
+	}
+
+	if len(kept) != 2 {
+		t.Fatalf("expected 2 kept findings, got %d", len(kept))
+	}
+	keptTitles := map[string]bool{}
+	for _, f := range kept {
+		keptTitles[f.Title] = true
+	}
+	if !keptTitles["Finding 1"] {
+		t.Error("Finding 1 (5/6, high agreement) should be kept")
+	}
+	if !keptTitles["Finding 4"] {
+		t.Error("Finding 4 (2/6, bonus not enough) should be kept")
+	}
+
+	if len(removed) != 3 {
+		t.Fatalf("expected 3 removed findings, got %d", len(removed))
+	}
+	removedTitles := map[string]bool{}
+	for _, ef := range removed {
+		removedTitles[ef.Finding.Title] = true
+	}
+	if !removedTitles["Finding 0"] {
+		t.Error("Finding 0 (1/6, +15 bonus) should be removed")
+	}
+	if !removedTitles["Finding 2"] {
+		t.Error("Finding 2 (2/6, +10 bonus) should be removed")
+	}
+	if !removedTitles["Finding 3"] {
+		t.Error("Finding 3 (3/6, high FP regardless) should be removed")
+	}
+}
+
+func TestFilteringLogic_WithAgreementBonus_SmallTeam(t *testing.T) {
+	threshold := 75
+	totalReviewers := 2
+
+	findings := []domain.FindingGroup{
+		{Title: "Finding 0", Summary: "1 of 2, fp=65", ReviewerCount: 1}, // 50% → +0 = 65 → kept
+		{Title: "Finding 1", Summary: "1 of 2, fp=80", ReviewerCount: 1}, // 50% → +0 = 80 → removed
+		{Title: "Finding 2", Summary: "2 of 2, fp=65", ReviewerCount: 2}, // 100% → +0 = 65 → kept
+	}
+
+	response := evaluationResponse{
+		Evaluations: []findingEvaluation{
+			{ID: 0, FPScore: 65, Reasoning: "maybe"},
+			{ID: 1, FPScore: 80, Reasoning: "likely FP"},
+			{ID: 2, FPScore: 65, Reasoning: "maybe"},
+		},
+	}
+
+	evalMap := make(map[int]findingEvaluation)
+	for _, eval := range response.Evaluations {
+		evalMap[eval.ID] = eval
+	}
+
+	var kept []domain.FindingGroup
+	var removed []EvaluatedFinding
+
+	for i, finding := range findings {
+		eval, ok := evalMap[i]
+		if !ok {
+			kept = append(kept, finding)
+			continue
+		}
+		adjusted := min(eval.FPScore+agreementBonus(finding.ReviewerCount, totalReviewers), 100)
+		if adjusted >= threshold {
+			removed = append(removed, EvaluatedFinding{
+				Finding:   finding,
+				FPScore:   adjusted,
+				Reasoning: eval.Reasoning,
+			})
+		} else {
+			kept = append(kept, finding)
+		}
+	}
+
+	if len(kept) != 2 {
+		t.Fatalf("expected 2 kept findings, got %d", len(kept))
+	}
+	keptTitles := map[string]bool{}
+	for _, f := range kept {
+		keptTitles[f.Title] = true
+	}
+	if !keptTitles["Finding 0"] {
+		t.Error("Finding 0 (1/2, no bonus, below threshold) should be kept")
+	}
+	if !keptTitles["Finding 2"] {
+		t.Error("Finding 2 (2/2, no bonus, below threshold) should be kept")
+	}
+
+	if len(removed) != 1 {
+		t.Fatalf("expected 1 removed finding, got %d", len(removed))
+	}
+	if removed[0].Finding.Title != "Finding 1" {
+		t.Errorf("removed finding = %q, want Finding 1", removed[0].Finding.Title)
+	}
+}
+
+func TestFilteringLogic_WithAgreementBonus_LargeTeam(t *testing.T) {
+	threshold := 75
+	totalReviewers := 10
+
+	findings := []domain.FindingGroup{
+		{Title: "Finding 0", Summary: "1 of 10, fp=60", ReviewerCount: 1}, // 10% → +15 = 75 → removed
+		{Title: "Finding 1", Summary: "3 of 10, fp=60", ReviewerCount: 3}, // 30% → +10 = 70 → kept
+		{Title: "Finding 2", Summary: "4 of 10, fp=60", ReviewerCount: 4}, // 40% → +0  = 60 → kept
+		{Title: "Finding 3", Summary: "7 of 10, fp=60", ReviewerCount: 7}, // 70% → +0  = 60 → kept
+	}
+
+	response := evaluationResponse{
+		Evaluations: []findingEvaluation{
+			{ID: 0, FPScore: 60, Reasoning: "borderline"},
+			{ID: 1, FPScore: 60, Reasoning: "borderline"},
+			{ID: 2, FPScore: 60, Reasoning: "borderline"},
+			{ID: 3, FPScore: 60, Reasoning: "borderline"},
+		},
+	}
+
+	evalMap := make(map[int]findingEvaluation)
+	for _, eval := range response.Evaluations {
+		evalMap[eval.ID] = eval
+	}
+
+	var kept []domain.FindingGroup
+	var removed []EvaluatedFinding
+
+	for i, finding := range findings {
+		eval, ok := evalMap[i]
+		if !ok {
+			kept = append(kept, finding)
+			continue
+		}
+		adjusted := min(eval.FPScore+agreementBonus(finding.ReviewerCount, totalReviewers), 100)
+		if adjusted >= threshold {
+			removed = append(removed, EvaluatedFinding{
+				Finding:   finding,
+				FPScore:   adjusted,
+				Reasoning: eval.Reasoning,
+			})
+		} else {
+			kept = append(kept, finding)
+		}
+	}
+
+	if len(kept) != 3 {
+		t.Fatalf("expected 3 kept findings, got %d", len(kept))
+	}
+	keptTitles := map[string]bool{}
+	for _, f := range kept {
+		keptTitles[f.Title] = true
+	}
+	if !keptTitles["Finding 1"] {
+		t.Error("Finding 1 (3/10, +10 not enough) should be kept")
+	}
+	if !keptTitles["Finding 2"] {
+		t.Error("Finding 2 (4/10, no bonus) should be kept")
+	}
+	if !keptTitles["Finding 3"] {
+		t.Error("Finding 3 (7/10, no bonus) should be kept")
+	}
+
+	if len(removed) != 1 {
+		t.Fatalf("expected 1 removed finding, got %d", len(removed))
+	}
+	if removed[0].Finding.Title != "Finding 0" {
+		t.Errorf("removed finding = %q, want Finding 0", removed[0].Finding.Title)
 	}
 }
 
