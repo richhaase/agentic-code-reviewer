@@ -128,9 +128,9 @@ func TestRenderLGTMMarkdown_BasicFormat(t *testing.T) {
 }
 
 func TestRenderLGTMMarkdown_WithComments(t *testing.T) {
-	comments := map[int]string{
-		2: "Minor style note",
-		1: "Code looks clean",
+	comments := map[int][]AnnotatedComment{
+		2: {{Text: "Minor style note"}},
+		1: {{Text: "Code looks clean"}},
 	}
 
 	result := RenderLGTMMarkdown(3, 3, comments, "dev")
@@ -150,10 +150,10 @@ func TestRenderLGTMMarkdown_WithComments(t *testing.T) {
 }
 
 func TestRenderLGTMMarkdown_SortsCommentsByReviewerID(t *testing.T) {
-	comments := map[int]string{
-		3: "Third",
-		1: "First",
-		2: "Second",
+	comments := map[int][]AnnotatedComment{
+		3: {{Text: "Third"}},
+		1: {{Text: "First"}},
+		2: {{Text: "Second"}},
 	}
 
 	result := RenderLGTMMarkdown(3, 3, comments, "dev")
@@ -168,6 +168,83 @@ func TestRenderLGTMMarkdown_SortsCommentsByReviewerID(t *testing.T) {
 	}
 	if idx1 > idx2 || idx2 > idx3 {
 		t.Error("reviewers should be sorted by ID")
+	}
+}
+
+func TestRenderLGTMMarkdown_WithDispositionAnnotations(t *testing.T) {
+	comments := map[int][]AnnotatedComment{
+		1: {
+			{
+				Text:        "Possible null deref",
+				Disposition: domain.Disposition{Kind: domain.DispositionInfo, GroupTitle: "Style"},
+			},
+		},
+		2: {
+			{
+				Text:        "Missing error check",
+				Disposition: domain.Disposition{Kind: domain.DispositionFilteredFP, FPScore: 82},
+			},
+		},
+		3: {
+			{
+				Text:        "Unused import",
+				Disposition: domain.Disposition{Kind: domain.DispositionFilteredExclude},
+			},
+		},
+	}
+
+	result := RenderLGTMMarkdown(3, 3, comments, "dev")
+
+	if !strings.Contains(result, "Categorized as informational during summarization") {
+		t.Error("expected info disposition annotation")
+	}
+	if !strings.Contains(result, "Filtered as likely false positive (score 82)") {
+		t.Error("expected FP disposition annotation")
+	}
+	if !strings.Contains(result, "Filtered by exclude pattern") {
+		t.Error("expected exclude disposition annotation")
+	}
+}
+
+func TestRenderLGTMMarkdown_MultipleCommentsPerReviewer(t *testing.T) {
+	comments := map[int][]AnnotatedComment{
+		1: {
+			{Text: "First comment"},
+			{Text: "Second comment"},
+		},
+	}
+
+	result := RenderLGTMMarkdown(3, 3, comments, "dev")
+
+	if strings.Count(result, "Reviewer 1") != 2 {
+		t.Errorf("expected 2 entries for Reviewer 1, got %d", strings.Count(result, "Reviewer 1"))
+	}
+	if !strings.Contains(result, "First comment") {
+		t.Error("expected first comment")
+	}
+	if !strings.Contains(result, "Second comment") {
+		t.Error("expected second comment")
+	}
+}
+
+func TestRenderLGTMMarkdown_UnmappedDispositionNoAnnotation(t *testing.T) {
+	comments := map[int][]AnnotatedComment{
+		1: {
+			{
+				Text:        "Some comment",
+				Disposition: domain.Disposition{Kind: domain.DispositionUnmapped},
+			},
+		},
+	}
+
+	result := RenderLGTMMarkdown(3, 3, comments, "dev")
+
+	// Unmapped should not have an annotation line
+	if strings.Contains(result, "_") && strings.Contains(result, "Unmapped") {
+		t.Error("unmapped disposition should not render annotation")
+	}
+	if !strings.Contains(result, "Some comment") {
+		t.Error("expected comment text")
 	}
 }
 
