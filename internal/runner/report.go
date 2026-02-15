@@ -255,27 +255,42 @@ func RenderCommentMarkdown(
 	return strings.Join(lines, "\n")
 }
 
+// AnnotatedComment pairs a reviewer's raw finding text with its pipeline disposition.
+type AnnotatedComment struct {
+	Text        string
+	Disposition domain.Disposition
+}
+
 // RenderLGTMMarkdown renders approval comment markdown.
-func RenderLGTMMarkdown(totalReviewers, successfulReviewers int, reviewerComments map[int]string, version string) string {
+// annotatedComments maps reviewer ID to their findings with disposition annotations.
+// If nil, falls back to unannotated rendering.
+func RenderLGTMMarkdown(totalReviewers, successfulReviewers int, annotatedComments map[int][]AnnotatedComment, version string) string {
 	var lines []string
 	lines = append(lines, "## LGTM :white_check_mark:")
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf("**%d of %d reviewers found no issues.**", successfulReviewers, totalReviewers))
 
-	if len(reviewerComments) > 0 {
+	if len(annotatedComments) > 0 {
 		lines = append(lines, "")
 		lines = append(lines, "<details>")
 		lines = append(lines, "<summary>Reviewer comments</summary>")
 		lines = append(lines, "")
 
-		keys := make([]int, 0, len(reviewerComments))
-		for k := range reviewerComments {
+		keys := make([]int, 0, len(annotatedComments))
+		for k := range annotatedComments {
 			keys = append(keys, k)
 		}
 		slices.Sort(keys)
 
 		for _, id := range keys {
-			lines = append(lines, fmt.Sprintf("- **Reviewer %d:** %s", id, reviewerComments[id]))
+			for _, ac := range annotatedComments[id] {
+				annotation := formatDisposition(ac.Disposition)
+				if annotation != "" {
+					lines = append(lines, fmt.Sprintf("- **Reviewer %d:** %s\n  _%s_", id, ac.Text, annotation))
+				} else {
+					lines = append(lines, fmt.Sprintf("- **Reviewer %d:** %s", id, ac.Text))
+				}
+			}
 		}
 		lines = append(lines, "")
 		lines = append(lines, "</details>")
@@ -285,6 +300,21 @@ func RenderLGTMMarkdown(totalReviewers, successfulReviewers int, reviewerComment
 	lines = append(lines, renderFooter(version))
 
 	return strings.Join(lines, "\n")
+}
+
+func formatDisposition(d domain.Disposition) string {
+	switch d.Kind {
+	case domain.DispositionInfo:
+		return "Categorized as informational during summarization"
+	case domain.DispositionFilteredFP:
+		return fmt.Sprintf("Filtered as likely false positive (score %d)", d.FPScore)
+	case domain.DispositionFilteredExclude:
+		return "Filtered by exclude pattern"
+	case domain.DispositionSurvived:
+		return "Survived all filters (posted as finding)"
+	default:
+		return ""
+	}
 }
 
 // RenderDismissedLGTMMarkdown renders LGTM markdown for when a user dismisses all findings.

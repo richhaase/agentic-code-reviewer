@@ -108,13 +108,28 @@ func formatPRRef(prNumber string) string {
 	return fmt.Sprintf("%s#%s%s", terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset))
 }
 
-func handleLGTM(ctx context.Context, opts ReviewOpts, allFindings []domain.Finding, stats domain.ReviewStats, logger *terminal.Logger) domain.ExitCode {
-	reviewerComments := make(map[int]string)
-	for _, f := range allFindings {
-		reviewerComments[f.ReviewerID] = f.Text
+func handleLGTM(ctx context.Context, opts ReviewOpts, allFindings []domain.Finding, aggregated []domain.AggregatedFinding, dispositions map[int]domain.Disposition, stats domain.ReviewStats, logger *terminal.Logger) domain.ExitCode {
+	// Build a text→aggregated index lookup for mapping raw findings to dispositions
+	textToIndex := make(map[string]int, len(aggregated))
+	for i, af := range aggregated {
+		textToIndex[af.Text] = i
 	}
 
-	lgtmBody := runner.RenderLGTMMarkdown(stats.TotalReviewers, stats.SuccessfulReviewers, reviewerComments, version)
+	annotatedComments := make(map[int][]runner.AnnotatedComment)
+	for _, f := range allFindings {
+		if f.Text == "" {
+			continue
+		}
+		ac := runner.AnnotatedComment{Text: f.Text}
+		if idx, ok := textToIndex[f.Text]; ok {
+			if d, ok := dispositions[idx]; ok {
+				ac.Disposition = d
+			}
+		}
+		annotatedComments[f.ReviewerID] = append(annotatedComments[f.ReviewerID], ac)
+	}
+
+	lgtmBody := runner.RenderLGTMMarkdown(stats.TotalReviewers, stats.SuccessfulReviewers, annotatedComments, version)
 	pr := getPRContext(ctx, opts)
 
 	if err := confirmAndSubmitLGTM(ctx, lgtmBody, pr, opts, logger); err != nil {

@@ -44,6 +44,89 @@ func (g *GroupedFindings) TotalGroups() int {
 	return len(g.Findings) + len(g.Info)
 }
 
+// DispositionKind describes what happened to an aggregated finding in the pipeline.
+type DispositionKind int
+
+const (
+	DispositionInfo            DispositionKind = iota // Categorized as informational by summarizer
+	DispositionFilteredFP                             // Removed by FP filter
+	DispositionFilteredExclude                        // Removed by exclude pattern
+	DispositionSurvived                               // Survived all filters (became a posted finding)
+	DispositionUnmapped                               // Could not trace through pipeline
+)
+
+// Disposition describes the pipeline outcome of an aggregated finding.
+type Disposition struct {
+	Kind       DispositionKind
+	FPScore    int    // Only set for DispositionFilteredFP
+	Reasoning  string // Only set for DispositionFilteredFP
+	GroupTitle string
+}
+
+// FPRemovedInfo captures metadata about a finding group removed by the FP filter.
+type FPRemovedInfo struct {
+	Sources   []int
+	FPScore   int
+	Reasoning string
+	Title     string
+}
+
+// BuildDispositions maps each aggregated finding index to its pipeline disposition.
+func BuildDispositions(
+	aggregatedCount int,
+	infoGroups []FindingGroup,
+	fpRemoved []FPRemovedInfo,
+	survivingFindings []FindingGroup,
+	hasExcludePatterns bool,
+) map[int]Disposition {
+	dispositions := make(map[int]Disposition, aggregatedCount)
+
+	// 1. Mark info groups
+	for _, g := range infoGroups {
+		for _, src := range g.Sources {
+			dispositions[src] = Disposition{
+				Kind:       DispositionInfo,
+				GroupTitle: g.Title,
+			}
+		}
+	}
+
+	// 2. Mark FP-filtered
+	for _, fp := range fpRemoved {
+		for _, src := range fp.Sources {
+			dispositions[src] = Disposition{
+				Kind:       DispositionFilteredFP,
+				FPScore:    fp.FPScore,
+				Reasoning:  fp.Reasoning,
+				GroupTitle: fp.Title,
+			}
+		}
+	}
+
+	// 3. Mark survivors
+	for _, g := range survivingFindings {
+		for _, src := range g.Sources {
+			dispositions[src] = Disposition{
+				Kind:       DispositionSurvived,
+				GroupTitle: g.Title,
+			}
+		}
+	}
+
+	// 4. Remaining unmapped indices
+	for i := range aggregatedCount {
+		if _, ok := dispositions[i]; !ok {
+			kind := DispositionUnmapped
+			if hasExcludePatterns {
+				kind = DispositionFilteredExclude
+			}
+			dispositions[i] = Disposition{Kind: kind}
+		}
+	}
+
+	return dispositions
+}
+
 // AggregateFindings aggregates findings by text, tracking which reviewers found each.
 func AggregateFindings(findings []Finding) []AggregatedFinding {
 	seen := make(map[string][]int)
