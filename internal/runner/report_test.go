@@ -239,12 +239,15 @@ func TestRenderLGTMMarkdown_UnmappedDispositionNoAnnotation(t *testing.T) {
 
 	result := RenderLGTMMarkdown(3, 3, comments, "dev")
 
-	// Unmapped should not have an annotation line
-	if strings.Contains(result, "_") && strings.Contains(result, "Unmapped") {
-		t.Error("unmapped disposition should not render annotation")
+	// Unmapped should render as plain comment without annotation
+	if !strings.Contains(result, "- **Reviewer 1:** Some comment") {
+		t.Error("expected plain comment without annotation")
 	}
-	if !strings.Contains(result, "Some comment") {
-		t.Error("expected comment text")
+	// Should not contain any disposition annotations
+	for _, annotation := range []string{"informational", "false positive", "exclude pattern", "Survived"} {
+		if strings.Contains(result, annotation) {
+			t.Errorf("unexpected annotation text %q in output", annotation)
+		}
 	}
 }
 
