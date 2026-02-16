@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
@@ -287,15 +288,15 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 }
 
 // diffFindingGroups returns groups present in before but not in after.
+// Relies on filter.Apply preserving order, so after is an ordered subsequence.
 func diffFindingGroups(before, after []domain.FindingGroup) []domain.FindingGroup {
-	afterSet := make(map[string]bool, len(after))
-	for i := range after {
-		afterSet[after[i].Title] = true
-	}
+	j := 0
 	var removed []domain.FindingGroup
-	for _, g := range before {
-		if !afterSet[g.Title] {
-			removed = append(removed, g)
+	for i := range before {
+		if j < len(after) && slices.Equal(before[i].Sources, after[j].Sources) {
+			j++
+		} else {
+			removed = append(removed, before[i])
 		}
 	}
 	return removed
