@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
@@ -213,6 +214,7 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 	feedbackWg.Wait()
 
 	var fpFilteredCount int
+	var fpRemoved []domain.FPRemovedInfo
 	if opts.FPFilterEnabled && summaryResult.ExitCode == 0 && len(summaryResult.Grouped.Findings) > 0 && ctx.Err() == nil {
 		fpSpinner := terminal.NewPhaseSpinner("Filtering false positives")
 		fpSpinnerCtx, fpSpinnerCancel := context.WithCancel(ctx)
@@ -236,19 +238,39 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 			summaryResult.Grouped = fpResult.Grouped
 			fpFilteredCount = fpResult.RemovedCount
 			stats.FPFilterDuration = fpResult.Duration
+
+			for _, r := range fpResult.Removed {
+				fpRemoved = append(fpRemoved, domain.FPRemovedInfo{
+					Sources:   r.Finding.Sources,
+					FPScore:   r.FPScore,
+					Reasoning: r.Reasoning,
+					Title:     r.Finding.Title,
+				})
+			}
 		}
 	}
 	stats.FPFilteredCount = fpFilteredCount
 
+	var excludeFiltered []domain.FindingGroup
 	if len(opts.ExcludePatterns) > 0 {
 		f, err := filter.New(opts.ExcludePatterns)
 		if err != nil {
 			logger.Logf(terminal.StyleError, "Invalid exclude pattern: %v", err)
 			return domain.ExitError
 		}
+		preExclude := summaryResult.Grouped.Findings
 		summaryResult.Grouped = f.Apply(summaryResult.Grouped)
+		excludeFiltered = diffFindingGroups(preExclude, summaryResult.Grouped.Findings)
 	}
 
+	// Build disposition map for LGTM annotation
+	dispositions := domain.BuildDispositions(
+		len(aggregated),
+		summaryResult.Grouped.Info,
+		fpRemoved,
+		excludeFiltered,
+		summaryResult.Grouped.Findings,
+	)
 	// Render and print report
 	report := runner.RenderReport(summaryResult.Grouped, summaryResult, stats)
 	fmt.Println(report)
@@ -259,8 +281,23 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 
 	// Handle PR actions
 	if !summaryResult.Grouped.HasFindings() {
-		return handleLGTM(ctx, opts, allFindings, stats, logger)
+		return handleLGTM(ctx, opts, allFindings, aggregated, dispositions, stats, logger)
 	}
 
 	return handleFindings(ctx, opts, summaryResult.Grouped, aggregated, stats, logger)
+}
+
+// diffFindingGroups returns groups present in before but not in after.
+// Relies on filter.Apply preserving order, so after is an ordered subsequence.
+func diffFindingGroups(before, after []domain.FindingGroup) []domain.FindingGroup {
+	j := 0
+	var removed []domain.FindingGroup
+	for i := range before {
+		if j < len(after) && slices.Equal(before[i].Sources, after[j].Sources) {
+			j++
+		} else {
+			removed = append(removed, before[i])
+		}
+	}
+	return removed
 }
