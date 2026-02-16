@@ -148,8 +148,15 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 			}
 
 			summarizer := feedback.NewSummarizer(feedbackAgentName, opts.Verbose, logger)
-			summary, err := summarizer.Summarize(ctx, opts.DetectedPR)
+			feedbackCtx, feedbackCancel := context.WithTimeout(ctx, opts.SummarizerTimeout)
+			defer feedbackCancel()
+
+			summary, err := summarizer.Summarize(feedbackCtx, opts.DetectedPR)
 			if err != nil {
+				if feedbackCtx.Err() == context.DeadlineExceeded {
+					logger.Logf(terminal.StyleWarning, "PR feedback summarizer timed out after %s", opts.SummarizerTimeout)
+					return
+				}
 				logger.Logf(terminal.StyleWarning, "PR feedback summarizer failed: %v", err)
 				return
 			}
