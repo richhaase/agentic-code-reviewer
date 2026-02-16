@@ -479,6 +479,34 @@ func TestResolve_MixedSources(t *testing.T) {
 	}
 }
 
+func TestResolve_PhaseTimeoutPrecedence(t *testing.T) {
+	cfg := &Config{
+		SummarizerTimeout: durationPtr(3 * time.Minute),
+		FPFilterTimeout:   durationPtr(4 * time.Minute),
+	}
+	envState := EnvState{
+		SummarizerTimeout:    6 * time.Minute,
+		SummarizerTimeoutSet: true,
+		FPFilterTimeout:      7 * time.Minute,
+		FPFilterTimeoutSet:   true,
+	}
+	flagState := FlagState{
+		SummarizerTimeoutSet: true,
+	}
+	flagValues := ResolvedConfig{
+		SummarizerTimeout: 8 * time.Minute,
+	}
+
+	result := Resolve(cfg, envState, flagState, flagValues)
+
+	if result.SummarizerTimeout != 8*time.Minute {
+		t.Errorf("expected flag summarizer timeout 8m, got %v", result.SummarizerTimeout)
+	}
+	if result.FPFilterTimeout != 7*time.Minute {
+		t.Errorf("expected env fp_filter timeout 7m, got %v", result.FPFilterTimeout)
+	}
+}
+
 func TestLoadFromPathWithWarnings_InvalidReviewers(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".acr.yaml")
@@ -653,6 +681,8 @@ concurrency: 3
 base: main
 timeout: 5m
 retries: 2
+summarizer_timeout: 6m
+fp_filter_timeout: 7m
 guidance_file: guidance.md
 filters:
   exclude_patterns:
@@ -1174,6 +1204,7 @@ func clearACREnv(t *testing.T) {
 	for _, key := range []string{
 		"ACR_REVIEWERS", "ACR_CONCURRENCY", "ACR_BASE_REF", "ACR_TIMEOUT",
 		"ACR_RETRIES", "ACR_FETCH", "ACR_REVIEWER_AGENT", "ACR_SUMMARIZER_AGENT",
+		"ACR_SUMMARIZER_TIMEOUT", "ACR_FP_FILTER_TIMEOUT",
 		"ACR_GUIDANCE", "ACR_GUIDANCE_FILE", "ACR_FP_FILTER", "ACR_FP_THRESHOLD",
 		"ACR_PR_FEEDBACK", "ACR_PR_FEEDBACK_AGENT",
 	} {
@@ -1304,10 +1335,40 @@ func TestLoadEnvState_NoWarningsForValidValues(t *testing.T) {
 	clearACREnv(t)
 	t.Setenv("ACR_REVIEWERS", "5")
 	t.Setenv("ACR_TIMEOUT", "10m")
+	t.Setenv("ACR_SUMMARIZER_TIMEOUT", "6m")
+	t.Setenv("ACR_FP_FILTER_TIMEOUT", "7m")
 	t.Setenv("ACR_FETCH", "true")
 	_, warnings := LoadEnvState()
 	if len(warnings) != 0 {
 		t.Errorf("expected no warnings for valid values, got %v", warnings)
+	}
+}
+
+func TestLoadEnvState_PhaseTimeouts(t *testing.T) {
+	clearACREnv(t)
+	t.Setenv("ACR_SUMMARIZER_TIMEOUT", "6m")
+	t.Setenv("ACR_FP_FILTER_TIMEOUT", "7m")
+
+	state, warnings := LoadEnvState()
+	if len(warnings) != 0 {
+		t.Fatalf("expected no warnings, got %v", warnings)
+	}
+	if !state.SummarizerTimeoutSet || state.SummarizerTimeout != 6*time.Minute {
+		t.Fatalf("expected summarizer timeout 6m set=true, got %v set=%v", state.SummarizerTimeout, state.SummarizerTimeoutSet)
+	}
+	if !state.FPFilterTimeoutSet || state.FPFilterTimeout != 7*time.Minute {
+		t.Fatalf("expected fp filter timeout 7m set=true, got %v set=%v", state.FPFilterTimeout, state.FPFilterTimeoutSet)
+	}
+}
+
+func TestLoadEnvState_InvalidPhaseTimeouts(t *testing.T) {
+	clearACREnv(t)
+	t.Setenv("ACR_SUMMARIZER_TIMEOUT", "bad")
+	t.Setenv("ACR_FP_FILTER_TIMEOUT", "still-bad")
+
+	_, warnings := LoadEnvState()
+	if len(warnings) != 2 {
+		t.Fatalf("expected 2 warnings, got %d: %v", len(warnings), warnings)
 	}
 }
 
@@ -1431,6 +1492,16 @@ func TestResolvedConfig_Validate_Errors(t *testing.T) {
 			name:    "zero timeout",
 			modify:  func(c *ResolvedConfig) { c.Timeout = 0 },
 			wantMsg: "timeout must be > 0",
+		},
+		{
+			name:    "zero summarizer timeout",
+			modify:  func(c *ResolvedConfig) { c.SummarizerTimeout = 0 },
+			wantMsg: "summarizer_timeout must be > 0",
+		},
+		{
+			name:    "zero fp filter timeout",
+			modify:  func(c *ResolvedConfig) { c.FPFilterTimeout = 0 },
+			wantMsg: "fp_filter_timeout must be > 0",
 		},
 		{
 			name:    "empty reviewer agents",

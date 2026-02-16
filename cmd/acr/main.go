@@ -300,10 +300,8 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 
 // configResult holds the outputs from config loading and resolution.
 type configResult struct {
-	resolved          config.ResolvedConfig
-	excludePatterns   []string
-	summarizerTimeout time.Duration
-	fpFilterTimeout   time.Duration
+	resolved        config.ResolvedConfig
+	excludePatterns []string
 }
 
 // loadAndResolveConfig loads the config file, builds flag/env state, resolves
@@ -338,20 +336,22 @@ func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *termina
 	// For fetch, either --fetch or --no-fetch being set counts as explicit
 	fetchFlagSet := cmd.Flags().Changed("fetch") || cmd.Flags().Changed("no-fetch")
 	flagState := config.FlagState{
-		ReviewersSet:       cmd.Flags().Changed("reviewers"),
-		ConcurrencySet:     cmd.Flags().Changed("concurrency"),
-		BaseSet:            cmd.Flags().Changed("base") || wt.baseAutoDetected,
-		TimeoutSet:         cmd.Flags().Changed("timeout"),
-		RetriesSet:         cmd.Flags().Changed("retries"),
-		FetchSet:           fetchFlagSet,
-		ReviewerAgentsSet:  cmd.Flags().Changed("reviewer-agent"),
-		SummarizerAgentSet: cmd.Flags().Changed("summarizer-agent"),
-		GuidanceSet:        cmd.Flags().Changed("guidance"),
-		GuidanceFileSet:    cmd.Flags().Changed("guidance-file"),
-		NoFPFilterSet:      cmd.Flags().Changed("no-fp-filter"),
-		FPThresholdSet:     cmd.Flags().Changed("fp-threshold"),
-		NoPRFeedbackSet:    cmd.Flags().Changed("no-pr-feedback"),
-		PRFeedbackAgentSet: cmd.Flags().Changed("pr-feedback-agent"),
+		ReviewersSet:         cmd.Flags().Changed("reviewers"),
+		ConcurrencySet:       cmd.Flags().Changed("concurrency"),
+		BaseSet:              cmd.Flags().Changed("base") || wt.baseAutoDetected,
+		TimeoutSet:           cmd.Flags().Changed("timeout"),
+		RetriesSet:           cmd.Flags().Changed("retries"),
+		FetchSet:             fetchFlagSet,
+		ReviewerAgentsSet:    cmd.Flags().Changed("reviewer-agent"),
+		SummarizerAgentSet:   cmd.Flags().Changed("summarizer-agent"),
+		SummarizerTimeoutSet: cmd.Flags().Changed("summarizer-timeout"),
+		FPFilterTimeoutSet:   cmd.Flags().Changed("fp-filter-timeout"),
+		GuidanceSet:          cmd.Flags().Changed("guidance"),
+		GuidanceFileSet:      cmd.Flags().Changed("guidance-file"),
+		NoFPFilterSet:        cmd.Flags().Changed("no-fp-filter"),
+		FPThresholdSet:       cmd.Flags().Changed("fp-threshold"),
+		NoPRFeedbackSet:      cmd.Flags().Changed("no-pr-feedback"),
+		PRFeedbackAgentSet:   cmd.Flags().Changed("pr-feedback-agent"),
 	}
 
 	// Load env var state
@@ -380,6 +380,8 @@ func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *termina
 		Fetch:             fetchValue,
 		ReviewerAgents:    agent.ParseAgentNames(agentName),
 		SummarizerAgent:   summarizerAgentName,
+		SummarizerTimeout: summarizerTimeout,
+		FPFilterTimeout:   fpFilterTimeout,
 		Guidance:          guidance,
 		GuidanceFile:      guidanceFile,
 		FPFilterEnabled:   !noFPFilter,
@@ -390,26 +392,6 @@ func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *termina
 
 	// Resolve final configuration (precedence: flags > env vars > config file > defaults)
 	resolved := config.Resolve(cfg, envState, flagState, flagValues)
-
-	// Resolve phase timeouts (precedence: flags > env vars > defaults)
-	resolvedSummarizerTimeout := summarizerTimeout
-	resolvedFPFilterTimeout := fpFilterTimeout
-	defaultPhaseTimeout := 5 * time.Minute
-	if !cmd.Flags().Changed("summarizer-timeout") {
-		resolvedSummarizerTimeout = getEnvDuration("ACR_SUMMARIZER_TIMEOUT", defaultPhaseTimeout)
-	}
-	if !cmd.Flags().Changed("fp-filter-timeout") {
-		resolvedFPFilterTimeout = getEnvDuration("ACR_FP_FILTER_TIMEOUT", defaultPhaseTimeout)
-	}
-	// Guard against zero/negative timeouts. context.WithTimeout(ctx, 0) expires
-	// instantly, which would always fail. This can happen when the flag default
-	// is 0 (meaning "not set") and no env var overrides it.
-	if resolvedSummarizerTimeout <= 0 {
-		resolvedSummarizerTimeout = defaultPhaseTimeout
-	}
-	if resolvedFPFilterTimeout <= 0 {
-		resolvedFPFilterTimeout = defaultPhaseTimeout
-	}
 
 	// For PR mode: fetch and qualify the base ref so git diff works in the detached worktree
 	// Only do this for unqualified branch names - skip for SHAs, tags, HEAD, or already-qualified refs
@@ -451,10 +433,8 @@ func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *termina
 	resolved.Guidance = resolvedGuidance
 
 	return configResult{
-		resolved:          resolved,
-		excludePatterns:   allExcludePatterns,
-		summarizerTimeout: resolvedSummarizerTimeout,
-		fpFilterTimeout:   resolvedFPFilterTimeout,
+		resolved:        resolved,
+		excludePatterns: allExcludePatterns,
 	}, nil
 }
 
@@ -523,26 +503,11 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		DetectedPR:        detectedPR,
 		WorktreeBranch:    worktreeBranch,
 		UseRefFile:        refFile,
-		SummarizerTimeout: cfgResult.summarizerTimeout,
-		FPFilterTimeout:   cfgResult.fpFilterTimeout,
+		SummarizerTimeout: cfgResult.resolved.SummarizerTimeout,
+		FPFilterTimeout:   cfgResult.resolved.FPFilterTimeout,
 		ExcludePatterns:   cfgResult.excludePatterns,
 		WorkDir:           wt.workDir,
 	}
 	code := executeReview(ctx, opts, logger)
 	return exitCode(code)
-}
-
-// getEnvDuration reads a duration from an environment variable, returning the default if unset or invalid.
-// Logs a warning to stderr if the value is set but unparseable.
-func getEnvDuration(key string, defaultVal time.Duration) time.Duration {
-	val := os.Getenv(key)
-	if val == "" {
-		return defaultVal
-	}
-	d, err := time.ParseDuration(val)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "[W] Invalid %s=%q (expected format like '5m' or '300s'), using default %s\n", key, val, defaultVal)
-		return defaultVal
-	}
-	return d
 }
