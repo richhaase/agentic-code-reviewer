@@ -551,16 +551,22 @@ func LoadEnvState() (EnvState, []string) {
 		if d, err := time.ParseDuration(v); err == nil {
 			state.SummarizerTimeout = d
 			state.SummarizerTimeoutSet = true
+		} else if secs, err := strconv.Atoi(v); err == nil {
+			state.SummarizerTimeout = time.Duration(secs) * time.Second
+			state.SummarizerTimeoutSet = true
 		} else {
-			warnings = append(warnings, fmt.Sprintf("ACR_SUMMARIZER_TIMEOUT=%q is not a valid duration (use values like 5m or 300s), ignoring", v))
+			warnings = append(warnings, fmt.Sprintf("ACR_SUMMARIZER_TIMEOUT=%q is not a valid duration or integer, ignoring", v))
 		}
 	}
 	if v := os.Getenv("ACR_FP_FILTER_TIMEOUT"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			state.FPFilterTimeout = d
 			state.FPFilterTimeoutSet = true
+		} else if secs, err := strconv.Atoi(v); err == nil {
+			state.FPFilterTimeout = time.Duration(secs) * time.Second
+			state.FPFilterTimeoutSet = true
 		} else {
-			warnings = append(warnings, fmt.Sprintf("ACR_FP_FILTER_TIMEOUT=%q is not a valid duration (use values like 5m or 300s), ignoring", v))
+			warnings = append(warnings, fmt.Sprintf("ACR_FP_FILTER_TIMEOUT=%q is not a valid duration or integer, ignoring", v))
 		}
 	}
 	if v := os.Getenv("ACR_GUIDANCE"); v != "" {

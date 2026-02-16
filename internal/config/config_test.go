@@ -1346,7 +1346,7 @@ func TestLoadEnvState_NoWarningsForValidValues(t *testing.T) {
 
 func TestLoadEnvState_PhaseTimeouts(t *testing.T) {
 	clearACREnv(t)
-	t.Setenv("ACR_SUMMARIZER_TIMEOUT", "6m")
+	t.Setenv("ACR_SUMMARIZER_TIMEOUT", "360") // integer seconds
 	t.Setenv("ACR_FP_FILTER_TIMEOUT", "7m")
 
 	state, warnings := LoadEnvState()
@@ -1354,7 +1354,7 @@ func TestLoadEnvState_PhaseTimeouts(t *testing.T) {
 		t.Fatalf("expected no warnings, got %v", warnings)
 	}
 	if !state.SummarizerTimeoutSet || state.SummarizerTimeout != 6*time.Minute {
-		t.Fatalf("expected summarizer timeout 6m set=true, got %v set=%v", state.SummarizerTimeout, state.SummarizerTimeoutSet)
+		t.Fatalf("expected summarizer timeout 360s/6m set=true, got %v set=%v", state.SummarizerTimeout, state.SummarizerTimeoutSet)
 	}
 	if !state.FPFilterTimeoutSet || state.FPFilterTimeout != 7*time.Minute {
 		t.Fatalf("expected fp filter timeout 7m set=true, got %v set=%v", state.FPFilterTimeout, state.FPFilterTimeoutSet)

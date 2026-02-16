@@ -495,18 +495,16 @@ func runReview(cmd *cobra.Command, _ []string) error {
 
 	// Run the review
 	opts := ReviewOpts{
-		ResolvedConfig:    cfgResult.resolved,
-		Verbose:           verbose,
-		Local:             local,
-		AutoYes:           autoYes,
-		PRNumber:          prNumber,
-		DetectedPR:        detectedPR,
-		WorktreeBranch:    worktreeBranch,
-		UseRefFile:        refFile,
-		SummarizerTimeout: cfgResult.resolved.SummarizerTimeout,
-		FPFilterTimeout:   cfgResult.resolved.FPFilterTimeout,
-		ExcludePatterns:   cfgResult.excludePatterns,
-		WorkDir:           wt.workDir,
+		ResolvedConfig:  cfgResult.resolved,
+		Verbose:         verbose,
+		Local:           local,
+		AutoYes:         autoYes,
+		PRNumber:        prNumber,
+		DetectedPR:      detectedPR,
+		WorktreeBranch:  worktreeBranch,
+		UseRefFile:      refFile,
+		ExcludePatterns: cfgResult.excludePatterns,
+		WorkDir:         wt.workDir,
 	}
 	code := executeReview(ctx, opts, logger)
 	return exitCode(code)
