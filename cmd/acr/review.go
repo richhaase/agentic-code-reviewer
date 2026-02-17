@@ -148,8 +148,20 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 			}
 
 			summarizer := feedback.NewSummarizer(feedbackAgentName, opts.Verbose, logger)
-			summary, err := summarizer.Summarize(ctx, opts.DetectedPR)
+			feedbackCtx, feedbackCancel := context.WithTimeout(ctx, opts.SummarizerTimeout)
+			defer feedbackCancel()
+
+			summary, err := summarizer.Summarize(feedbackCtx, opts.DetectedPR)
 			if err != nil {
+				// Distinguish feedback-specific timeout from parent context cancellation
+				if ctx.Err() != nil {
+					// Parent context was canceled (e.g., user interrupt) — don't log as timeout
+					return
+				}
+				if feedbackCtx.Err() == context.DeadlineExceeded {
+					logger.Logf(terminal.StyleWarning, "PR feedback summarizer timed out after %s", opts.SummarizerTimeout)
+					return
+				}
 				logger.Logf(terminal.StyleWarning, "PR feedback summarizer failed: %v", err)
 				return
 			}
@@ -200,6 +212,9 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 	<-spinnerDone
 
 	if err != nil {
+		if ctx.Err() != nil {
+			return domain.ExitInterrupted
+		}
 		if summarizerCtx.Err() == context.DeadlineExceeded {
 			logger.Logf(terminal.StyleError, "Summarizer timed out after %s", opts.SummarizerTimeout)
 		} else {
@@ -250,6 +265,10 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		}
 	}
 	stats.FPFilteredCount = fpFilteredCount
+
+	if ctx.Err() != nil {
+		return domain.ExitInterrupted
+	}
 
 	var excludeFiltered []domain.FindingGroup
 	if len(opts.ExcludePatterns) > 0 {

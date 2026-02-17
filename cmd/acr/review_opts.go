@@ -1,10 +1,6 @@
 package main
 
-import (
-	"time"
-
-	"github.com/richhaase/agentic-code-reviewer/internal/config"
-)
+import "github.com/richhaase/agentic-code-reviewer/internal/config"
 
 // ReviewOpts holds all resolved configuration and runtime flags needed to
 // execute a review. It bundles config.ResolvedConfig (from flag/env/file
@@ -16,15 +12,13 @@ type ReviewOpts struct {
 	config.ResolvedConfig
 
 	// CLI-only flags (not part of config resolution)
-	Verbose           bool
-	Local             bool
-	AutoYes           bool
-	PRNumber          string // Explicit --pr flag value (empty if not set)
-	DetectedPR        string // Auto-detected or explicit PR number for feedback summarization
-	WorktreeBranch    string // Explicit --worktree-branch flag value
-	UseRefFile        bool
-	SummarizerTimeout time.Duration
-	FPFilterTimeout   time.Duration
-	ExcludePatterns   []string
-	WorkDir           string // Worktree path (empty = current directory)
+	Verbose         bool
+	Local           bool
+	AutoYes         bool
+	PRNumber        string // Explicit --pr flag value (empty if not set)
+	DetectedPR      string // Auto-detected or explicit PR number for feedback summarization
+	WorktreeBranch  string // Explicit --worktree-branch flag value
+	UseRefFile      bool
+	ExcludePatterns []string
+	WorkDir         string // Worktree path (empty = current directory)
 }

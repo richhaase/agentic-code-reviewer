@@ -238,6 +238,8 @@ PR feedback summarization runs in parallel with the reviewers and is enabled by 
 | `ACR_PR_FEEDBACK_AGENT`   | Agent for PR feedback summarization |
 | `ACR_REVIEWER_AGENT`      | Default reviewer agent(s), comma-separated |
 | `ACR_SUMMARIZER_AGENT`    | Default summarizer agent  |
+| `ACR_SUMMARIZER_TIMEOUT`  | Timeout for summarizer phase (e.g., "5m" or "300") |
+| `ACR_FP_FILTER_TIMEOUT`   | Timeout for false positive filter phase (e.g., "5m" or "300") |
 | `ACR_GUIDANCE`            | Steering context appended to review prompt |
 | `ACR_GUIDANCE_FILE`       | Path to file containing review guidance    |
 
@@ -261,6 +263,8 @@ fetch: true               # Fetch base ref from origin before diff
 #   - claude
 #   - gemini
 # summarizer_agent: codex # Agent for summarization (codex, claude, gemini)
+summarizer_timeout: 5m    # Timeout for summarizer phase
+fp_filter_timeout: 5m     # Timeout for false positive filter phase
 
 # Review guidance (appended to built-in prompts)
 # guidance_file: .acr-guidance.md

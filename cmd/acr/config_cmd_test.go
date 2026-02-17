@@ -53,6 +53,18 @@ func TestConfigInit_CreatesFile(t *testing.T) {
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		t.Fatal("expected .acr.yaml to be created")
 	}
+
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("failed to read .acr.yaml: %v", err)
+	}
+	text := string(content)
+	if !strings.Contains(text, "summarizer_timeout: 5m") {
+		t.Fatal("expected starter config to include summarizer_timeout")
+	}
+	if !strings.Contains(text, "fp_filter_timeout: 5m") {
+		t.Fatal("expected starter config to include fp_filter_timeout")
+	}
 }
 
 func TestConfigInit_FailsIfExists(t *testing.T) {

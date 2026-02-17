@@ -54,19 +54,21 @@ func (d Duration) AsDuration() time.Duration {
 }
 
 type Config struct {
-	Reviewers       *int             `yaml:"reviewers"`
-	Concurrency     *int             `yaml:"concurrency"`
-	Base            *string          `yaml:"base"`
-	Timeout         *Duration        `yaml:"timeout"`
-	Retries         *int             `yaml:"retries"`
-	Fetch           *bool            `yaml:"fetch"`
-	ReviewerAgent   *string          `yaml:"reviewer_agent"`
-	ReviewerAgents  []string         `yaml:"reviewer_agents"`
-	SummarizerAgent *string          `yaml:"summarizer_agent"`
-	GuidanceFile    *string          `yaml:"guidance_file"`
-	Filters         FilterConfig     `yaml:"filters"`
-	FPFilter        FPFilterConfig   `yaml:"fp_filter"`
-	PRFeedback      PRFeedbackConfig `yaml:"pr_feedback"`
+	Reviewers         *int             `yaml:"reviewers"`
+	Concurrency       *int             `yaml:"concurrency"`
+	Base              *string          `yaml:"base"`
+	Timeout           *Duration        `yaml:"timeout"`
+	Retries           *int             `yaml:"retries"`
+	Fetch             *bool            `yaml:"fetch"`
+	ReviewerAgent     *string          `yaml:"reviewer_agent"`
+	ReviewerAgents    []string         `yaml:"reviewer_agents"`
+	SummarizerAgent   *string          `yaml:"summarizer_agent"`
+	SummarizerTimeout *Duration        `yaml:"summarizer_timeout"`
+	FPFilterTimeout   *Duration        `yaml:"fp_filter_timeout"`
+	GuidanceFile      *string          `yaml:"guidance_file"`
+	Filters           FilterConfig     `yaml:"filters"`
+	FPFilter          FPFilterConfig   `yaml:"fp_filter"`
+	PRFeedback        PRFeedbackConfig `yaml:"pr_feedback"`
 }
 
 type FPFilterConfig struct {
@@ -167,7 +169,7 @@ func (c *Config) validatePatterns() error {
 	return nil
 }
 
-var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "fetch", "reviewer_agent", "reviewer_agents", "summarizer_agent", "guidance_file", "filters", "fp_filter", "pr_feedback"}
+var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "fetch", "reviewer_agent", "reviewer_agents", "summarizer_agent", "summarizer_timeout", "fp_filter_timeout", "guidance_file", "filters", "fp_filter", "pr_feedback"}
 
 var knownFPFilterKeys = []string{"enabled", "threshold"}
 
@@ -352,6 +354,12 @@ func (r *ResolvedConfig) ValidateAll() []string {
 	if r.Timeout <= 0 {
 		errs = append(errs, fmt.Sprintf("timeout must be > 0, got %s", r.Timeout))
 	}
+	if r.SummarizerTimeout <= 0 {
+		errs = append(errs, fmt.Sprintf("summarizer_timeout must be > 0, got %s", r.SummarizerTimeout))
+	}
+	if r.FPFilterTimeout <= 0 {
+		errs = append(errs, fmt.Sprintf("fp_filter_timeout must be > 0, got %s", r.FPFilterTimeout))
+	}
 	if len(r.ReviewerAgents) == 0 {
 		errs = append(errs, "reviewer_agents must not be empty")
 	}
@@ -391,6 +399,8 @@ var Defaults = ResolvedConfig{
 	Fetch:             true,
 	ReviewerAgents:    []string{agent.DefaultAgent},
 	SummarizerAgent:   agent.DefaultSummarizerAgent,
+	SummarizerTimeout: 5 * time.Minute,
+	FPFilterTimeout:   5 * time.Minute,
 	FPFilterEnabled:   true,
 	FPThreshold:       75,
 	PRFeedbackEnabled: true,
@@ -406,6 +416,8 @@ type ResolvedConfig struct {
 	Fetch             bool
 	ReviewerAgents    []string
 	SummarizerAgent   string
+	SummarizerTimeout time.Duration
+	FPFilterTimeout   time.Duration
 	Guidance          string
 	GuidanceFile      string
 	FPFilterEnabled   bool
@@ -415,20 +427,22 @@ type ResolvedConfig struct {
 }
 
 type FlagState struct {
-	ReviewersSet       bool
-	ConcurrencySet     bool
-	BaseSet            bool
-	TimeoutSet         bool
-	RetriesSet         bool
-	FetchSet           bool
-	ReviewerAgentsSet  bool
-	SummarizerAgentSet bool
-	GuidanceSet        bool
-	GuidanceFileSet    bool
-	NoFPFilterSet      bool
-	FPThresholdSet     bool
-	NoPRFeedbackSet    bool
-	PRFeedbackAgentSet bool
+	ReviewersSet         bool
+	ConcurrencySet       bool
+	BaseSet              bool
+	TimeoutSet           bool
+	RetriesSet           bool
+	FetchSet             bool
+	ReviewerAgentsSet    bool
+	SummarizerAgentSet   bool
+	SummarizerTimeoutSet bool
+	FPFilterTimeoutSet   bool
+	GuidanceSet          bool
+	GuidanceFileSet      bool
+	NoFPFilterSet        bool
+	FPThresholdSet       bool
+	NoPRFeedbackSet      bool
+	PRFeedbackAgentSet   bool
 }
 
 type EnvState struct {
@@ -448,6 +462,10 @@ type EnvState struct {
 	ReviewerAgentsSet    bool
 	SummarizerAgent      string
 	SummarizerAgentSet   bool
+	SummarizerTimeout    time.Duration
+	SummarizerTimeoutSet bool
+	FPFilterTimeout      time.Duration
+	FPFilterTimeoutSet   bool
 	Guidance             string
 	GuidanceSet          bool
 	GuidanceFile         string
@@ -528,6 +546,28 @@ func LoadEnvState() (EnvState, []string) {
 	if v := os.Getenv("ACR_SUMMARIZER_AGENT"); v != "" {
 		state.SummarizerAgent = v
 		state.SummarizerAgentSet = true
+	}
+	if v := os.Getenv("ACR_SUMMARIZER_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			state.SummarizerTimeout = d
+			state.SummarizerTimeoutSet = true
+		} else if secs, err := strconv.Atoi(v); err == nil {
+			state.SummarizerTimeout = time.Duration(secs) * time.Second
+			state.SummarizerTimeoutSet = true
+		} else {
+			warnings = append(warnings, fmt.Sprintf("ACR_SUMMARIZER_TIMEOUT=%q is not a valid duration or integer, ignoring", v))
+		}
+	}
+	if v := os.Getenv("ACR_FP_FILTER_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			state.FPFilterTimeout = d
+			state.FPFilterTimeoutSet = true
+		} else if secs, err := strconv.Atoi(v); err == nil {
+			state.FPFilterTimeout = time.Duration(secs) * time.Second
+			state.FPFilterTimeoutSet = true
+		} else {
+			warnings = append(warnings, fmt.Sprintf("ACR_FP_FILTER_TIMEOUT=%q is not a valid duration or integer, ignoring", v))
+		}
 	}
 	if v := os.Getenv("ACR_GUIDANCE"); v != "" {
 		state.Guidance = v
@@ -617,6 +657,12 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 		if cfg.SummarizerAgent != nil {
 			result.SummarizerAgent = *cfg.SummarizerAgent
 		}
+		if cfg.SummarizerTimeout != nil {
+			result.SummarizerTimeout = cfg.SummarizerTimeout.AsDuration()
+		}
+		if cfg.FPFilterTimeout != nil {
+			result.FPFilterTimeout = cfg.FPFilterTimeout.AsDuration()
+		}
 		if cfg.FPFilter.Enabled != nil {
 			result.FPFilterEnabled = *cfg.FPFilter.Enabled
 		}
@@ -656,6 +702,12 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	if envState.SummarizerAgentSet {
 		result.SummarizerAgent = envState.SummarizerAgent
 	}
+	if envState.SummarizerTimeoutSet {
+		result.SummarizerTimeout = envState.SummarizerTimeout
+	}
+	if envState.FPFilterTimeoutSet {
+		result.FPFilterTimeout = envState.FPFilterTimeout
+	}
 	if envState.FPFilterSet {
 		result.FPFilterEnabled = envState.FPFilterEnabled
 	}
@@ -692,6 +744,12 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	}
 	if flagState.SummarizerAgentSet {
 		result.SummarizerAgent = flagValues.SummarizerAgent
+	}
+	if flagState.SummarizerTimeoutSet {
+		result.SummarizerTimeout = flagValues.SummarizerTimeout
+	}
+	if flagState.FPFilterTimeoutSet {
+		result.FPFilterTimeout = flagValues.FPFilterTimeout
 	}
 	if flagState.NoFPFilterSet {
 		result.FPFilterEnabled = flagValues.FPFilterEnabled

@@ -52,6 +52,8 @@ func newConfigShowCmd() *cobra.Command {
 			fmt.Printf("  %-22s %t\n", "fetch:", resolved.Fetch)
 			fmt.Printf("  %-22s %s\n", "reviewer_agents:", strings.Join(resolved.ReviewerAgents, ", "))
 			fmt.Printf("  %-22s %s\n", "summarizer_agent:", resolved.SummarizerAgent)
+			fmt.Printf("  %-22s %s\n", "summarizer_timeout:", resolved.SummarizerTimeout)
+			fmt.Printf("  %-22s %s\n", "fp_filter_timeout:", resolved.FPFilterTimeout)
 			fmt.Printf("  %-22s %t\n", "fp_filter.enabled:", resolved.FPFilterEnabled)
 			fmt.Printf("  %-22s %d\n", "fp_filter.threshold:", resolved.FPThreshold)
 			fmt.Printf("  %-22s %t\n", "pr_feedback.enabled:", resolved.PRFeedbackEnabled)
@@ -110,6 +112,12 @@ func newConfigInitCmd() *cobra.Command {
 
 # Agent for summarization: codex, claude, gemini
 # summarizer_agent: codex
+
+# Timeout for summarizer phase (default: 5m)
+# summarizer_timeout: 5m
+
+# Timeout for false positive filter phase (default: 5m)
+# fp_filter_timeout: 5m
 
 # Path to file containing review guidance
 # guidance_file: ""
