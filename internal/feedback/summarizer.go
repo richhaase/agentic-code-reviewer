@@ -55,7 +55,7 @@ func (s *Summarizer) Summarize(ctx context.Context, prNumber string) (string, er
 	execResult, err := ag.ExecuteSummary(ctx, summarizePrompt, []byte(input))
 	if err != nil {
 		if ctx.Err() != nil {
-			return "", nil // Context canceled, return empty
+			return "", ctx.Err()
 		}
 		return "", fmt.Errorf("agent execution failed: %w", err)
 	}
@@ -69,7 +69,7 @@ func (s *Summarizer) Summarize(ctx context.Context, prNumber string) (string, er
 	output, err := io.ReadAll(execResult)
 	if err != nil {
 		if ctx.Err() != nil {
-			return "", nil
+			return "", ctx.Err()
 		}
 		return "", fmt.Errorf("failed to read agent output: %w", err)
 	}
