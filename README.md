@@ -2,6 +2,12 @@
 
 A CLI tool that runs parallel AI-powered code reviews using LLM agents ([Codex](https://github.com/openai/codex), [Claude Code](https://github.com/anthropics/claude-code), or [Gemini CLI](https://github.com/google-gemini/gemini-cli)) and aggregates findings intelligently.
 
+<!-- Uncomment after recording the demo:
+<p align="center">
+  <img src="docs/assets/demo.svg" alt="ACR demo" width="800">
+</p>
+-->
+
 ## Quick Start
 
 ```bash
@@ -371,6 +377,8 @@ make fmt
 # Clean build artifacts
 make clean
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
 ## License
 
