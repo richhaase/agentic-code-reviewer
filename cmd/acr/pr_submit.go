@@ -259,6 +259,9 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 			}
 		}
 
+	}
+
+	if !opts.AutoYes && terminal.IsStdinTTY() {
 		if note := promptOptionalMessage(); note != "" {
 			body = prependUserNote(body, note)
 		}
