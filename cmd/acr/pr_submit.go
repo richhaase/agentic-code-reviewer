@@ -95,6 +95,22 @@ func readUserInput() string {
 	return strings.ToLower(strings.TrimSpace(response))
 }
 
+// promptOptionalMessage prompts for an optional reviewer note to prepend to the review.
+func promptOptionalMessage() string {
+	fmt.Print(formatPrompt("Add a note to the review?", "(press Enter to skip):"))
+	reader := bufio.NewReader(os.Stdin)
+	msg, err := reader.ReadString('\n')
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(msg)
+}
+
+// prependUserNote prepends a reviewer note to the review body.
+func prependUserNote(body, note string) string {
+	return fmt.Sprintf("**Reviewer's note:** %s\n\n---\n\n%s", note, body)
+}
+
 // formatPrompt creates a colored prompt string for user input.
 func formatPrompt(question, options string) string {
 	return fmt.Sprintf("%s?%s %s %s%s%s ",
@@ -239,6 +255,10 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 				requestChanges = true
 			}
 		}
+
+		if note := promptOptionalMessage(); note != "" {
+			body = prependUserNote(body, note)
+		}
 	}
 
 	if err := github.SubmitPRReview(ctx, pr.number, body, requestChanges); err != nil {
@@ -304,6 +324,12 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 		}
 		if action == actionSkip {
 			return nil
+		}
+	}
+
+	if !opts.AutoYes && terminal.IsStdinTTY() {
+		if note := promptOptionalMessage(); note != "" {
+			body = prependUserNote(body, note)
 		}
 	}
 
