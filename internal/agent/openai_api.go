@@ -78,8 +78,8 @@ func (a *OpenAIAPIAgent) ExecuteSummary(ctx context.Context, prompt string, inpu
 
 // openaiRequest is the request body for the OpenAI Chat Completions API.
 type openaiRequest struct {
-	Model    string           `json:"model"`
-	Messages []openaiMessage  `json:"messages"`
+	Model    string          `json:"model"`
+	Messages []openaiMessage `json:"messages"`
 }
 
 // openaiMessage is a single message in an OpenAI API request.
