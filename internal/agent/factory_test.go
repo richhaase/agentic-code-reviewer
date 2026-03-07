@@ -194,3 +194,51 @@ func TestNewAgent_CustomModel(t *testing.T) {
 		t.Errorf("model = %q, want %q", apiAgent.model, "claude-opus-4-6")
 	}
 }
+
+func TestNewAgentWithModels_ConfigOverride(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("ACR_ANTHROPIC_MODEL", "") // no env override
+
+	models := ModelOverrides{Claude: "claude-opus-4-6"}
+	agent, err := NewAgentWithModels("claude", models)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	apiAgent, ok := agent.(*AnthropicAPIAgent)
+	if !ok {
+		t.Fatalf("expected *AnthropicAPIAgent, got %T", agent)
+	}
+	if apiAgent.model != "claude-opus-4-6" {
+		t.Errorf("model = %q, want %q", apiAgent.model, "claude-opus-4-6")
+	}
+}
+
+func TestNewAgentWithModels_EnvOverridesConfig(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("ACR_ANTHROPIC_MODEL", "claude-haiku-4-5")
+
+	models := ModelOverrides{Claude: "claude-opus-4-6"}
+	agent, err := NewAgentWithModels("claude", models)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	apiAgent := agent.(*AnthropicAPIAgent)
+	if apiAgent.model != "claude-haiku-4-5" {
+		t.Errorf("model = %q, want %q (env should override config)", apiAgent.model, "claude-haiku-4-5")
+	}
+}
+
+func TestNewAgentWithModels_FallsBackToDefault(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key")
+	t.Setenv("ACR_ANTHROPIC_MODEL", "")
+
+	models := ModelOverrides{} // no config override
+	agent, err := NewAgentWithModels("claude", models)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	apiAgent := agent.(*AnthropicAPIAgent)
+	if apiAgent.model != "claude-sonnet-4-6" {
+		t.Errorf("model = %q, want default %q", apiAgent.model, "claude-sonnet-4-6")
+	}
+}

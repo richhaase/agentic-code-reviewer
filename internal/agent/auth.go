@@ -22,9 +22,9 @@ var authStderrPatterns = []string{
 
 // authHints maps agent names to actionable error messages shown on auth failure.
 var authHints = map[string]string{
-	"gemini": "Set GEMINI_API_KEY or run 'gemini auth login' to authenticate.",
-	"claude": "Run 'claude login' or check your API key configuration.",
-	"codex":  "Set OPENAI_API_KEY or run 'codex auth' to authenticate.",
+	"gemini": "Set GEMINI_API_KEY or install the gemini CLI and run 'gemini auth login' to authenticate.",
+	"claude": "Set ANTHROPIC_API_KEY or install the claude CLI and run 'claude login' to authenticate.",
+	"codex":  "Set OPENAI_API_KEY or install the codex CLI and run 'codex auth' to authenticate.",
 }
 
 // IsAuthFailure returns true if the given exit code and stderr indicate

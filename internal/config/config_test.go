@@ -1583,3 +1583,54 @@ func TestResolvedConfig_Validate_EmptyReviewerAgents(t *testing.T) {
 		t.Errorf("expected 'reviewer_agents must not be empty' in error, got: %v", err)
 	}
 }
+
+func TestConfig_ModelsSection(t *testing.T) {
+	yaml := `
+models:
+  claude: claude-opus-4-6
+  codex: gpt-5.3-codex
+  gemini: gemini-3.1-pro
+`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".acr.yaml")
+	os.WriteFile(configPath, []byte(yaml), 0644)
+
+	result, err := LoadFromPathWithWarnings(configPath)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	if result.Config.Models.Claude == nil || *result.Config.Models.Claude != "claude-opus-4-6" {
+		t.Errorf("Models.Claude wrong")
+	}
+	if result.Config.Models.Codex == nil || *result.Config.Models.Codex != "gpt-5.3-codex" {
+		t.Errorf("Models.Codex wrong")
+	}
+	if result.Config.Models.Gemini == nil || *result.Config.Models.Gemini != "gemini-3.1-pro" {
+		t.Errorf("Models.Gemini wrong")
+	}
+}
+
+func TestConfig_ModelsUnknownKey(t *testing.T) {
+	yaml := `
+models:
+  claude: claude-opus-4-6
+  llama: llama-3
+`
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".acr.yaml")
+	os.WriteFile(configPath, []byte(yaml), 0644)
+
+	result, err := LoadFromPathWithWarnings(configPath)
+	if err != nil {
+		t.Fatalf("error: %v", err)
+	}
+	found := false
+	for _, w := range result.Warnings {
+		if strings.Contains(w, "llama") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected warning about unknown key 'llama', got warnings: %v", result.Warnings)
+	}
+}

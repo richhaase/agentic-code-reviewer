@@ -69,6 +69,7 @@ type Config struct {
 	Filters           FilterConfig     `yaml:"filters"`
 	FPFilter          FPFilterConfig   `yaml:"fp_filter"`
 	PRFeedback        PRFeedbackConfig `yaml:"pr_feedback"`
+	Models            ModelsConfig     `yaml:"models"`
 }
 
 type FPFilterConfig struct {
@@ -80,6 +81,13 @@ type FPFilterConfig struct {
 type PRFeedbackConfig struct {
 	Enabled *bool   `yaml:"enabled"`
 	Agent   *string `yaml:"agent"`
+}
+
+// ModelsConfig holds per-agent model overrides.
+type ModelsConfig struct {
+	Claude *string `yaml:"claude"`
+	Codex  *string `yaml:"codex"`
+	Gemini *string `yaml:"gemini"`
 }
 
 // FilterConfig holds filter-related configuration.
@@ -169,11 +177,13 @@ func (c *Config) validatePatterns() error {
 	return nil
 }
 
-var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "fetch", "reviewer_agent", "reviewer_agents", "summarizer_agent", "summarizer_timeout", "fp_filter_timeout", "guidance_file", "filters", "fp_filter", "pr_feedback"}
+var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "fetch", "reviewer_agent", "reviewer_agents", "summarizer_agent", "summarizer_timeout", "fp_filter_timeout", "guidance_file", "filters", "fp_filter", "pr_feedback", "models"}
 
 var knownFPFilterKeys = []string{"enabled", "threshold"}
 
 var knownPRFeedbackKeys = []string{"enabled", "agent"}
+
+var knownModelsKeys = []string{"claude", "codex", "gemini"}
 
 // knownFilterKeys are the valid keys under the "filters" section.
 var knownFilterKeys = []string{"exclude_patterns"}
@@ -229,6 +239,18 @@ func checkUnknownKeys(data []byte) []string {
 			if !slices.Contains(knownPRFeedbackKeys, key) {
 				warning := fmt.Sprintf("unknown key %q in pr_feedback section of %s", key, ConfigFileName)
 				if suggestion := findSimilar(key, knownPRFeedbackKeys); suggestion != "" {
+					warning += fmt.Sprintf(" (did you mean %q?)", suggestion)
+				}
+				warnings = append(warnings, warning)
+			}
+		}
+	}
+
+	if models, ok := raw["models"].(map[string]any); ok {
+		for key := range models {
+			if !slices.Contains(knownModelsKeys, key) {
+				warning := fmt.Sprintf("unknown key %q in models section of %s", key, ConfigFileName)
+				if suggestion := findSimilar(key, knownModelsKeys); suggestion != "" {
 					warning += fmt.Sprintf(" (did you mean %q?)", suggestion)
 				}
 				warnings = append(warnings, warning)

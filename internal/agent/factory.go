@@ -102,6 +102,44 @@ func NewAgent(name string) (Agent, error) {
 	return reg.newAgent(), nil
 }
 
+// ModelOverrides holds per-agent model overrides from config.
+type ModelOverrides struct {
+	Claude string
+	Codex  string
+	Gemini string
+}
+
+// NewAgentWithModels creates an Agent by name with optional model overrides.
+// Model precedence: env var > config override > default.
+func NewAgentWithModels(name string, models ModelOverrides) (Agent, error) {
+	reg, ok := registry[name]
+	if !ok {
+		return nil, fmt.Errorf("unknown agent %q, supported: %v", name, SupportedAgents)
+	}
+
+	if apiCfg, ok := apiAgentConfig[name]; ok {
+		if apiKey := os.Getenv(apiCfg.keyEnvVar); apiKey != "" {
+			model := os.Getenv(apiCfg.modelEnvVar)
+			if model == "" {
+				switch name {
+				case "claude":
+					model = models.Claude
+				case "codex":
+					model = models.Codex
+				case "gemini":
+					model = models.Gemini
+				}
+			}
+			if model == "" {
+				model = apiCfg.defaultModel
+			}
+			return apiCfg.newAgent(apiKey, model), nil
+		}
+	}
+
+	return reg.newAgent(), nil
+}
+
 // NewReviewParser creates a ReviewParser for the given agent name.
 // The parser matches the output format of the corresponding agent.
 func NewReviewParser(agentName string, reviewerID int) (ReviewParser, error) {
