@@ -134,3 +134,63 @@ func TestDefaultAgent(t *testing.T) {
 		t.Errorf("DefaultAgent = %q, want %q", DefaultAgent, "codex")
 	}
 }
+
+func TestNewAgent_PrefersAPIKeyOverCLI(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key-123")
+	agent, err := NewAgent("claude")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := agent.(*AnthropicAPIAgent); !ok {
+		t.Errorf("expected *AnthropicAPIAgent, got %T", agent)
+	}
+}
+
+func TestNewAgent_FallsBackToCLI(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	agent, err := NewAgent("claude")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := agent.(*ClaudeAgent); !ok {
+		t.Errorf("expected *ClaudeAgent, got %T", agent)
+	}
+}
+
+func TestNewAgent_OpenAIAPIKey(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-openai-key")
+	agent, err := NewAgent("codex")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := agent.(*OpenAIAPIAgent); !ok {
+		t.Errorf("expected *OpenAIAPIAgent, got %T", agent)
+	}
+}
+
+func TestNewAgent_GeminiAPIKey(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "test-gemini-key")
+	agent, err := NewAgent("gemini")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := agent.(*GoogleAPIAgent); !ok {
+		t.Errorf("expected *GoogleAPIAgent, got %T", agent)
+	}
+}
+
+func TestNewAgent_CustomModel(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "test-key-123")
+	t.Setenv("ACR_ANTHROPIC_MODEL", "claude-opus-4-6")
+	agent, err := NewAgent("claude")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	apiAgent, ok := agent.(*AnthropicAPIAgent)
+	if !ok {
+		t.Fatalf("expected *AnthropicAPIAgent, got %T", agent)
+	}
+	if apiAgent.model != "claude-opus-4-6" {
+		t.Errorf("model = %q, want %q", apiAgent.model, "claude-opus-4-6")
+	}
+}

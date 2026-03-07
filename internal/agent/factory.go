@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"os"
 	"slices"
 )
 
@@ -32,6 +33,35 @@ var registry = map[string]agentRegistry{
 	},
 }
 
+// apiAgentConfig maps agent names to their API key configuration.
+// When the corresponding environment variable is set, the factory
+// creates an API-direct agent instead of shelling out to a CLI.
+var apiAgentConfig = map[string]struct {
+	keyEnvVar    string
+	modelEnvVar  string
+	defaultModel string
+	newAgent     func(apiKey, model string) Agent
+}{
+	"claude": {
+		keyEnvVar:    "ANTHROPIC_API_KEY",
+		modelEnvVar:  "ACR_ANTHROPIC_MODEL",
+		defaultModel: "claude-sonnet-4-6",
+		newAgent:     func(k, m string) Agent { return NewAnthropicAPIAgent(k, m) },
+	},
+	"codex": {
+		keyEnvVar:    "OPENAI_API_KEY",
+		modelEnvVar:  "ACR_OPENAI_MODEL",
+		defaultModel: "gpt-5.4",
+		newAgent:     func(k, m string) Agent { return NewOpenAIAPIAgent(k, m) },
+	},
+	"gemini": {
+		keyEnvVar:    "GEMINI_API_KEY",
+		modelEnvVar:  "ACR_GOOGLE_MODEL",
+		defaultModel: "gemini-3.0-flash",
+		newAgent:     func(k, m string) Agent { return NewGoogleAPIAgent(k, m) },
+	},
+}
+
 // SupportedAgents lists all valid agent names.
 // Derived from the registry to stay in sync automatically.
 var SupportedAgents = func() []string {
@@ -56,6 +86,19 @@ func NewAgent(name string) (Agent, error) {
 	if !ok {
 		return nil, fmt.Errorf("unknown agent %q, supported: %v", name, SupportedAgents)
 	}
+
+	// Check for API key — if present, use API-direct agent
+	if apiCfg, ok := apiAgentConfig[name]; ok {
+		if apiKey := os.Getenv(apiCfg.keyEnvVar); apiKey != "" {
+			model := os.Getenv(apiCfg.modelEnvVar)
+			if model == "" {
+				model = apiCfg.defaultModel
+			}
+			return apiCfg.newAgent(apiKey, model), nil
+		}
+	}
+
+	// Fall back to CLI agent
 	return reg.newAgent(), nil
 }
 
