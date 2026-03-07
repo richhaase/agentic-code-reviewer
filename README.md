@@ -350,6 +350,59 @@ Use `--yes` to auto-submit with defaults (request-changes for findings, approve 
 
 Requires the `gh` CLI to be authenticated.
 
+## CI / GitHub Actions
+
+ACR can run automatically on pull requests via the included GitHub Action.
+
+### Setup
+
+1. Add API key secrets to your repository (Settings > Secrets):
+   - `OPENAI_API_KEY` for Codex agent
+   - `ANTHROPIC_API_KEY` for Claude agent
+   - `GEMINI_API_KEY` for Gemini agent
+
+2. Create `.github/workflows/acr.yml`:
+
+````yaml
+name: Code Review
+on: [pull_request]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: richhaase/agentic-code-reviewer/action@v1
+        with:
+          fail-on-findings: false
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+````
+
+Review behavior (agents, reviewers, timeouts) is controlled by your `.acr.yaml` config file.
+
+### API-Direct Mode
+
+When API keys are set in the environment, ACR calls LLM APIs directly instead of requiring CLI tools. This happens automatically — no configuration needed.
+
+| Agent | API Key | Default Model |
+|-------|---------|---------------|
+| Codex | `OPENAI_API_KEY` | gpt-5.4 |
+| Claude | `ANTHROPIC_API_KEY` | claude-sonnet-4-6 |
+| Gemini | `GEMINI_API_KEY` | gemini-3.0-flash |
+
+Override models via env vars (`ACR_OPENAI_MODEL`, `ACR_ANTHROPIC_MODEL`, `ACR_GOOGLE_MODEL`) or `.acr.yaml`:
+
+````yaml
+models:
+  codex: gpt-5.4
+  claude: claude-sonnet-4-6
+  gemini: gemini-3.0-flash
+````
+
 ## Development
 
 ```bash
