@@ -1,0 +1,65 @@
+name: 'ACR - Agentic Code Reviewer'
+description: 'Run parallel AI-powered code reviews on pull requests'
+branding:
+  icon: 'eye'
+  color: 'blue'
+
+inputs:
+  fail-on-findings:
+    description: 'Fail the action if findings are detected'
+    required: false
+    default: 'false'
+  acr-version:
+    description: 'ACR version to install (e.g., "latest" or "v1.2.3")'
+    required: false
+    default: 'latest'
+
+outputs:
+  findings-count:
+    description: 'Number of findings detected'
+    value: ${{ steps.review.outputs.findings-count }}
+  exit-code:
+    description: 'ACR exit code (0=clean, 1=findings, 2=error)'
+    value: ${{ steps.review.outputs.exit-code }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install ACR
+      shell: bash
+      run: |
+        chmod +x "${{ github.action_path }}/install-acr.sh"
+        "${{ github.action_path }}/install-acr.sh" "${{ inputs.acr-version }}"
+
+    - name: Run ACR Review
+      id: review
+      shell: bash
+      run: |
+        # Extract PR number from GitHub event
+        PR_NUMBER=$(jq -r '.pull_request.number // .number // empty' "$GITHUB_EVENT_PATH")
+        if [ -z "$PR_NUMBER" ]; then
+          echo "::error::Could not determine PR number. This action must run on pull_request events."
+          exit 2
+        fi
+
+        echo "Running ACR review on PR #${PR_NUMBER}..."
+
+        set +e
+        acr --pr "$PR_NUMBER" --yes
+        EXIT_CODE=$?
+        set -e
+
+        echo "exit-code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+        if [ "$EXIT_CODE" -eq 1 ]; then
+          echo "findings-count=1" >> "$GITHUB_OUTPUT"
+        else
+          echo "findings-count=0" >> "$GITHUB_OUTPUT"
+        fi
+
+        if [ "$EXIT_CODE" -eq 1 ] && [ "${{ inputs.fail-on-findings }}" != "true" ]; then
+          echo "Findings detected but fail-on-findings is false. Exiting successfully."
+          exit 0
+        fi
+
+        exit "$EXIT_CODE"
