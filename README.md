@@ -131,6 +131,8 @@ acr --verbose
 | `--no-config`       |       | false   | Skip loading .acr.yaml config file        |
 | `--reviewer-agent`  | `-a`  | codex   | Agent(s) for reviews, comma-separated (codex, claude, gemini) |
 | `--summarizer-agent`| `-s`  | codex   | Agent for summarization (codex, claude, gemini) |
+| `--reviewer-model`  |       |         | LLM model for review agents (env: ACR_REVIEWER_MODEL) |
+| `--summarizer-model`|       |         | LLM model for summarizer/FP filter agents (env: ACR_SUMMARIZER_MODEL) |
 
 ### Concurrency Control
 
@@ -186,6 +188,13 @@ acr --reviewer-agent gemini --summarizer-agent claude
 
 # Use multiple agents in round-robin (reviewers alternate between agents)
 acr -r 6 --reviewer-agent codex,claude,gemini
+
+# Override the model used by review agents
+acr --reviewer-agent claude --reviewer-model sonnet-4
+
+# Use different models for review and summarization
+acr --reviewer-agent claude --reviewer-model opus-4 \
+    --summarizer-agent claude --summarizer-model haiku-4
 ```
 
 Different agents may find different issues. When multiple agents are specified (comma-separated), reviewers are assigned to agents in round-robin order. The appropriate CLI must be installed and authenticated for all selected agents.
@@ -269,6 +278,8 @@ fetch: true               # Fetch base ref from origin before diff
 #   - claude
 #   - gemini
 # summarizer_agent: codex # Agent for summarization (codex, claude, gemini)
+# reviewer_model: ""      # LLM model override for review agents
+# summarizer_model: ""    # LLM model override for summarizer/FP filter agents
 summarizer_timeout: 5m    # Timeout for summarizer phase
 fp_filter_timeout: 5m     # Timeout for false positive filter phase
 
