@@ -31,13 +31,13 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		return domain.ExitError
 	}
 
-	reviewAgents, err := agent.CreateAgents(opts.ReviewerAgents)
+	reviewAgents, err := agent.CreateAgentsWithModel(opts.ReviewerAgents, opts.ReviewerModel)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "%v", err)
 		return domain.ExitError
 	}
 
-	summarizerAgent, err := agent.NewAgent(opts.SummarizerAgent)
+	summarizerAgent, err := agent.NewAgentWithModel(opts.SummarizerAgent, opts.SummarizerModel)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Invalid summarizer agent: %v", err)
 		return domain.ExitError
@@ -147,7 +147,7 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 				feedbackAgentName = opts.SummarizerAgent
 			}
 
-			summarizer := feedback.NewSummarizer(feedbackAgentName, opts.Verbose, logger)
+			summarizer := feedback.NewSummarizer(feedbackAgentName, opts.SummarizerModel, opts.Verbose, logger)
 			feedbackCtx, feedbackCancel := context.WithTimeout(ctx, opts.SummarizerTimeout)
 			defer feedbackCancel()
 
@@ -207,7 +207,7 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 
 	summarizerCtx, summarizerCancel := context.WithTimeout(ctx, opts.SummarizerTimeout)
 	defer summarizerCancel()
-	summaryResult, err := summarizer.Summarize(summarizerCtx, opts.SummarizerAgent, aggregated, opts.Verbose, logger)
+	summaryResult, err := summarizer.Summarize(summarizerCtx, opts.SummarizerAgent, opts.SummarizerModel, aggregated, opts.Verbose, logger)
 	spinnerCancel()
 	<-spinnerDone
 
@@ -241,7 +241,7 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 
 		fpCtx, fpCancel := context.WithTimeout(ctx, opts.FPFilterTimeout)
 		defer fpCancel()
-		fpFilter := fpfilter.New(opts.SummarizerAgent, opts.FPThreshold, opts.Verbose, logger)
+		fpFilter := fpfilter.New(opts.SummarizerAgent, opts.SummarizerModel, opts.FPThreshold, opts.Verbose, logger)
 		fpResult := fpFilter.Apply(fpCtx, summaryResult.Grouped, priorFeedback, stats.SuccessfulReviewers)
 		fpSpinnerCancel()
 		<-fpSpinnerDone

@@ -13,11 +13,14 @@ import (
 var _ Agent = (*GeminiAgent)(nil)
 
 // GeminiAgent implements the Agent interface for the Gemini CLI backend.
-type GeminiAgent struct{}
+type GeminiAgent struct {
+	model string
+}
 
 // NewGeminiAgent creates a new GeminiAgent instance.
-func NewGeminiAgent() *GeminiAgent {
-	return &GeminiAgent{}
+// If model is non-empty, it overrides the default model via --model.
+func NewGeminiAgent(model string) *GeminiAgent {
+	return &GeminiAgent{model: model}
 }
 
 // Name returns the agent's identifier.
@@ -44,9 +47,14 @@ func (g *GeminiAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 		return nil, err
 	}
 
+	args := []string{"-o", "json", "-"}
+	if g.model != "" {
+		args = append([]string{"--model", g.model}, args...)
+	}
+
 	return executeDiffBasedReview(ctx, config, diffReviewConfig{
 		Command:       "gemini",
-		Args:          []string{"-o", "json", "-"},
+		Args:          args,
 		DefaultPrompt: DefaultGeminiPrompt,
 		RefFilePrompt: DefaultGeminiRefFilePrompt,
 	})
@@ -65,6 +73,9 @@ func (g *GeminiAgent) ExecuteSummary(ctx context.Context, prompt string, input [
 	// Build command: gemini -o json -
 	// -: Explicitly read prompt from stdin
 	args := []string{"-o", "json", "-"}
+	if g.model != "" {
+		args = append([]string{"--model", g.model}, args...)
+	}
 	// Use MultiReader to avoid copying large input byte slice
 	stdin := io.MultiReader(
 		strings.NewReader(prompt),

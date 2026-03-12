@@ -36,19 +36,22 @@ type Result struct {
 
 type Filter struct {
 	agentName string
+	model     string
 	threshold int
 	verbose   bool
 	logger    *terminal.Logger
 }
 
 // New creates a new false positive filter.
+// The model parameter overrides the agent's default model (empty = default).
 // If verbose is true, non-fatal errors (like Close failures) are logged.
-func New(agentName string, threshold int, verbose bool, logger *terminal.Logger) *Filter {
+func New(agentName, model string, threshold int, verbose bool, logger *terminal.Logger) *Filter {
 	if threshold < 1 || threshold > 100 {
 		threshold = DefaultThreshold
 	}
 	return &Filter{
 		agentName: agentName,
+		model:     model,
 		threshold: threshold,
 		logger:    logger,
 		verbose:   verbose,
@@ -120,7 +123,7 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 		}
 	}
 
-	ag, err := agent.NewAgent(f.agentName)
+	ag, err := agent.NewAgentWithModel(f.agentName, f.model)
 	if err != nil {
 		return skippedResult(grouped, start, "agent creation failed: "+err.Error())
 	}

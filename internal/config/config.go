@@ -63,6 +63,8 @@ type Config struct {
 	ReviewerAgent     *string          `yaml:"reviewer_agent"`
 	ReviewerAgents    []string         `yaml:"reviewer_agents"`
 	SummarizerAgent   *string          `yaml:"summarizer_agent"`
+	ReviewerModel     *string          `yaml:"reviewer_model"`
+	SummarizerModel   *string          `yaml:"summarizer_model"`
 	SummarizerTimeout *Duration        `yaml:"summarizer_timeout"`
 	FPFilterTimeout   *Duration        `yaml:"fp_filter_timeout"`
 	GuidanceFile      *string          `yaml:"guidance_file"`
@@ -169,7 +171,7 @@ func (c *Config) validatePatterns() error {
 	return nil
 }
 
-var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "fetch", "reviewer_agent", "reviewer_agents", "summarizer_agent", "summarizer_timeout", "fp_filter_timeout", "guidance_file", "filters", "fp_filter", "pr_feedback"}
+var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "fetch", "reviewer_agent", "reviewer_agents", "summarizer_agent", "reviewer_model", "summarizer_model", "summarizer_timeout", "fp_filter_timeout", "guidance_file", "filters", "fp_filter", "pr_feedback"}
 
 var knownFPFilterKeys = []string{"enabled", "threshold"}
 
@@ -416,6 +418,8 @@ type ResolvedConfig struct {
 	Fetch             bool
 	ReviewerAgents    []string
 	SummarizerAgent   string
+	ReviewerModel     string
+	SummarizerModel   string
 	SummarizerTimeout time.Duration
 	FPFilterTimeout   time.Duration
 	Guidance          string
@@ -435,6 +439,8 @@ type FlagState struct {
 	FetchSet             bool
 	ReviewerAgentsSet    bool
 	SummarizerAgentSet   bool
+	ReviewerModelSet     bool
+	SummarizerModelSet   bool
 	SummarizerTimeoutSet bool
 	FPFilterTimeoutSet   bool
 	GuidanceSet          bool
@@ -462,6 +468,10 @@ type EnvState struct {
 	ReviewerAgentsSet    bool
 	SummarizerAgent      string
 	SummarizerAgentSet   bool
+	ReviewerModel        string
+	ReviewerModelSet     bool
+	SummarizerModel      string
+	SummarizerModelSet   bool
 	SummarizerTimeout    time.Duration
 	SummarizerTimeoutSet bool
 	FPFilterTimeout      time.Duration
@@ -546,6 +556,14 @@ func LoadEnvState() (EnvState, []string) {
 	if v := os.Getenv("ACR_SUMMARIZER_AGENT"); v != "" {
 		state.SummarizerAgent = v
 		state.SummarizerAgentSet = true
+	}
+	if v := os.Getenv("ACR_REVIEWER_MODEL"); v != "" {
+		state.ReviewerModel = v
+		state.ReviewerModelSet = true
+	}
+	if v := os.Getenv("ACR_SUMMARIZER_MODEL"); v != "" {
+		state.SummarizerModel = v
+		state.SummarizerModelSet = true
 	}
 	if v := os.Getenv("ACR_SUMMARIZER_TIMEOUT"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
@@ -657,6 +675,12 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 		if cfg.SummarizerAgent != nil {
 			result.SummarizerAgent = *cfg.SummarizerAgent
 		}
+		if cfg.ReviewerModel != nil {
+			result.ReviewerModel = *cfg.ReviewerModel
+		}
+		if cfg.SummarizerModel != nil {
+			result.SummarizerModel = *cfg.SummarizerModel
+		}
 		if cfg.SummarizerTimeout != nil {
 			result.SummarizerTimeout = cfg.SummarizerTimeout.AsDuration()
 		}
@@ -702,6 +726,12 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	if envState.SummarizerAgentSet {
 		result.SummarizerAgent = envState.SummarizerAgent
 	}
+	if envState.ReviewerModelSet {
+		result.ReviewerModel = envState.ReviewerModel
+	}
+	if envState.SummarizerModelSet {
+		result.SummarizerModel = envState.SummarizerModel
+	}
 	if envState.SummarizerTimeoutSet {
 		result.SummarizerTimeout = envState.SummarizerTimeout
 	}
@@ -744,6 +774,12 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	}
 	if flagState.SummarizerAgentSet {
 		result.SummarizerAgent = flagValues.SummarizerAgent
+	}
+	if flagState.ReviewerModelSet {
+		result.ReviewerModel = flagValues.ReviewerModel
+	}
+	if flagState.SummarizerModelSet {
+		result.SummarizerModel = flagValues.SummarizerModel
 	}
 	if flagState.SummarizerTimeoutSet {
 		result.SummarizerTimeout = flagValues.SummarizerTimeout

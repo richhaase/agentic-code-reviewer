@@ -39,6 +39,8 @@ var (
 	noConfig            bool
 	agentName           string
 	summarizerAgentName string
+	reviewerModel       string
+	summarizerModel     string
 	refFile             bool
 	noFPFilter          bool
 	fpThreshold         int
@@ -111,6 +113,10 @@ Exit codes:
 		"Agent(s) for reviews (comma-separated): codex, claude, gemini (env: ACR_REVIEWER_AGENT)")
 	rootCmd.Flags().StringVarP(&summarizerAgentName, "summarizer-agent", "s", "codex",
 		"Agent to use for summarization: codex, claude, gemini (env: ACR_SUMMARIZER_AGENT)")
+	rootCmd.Flags().StringVar(&reviewerModel, "reviewer-model", "",
+		"LLM model for review agents (env: ACR_REVIEWER_MODEL)")
+	rootCmd.Flags().StringVar(&summarizerModel, "summarizer-model", "",
+		"LLM model for summarizer/FP filter agents (env: ACR_SUMMARIZER_MODEL)")
 	rootCmd.Flags().BoolVar(&refFile, "ref-file", false,
 		"Write diff to a temp file instead of embedding in prompt (auto-enabled for large diffs)")
 	rootCmd.Flags().BoolVar(&noFPFilter, "no-fp-filter", false,
@@ -344,6 +350,8 @@ func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *termina
 		FetchSet:             fetchFlagSet,
 		ReviewerAgentsSet:    cmd.Flags().Changed("reviewer-agent"),
 		SummarizerAgentSet:   cmd.Flags().Changed("summarizer-agent"),
+		ReviewerModelSet:     cmd.Flags().Changed("reviewer-model"),
+		SummarizerModelSet:   cmd.Flags().Changed("summarizer-model"),
 		SummarizerTimeoutSet: cmd.Flags().Changed("summarizer-timeout"),
 		FPFilterTimeoutSet:   cmd.Flags().Changed("fp-filter-timeout"),
 		GuidanceSet:          cmd.Flags().Changed("guidance"),
@@ -380,6 +388,8 @@ func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *termina
 		Fetch:             fetchValue,
 		ReviewerAgents:    agent.ParseAgentNames(agentName),
 		SummarizerAgent:   summarizerAgentName,
+		ReviewerModel:     reviewerModel,
+		SummarizerModel:   summarizerModel,
 		SummarizerTimeout: summarizerTimeout,
 		FPFilterTimeout:   fpFilterTimeout,
 		Guidance:          guidance,

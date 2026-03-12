@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -221,6 +222,10 @@ func GetDiff(ctx context.Context, baseRef, workDir string) (string, error) {
 
 	args := []string{"diff", baseRef, "--"}
 	cmd := exec.CommandContext(ctx, "git", args...)
+	// Strip GIT_EXTERNAL_DIFF from the environment to ensure standard diff
+	// output regardless of user setup (e.g., difft/difftastic produces
+	// non-standard output that breaks downstream parsing).
+	cmd.Env = filterEnv(os.Environ(), "GIT_EXTERNAL_DIFF")
 
 	if workDir != "" {
 		cmd.Dir = workDir
@@ -232,4 +237,16 @@ func GetDiff(ctx context.Context, baseRef, workDir string) (string, error) {
 	}
 
 	return strings.TrimSpace(string(output)), nil
+}
+
+// filterEnv returns a copy of env with the named variable removed.
+func filterEnv(env []string, name string) []string {
+	prefix := name + "="
+	result := make([]string, 0, len(env))
+	for _, e := range env {
+		if !strings.HasPrefix(e, prefix) {
+			result = append(result, e)
+		}
+	}
+	return result
 }

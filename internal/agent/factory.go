@@ -7,7 +7,7 @@ import (
 
 // agentRegistry holds the factory functions for a single agent.
 type agentRegistry struct {
-	newAgent         func() Agent
+	newAgent         func(model string) Agent
 	newReviewParser  func(reviewerID int) ReviewParser
 	newSummaryParser func() SummaryParser
 }
@@ -16,17 +16,17 @@ type agentRegistry struct {
 // To add a new agent, add an entry here - no other changes needed.
 var registry = map[string]agentRegistry{
 	"codex": {
-		newAgent:         func() Agent { return NewCodexAgent() },
+		newAgent:         func(model string) Agent { return NewCodexAgent(model) },
 		newReviewParser:  func(id int) ReviewParser { return NewCodexOutputParser(id) },
 		newSummaryParser: func() SummaryParser { return NewCodexSummaryParser() },
 	},
 	"claude": {
-		newAgent:         func() Agent { return NewClaudeAgent() },
+		newAgent:         func(model string) Agent { return NewClaudeAgent(model) },
 		newReviewParser:  func(id int) ReviewParser { return NewClaudeOutputParser(id) },
 		newSummaryParser: func() SummaryParser { return NewClaudeSummaryParser() },
 	},
 	"gemini": {
-		newAgent:         func() Agent { return NewGeminiAgent() },
+		newAgent:         func(model string) Agent { return NewGeminiAgent(model) },
 		newReviewParser:  func(id int) ReviewParser { return NewGeminiOutputParser(id) },
 		newSummaryParser: func() SummaryParser { return NewGeminiSummaryParser() },
 	},
@@ -49,14 +49,20 @@ const DefaultAgent = "codex"
 // DefaultSummarizerAgent is the default agent used for summarization when none is specified.
 const DefaultSummarizerAgent = "codex"
 
-// NewAgent creates an Agent by name.
+// NewAgent creates an Agent by name with the default model.
 // Supported agents: codex, claude, gemini
 func NewAgent(name string) (Agent, error) {
+	return NewAgentWithModel(name, "")
+}
+
+// NewAgentWithModel creates an Agent by name with an optional model override.
+// If model is empty, the agent uses its default model.
+func NewAgentWithModel(name, model string) (Agent, error) {
 	reg, ok := registry[name]
 	if !ok {
 		return nil, fmt.Errorf("unknown agent %q, supported: %v", name, SupportedAgents)
 	}
-	return reg.newAgent(), nil
+	return reg.newAgent(model), nil
 }
 
 // NewReviewParser creates a ReviewParser for the given agent name.

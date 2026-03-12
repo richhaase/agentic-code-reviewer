@@ -23,7 +23,7 @@ var flagGroups = []flagGroup{
 	},
 	{
 		title: "Agent Settings",
-		flags: []string{"reviewer-agent", "summarizer-agent", "pr-feedback-agent"},
+		flags: []string{"reviewer-agent", "summarizer-agent", "reviewer-model", "summarizer-model", "pr-feedback-agent"},
 	},
 	{
 		title: "PR Integration",

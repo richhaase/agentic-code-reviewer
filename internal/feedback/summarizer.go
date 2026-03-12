@@ -13,14 +13,17 @@ import (
 // Summarizer summarizes PR feedback for the FP filter.
 type Summarizer struct {
 	agentName string
+	model     string
 	verbose   bool
 	logger    *terminal.Logger
 }
 
 // NewSummarizer creates a new PR feedback summarizer.
-func NewSummarizer(agentName string, verbose bool, logger *terminal.Logger) *Summarizer {
+// The model parameter overrides the agent's default model (empty = default).
+func NewSummarizer(agentName, model string, verbose bool, logger *terminal.Logger) *Summarizer {
 	return &Summarizer{
 		agentName: agentName,
+		model:     model,
 		verbose:   verbose,
 		logger:    logger,
 	}
@@ -46,7 +49,7 @@ func (s *Summarizer) Summarize(ctx context.Context, prNumber string) (string, er
 	input := s.buildInput(prCtx)
 
 	// Create agent
-	ag, err := agent.NewAgent(s.agentName)
+	ag, err := agent.NewAgentWithModel(s.agentName, s.model)
 	if err != nil {
 		return "", fmt.Errorf("failed to create agent: %w", err)
 	}

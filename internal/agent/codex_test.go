@@ -11,14 +11,14 @@ import (
 )
 
 func TestNewCodexAgent(t *testing.T) {
-	agent := NewCodexAgent()
+	agent := NewCodexAgent("")
 	if agent == nil {
 		t.Fatal("NewCodexAgent() returned nil")
 	}
 }
 
 func TestCodexAgent_Name(t *testing.T) {
-	agent := NewCodexAgent()
+	agent := NewCodexAgent("")
 	got := agent.Name()
 	want := "codex"
 	if got != want {
@@ -27,7 +27,7 @@ func TestCodexAgent_Name(t *testing.T) {
 }
 
 func TestCodexAgent_IsAvailable(t *testing.T) {
-	agent := NewCodexAgent()
+	agent := NewCodexAgent("")
 	err := agent.IsAvailable()
 
 	// Check if codex is in PATH
@@ -55,7 +55,7 @@ func TestCodexAgent_ExecuteReview_CodexNotAvailable(t *testing.T) {
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", "")
 
-	agent := NewCodexAgent()
+	agent := NewCodexAgent("")
 	ctx := context.Background()
 	config := &ReviewConfig{
 		BaseRef: "main",
@@ -85,7 +85,7 @@ func TestCodexAgent_ExecuteSummary_CodexNotAvailable(t *testing.T) {
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", "")
 
-	agent := NewCodexAgent()
+	agent := NewCodexAgent("")
 	ctx := context.Background()
 
 	result, err := agent.ExecuteSummary(ctx, "test prompt", []byte(`{"findings":[]}`))
@@ -113,7 +113,7 @@ func TestCodexAgent_ExecuteReview_ArgsWithoutGuidance(t *testing.T) {
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", tmpDir)
 
-	agent := NewCodexAgent()
+	agent := NewCodexAgent("")
 	ctx := context.Background()
 	config := &ReviewConfig{
 		BaseRef: "main",
@@ -189,7 +189,7 @@ func TestCodexAgent_ExecuteReview_ArgsWithGuidance(t *testing.T) {
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", tmpDir+":"+originalPath)
 
-	agent := NewCodexAgent()
+	agent := NewCodexAgent("")
 	ctx := context.Background()
 	config := &ReviewConfig{
 		BaseRef:  "HEAD",
@@ -239,7 +239,7 @@ func TestCodexAgent_ExecuteSummary_Args(t *testing.T) {
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", tmpDir)
 
-	agent := NewCodexAgent()
+	agent := NewCodexAgent("")
 	ctx := context.Background()
 
 	result, err := agent.ExecuteSummary(ctx, "summarize this", []byte(`{"findings":[]}`))

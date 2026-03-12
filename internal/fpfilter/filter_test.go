@@ -12,7 +12,7 @@ import (
 )
 
 func TestFilter_New(t *testing.T) {
-	f := New("codex", 75, false, terminal.NewLogger())
+	f := New("codex", "", 75, false, terminal.NewLogger())
 	if f == nil {
 		t.Fatal("New returned nil")
 	}
@@ -185,7 +185,7 @@ func TestNew_ThresholdClamping(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := New("codex", tt.threshold, false, logger)
+			f := New("codex", "", tt.threshold, false, logger)
 			if f.threshold != tt.expectedThreshold {
 				t.Errorf("threshold = %d, want %d", f.threshold, tt.expectedThreshold)
 			}
@@ -194,7 +194,7 @@ func TestNew_ThresholdClamping(t *testing.T) {
 }
 
 func TestApply_EmptyFindings(t *testing.T) {
-	f := New("codex", 75, false, terminal.NewLogger())
+	f := New("codex", "", 75, false, terminal.NewLogger())
 	grouped := domain.GroupedFindings{
 		Findings: []domain.FindingGroup{},
 	}
@@ -219,7 +219,7 @@ func TestApply_EmptyFindings(t *testing.T) {
 }
 
 func TestApply_EmptyFindings_WithTotalReviewers(t *testing.T) {
-	f := New("codex", 75, false, terminal.NewLogger())
+	f := New("codex", "", 75, false, terminal.NewLogger())
 	grouped := domain.GroupedFindings{
 		Findings: []domain.FindingGroup{},
 	}
@@ -233,7 +233,7 @@ func TestApply_EmptyFindings_WithTotalReviewers(t *testing.T) {
 }
 
 func TestApply_EmptyFindingsPreservesInfo(t *testing.T) {
-	f := New("codex", 75, false, terminal.NewLogger())
+	f := New("codex", "", 75, false, terminal.NewLogger())
 	grouped := domain.GroupedFindings{
 		Findings: []domain.FindingGroup{},
 		Info: []domain.FindingGroup{

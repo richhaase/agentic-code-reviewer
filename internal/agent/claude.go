@@ -18,11 +18,14 @@ var _ Agent = (*ClaudeAgent)(nil)
 // which Claude follows reliably with --output-format json.
 
 // ClaudeAgent implements the Agent interface for the Claude CLI backend.
-type ClaudeAgent struct{}
+type ClaudeAgent struct {
+	model string
+}
 
 // NewClaudeAgent creates a new ClaudeAgent instance.
-func NewClaudeAgent() *ClaudeAgent {
-	return &ClaudeAgent{}
+// If model is non-empty, it overrides the default model via --model.
+func NewClaudeAgent(model string) *ClaudeAgent {
+	return &ClaudeAgent{model: model}
 }
 
 // Name returns the agent's identifier.
@@ -49,9 +52,14 @@ func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 		return nil, err
 	}
 
+	args := []string{"--print", "-"}
+	if c.model != "" {
+		args = append([]string{"--model", c.model}, args...)
+	}
+
 	return executeDiffBasedReview(ctx, config, diffReviewConfig{
 		Command:       "claude",
-		Args:          []string{"--print", "-"},
+		Args:          args,
 		DefaultPrompt: DefaultClaudePrompt,
 		RefFilePrompt: DefaultClaudeRefFilePrompt,
 	})
@@ -90,6 +98,9 @@ func (c *ClaudeAgent) ExecuteSummary(ctx context.Context, prompt string, input [
 	// Build command with JSON output format (no --json-schema — see note above)
 	// -: Read prompt from stdin (avoids ARG_MAX limits on large inputs)
 	args := []string{"--print", "--output-format", "json", "-"}
+	if c.model != "" {
+		args = append([]string{"--model", c.model}, args...)
+	}
 
 	return executeCommand(ctx, executeOptions{
 		Command:      "claude",

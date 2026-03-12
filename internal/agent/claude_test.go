@@ -11,14 +11,14 @@ import (
 )
 
 func TestNewClaudeAgent(t *testing.T) {
-	agent := NewClaudeAgent()
+	agent := NewClaudeAgent("")
 	if agent == nil {
 		t.Fatal("NewClaudeAgent() returned nil")
 	}
 }
 
 func TestClaudeAgent_Name(t *testing.T) {
-	agent := NewClaudeAgent()
+	agent := NewClaudeAgent("")
 	got := agent.Name()
 	want := "claude"
 	if got != want {
@@ -27,7 +27,7 @@ func TestClaudeAgent_Name(t *testing.T) {
 }
 
 func TestClaudeAgent_IsAvailable(t *testing.T) {
-	agent := NewClaudeAgent()
+	agent := NewClaudeAgent("")
 	err := agent.IsAvailable()
 
 	// Check if claude is in PATH
@@ -55,7 +55,7 @@ func TestClaudeAgent_ExecuteReview_ClaudeNotAvailable(t *testing.T) {
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", "")
 
-	agent := NewClaudeAgent()
+	agent := NewClaudeAgent("")
 	ctx := context.Background()
 	config := &ReviewConfig{
 		BaseRef: "main",
@@ -85,7 +85,7 @@ func TestClaudeAgent_ExecuteSummary_ClaudeNotAvailable(t *testing.T) {
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", "")
 
-	agent := NewClaudeAgent()
+	agent := NewClaudeAgent("")
 	ctx := context.Background()
 
 	result, err := agent.ExecuteSummary(ctx, "test prompt", []byte(`{"findings":[]}`))
@@ -144,7 +144,7 @@ func TestClaudeAgent_ExecuteReview_Args(t *testing.T) {
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", tmpDir+":"+originalPath)
 
-	agent := NewClaudeAgent()
+	agent := NewClaudeAgent("")
 	ctx := context.Background()
 	config := &ReviewConfig{
 		BaseRef: "HEAD",
@@ -215,7 +215,7 @@ func TestClaudeAgent_ExecuteReview_RefFileMode(t *testing.T) {
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", tmpDir+":"+originalPath)
 
-	agent := NewClaudeAgent()
+	agent := NewClaudeAgent("")
 	ctx := context.Background()
 	config := &ReviewConfig{
 		BaseRef: "HEAD",
@@ -291,7 +291,7 @@ func TestClaudeAgent_ExecuteReview_ExplicitRefFile(t *testing.T) {
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", tmpDir+":"+originalPath)
 
-	agent := NewClaudeAgent()
+	agent := NewClaudeAgent("")
 	ctx := context.Background()
 	config := &ReviewConfig{
 		BaseRef:    "HEAD",
@@ -327,7 +327,7 @@ func TestClaudeAgent_ExecuteSummary_Args(t *testing.T) {
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", tmpDir+":"+originalPath)
 
-	agent := NewClaudeAgent()
+	agent := NewClaudeAgent("")
 	ctx := context.Background()
 
 	result, err := agent.ExecuteSummary(ctx, "summarize", []byte(`{"findings":[]}`))

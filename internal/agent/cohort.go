@@ -50,9 +50,16 @@ func ValidateAgentNames(names []string) error {
 	return nil
 }
 
-// CreateAgents creates Agent instances for the given names.
+// CreateAgents creates Agent instances for the given names with the default model.
 // Validates all agent CLIs are available (fail fast).
 func CreateAgents(names []string) ([]Agent, error) {
+	return CreateAgentsWithModel(names, "")
+}
+
+// CreateAgentsWithModel creates Agent instances for the given names with an optional model override.
+// If model is empty, agents use their default models.
+// Validates all agent CLIs are available (fail fast).
+func CreateAgentsWithModel(names []string, model string) ([]Agent, error) {
 	agents := make([]Agent, 0, len(names))
 	seen := make(map[string]Agent)
 
@@ -63,7 +70,7 @@ func CreateAgents(names []string) ([]Agent, error) {
 			continue
 		}
 
-		agent, err := NewAgent(name)
+		agent, err := NewAgentWithModel(name, model)
 		if err != nil {
 			return nil, err
 		}

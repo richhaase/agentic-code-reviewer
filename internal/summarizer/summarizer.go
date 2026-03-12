@@ -77,8 +77,9 @@ type inputItem struct {
 
 // Summarize summarizes the aggregated findings using an LLM.
 // The agentName parameter specifies which agent to use for summarization.
+// The model parameter overrides the agent's default model (empty = default).
 // If verbose is true, non-fatal errors (like Close failures) are logged.
-func Summarize(ctx context.Context, agentName string, aggregated []domain.AggregatedFinding, verbose bool, logger *terminal.Logger) (*Result, error) {
+func Summarize(ctx context.Context, agentName, model string, aggregated []domain.AggregatedFinding, verbose bool, logger *terminal.Logger) (*Result, error) {
 	start := time.Now()
 
 	if len(aggregated) == 0 {
@@ -89,7 +90,7 @@ func Summarize(ctx context.Context, agentName string, aggregated []domain.Aggreg
 	}
 
 	// Create agent
-	ag, err := agent.NewAgent(agentName)
+	ag, err := agent.NewAgentWithModel(agentName, model)
 	if err != nil {
 		return nil, err
 	}

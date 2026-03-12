@@ -9,7 +9,7 @@ import (
 )
 
 func TestSummarizer_EmptyPRNumber(t *testing.T) {
-	s := NewSummarizer("codex", false, terminal.NewLogger())
+	s := NewSummarizer("codex", "", false, terminal.NewLogger())
 	_, err := s.Summarize(context.Background(), "")
 	if err == nil {
 		t.Error("expected error for empty PR number")
@@ -17,14 +17,14 @@ func TestSummarizer_EmptyPRNumber(t *testing.T) {
 }
 
 func TestNewSummarizer(t *testing.T) {
-	s := NewSummarizer("claude", true, terminal.NewLogger())
+	s := NewSummarizer("claude", "", true, terminal.NewLogger())
 	if s == nil {
 		t.Fatal("NewSummarizer returned nil")
 	}
 }
 
 func TestBuildInput_DescriptionOnly(t *testing.T) {
-	s := NewSummarizer("codex", false, terminal.NewLogger())
+	s := NewSummarizer("codex", "", false, terminal.NewLogger())
 	prCtx := &PRContext{
 		Description: "This PR fixes the login bug",
 	}
@@ -43,7 +43,7 @@ func TestBuildInput_DescriptionOnly(t *testing.T) {
 }
 
 func TestBuildInput_CommentsOnly(t *testing.T) {
-	s := NewSummarizer("codex", false, terminal.NewLogger())
+	s := NewSummarizer("codex", "", false, terminal.NewLogger())
 	prCtx := &PRContext{
 		Comments: []Comment{
 			{Author: "alice", Body: "LGTM"},
@@ -68,7 +68,7 @@ func TestBuildInput_CommentsOnly(t *testing.T) {
 }
 
 func TestBuildInput_WithReplies(t *testing.T) {
-	s := NewSummarizer("codex", false, terminal.NewLogger())
+	s := NewSummarizer("codex", "", false, terminal.NewLogger())
 	prCtx := &PRContext{
 		Description: "Fix issue",
 		Comments: []Comment{
@@ -97,7 +97,7 @@ func TestBuildInput_WithReplies(t *testing.T) {
 }
 
 func TestBuildInput_EmptyContext(t *testing.T) {
-	s := NewSummarizer("codex", false, terminal.NewLogger())
+	s := NewSummarizer("codex", "", false, terminal.NewLogger())
 	prCtx := &PRContext{}
 
 	result := s.buildInput(prCtx)
@@ -114,7 +114,7 @@ func TestBuildInput_EmptyContext(t *testing.T) {
 }
 
 func TestBuildInput_FullContext(t *testing.T) {
-	s := NewSummarizer("codex", false, terminal.NewLogger())
+	s := NewSummarizer("codex", "", false, terminal.NewLogger())
 	prCtx := &PRContext{
 		Number:      "42",
 		Description: "Refactor auth module to use JWT tokens",

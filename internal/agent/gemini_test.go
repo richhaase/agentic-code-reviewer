@@ -11,14 +11,14 @@ import (
 )
 
 func TestNewGeminiAgent(t *testing.T) {
-	agent := NewGeminiAgent()
+	agent := NewGeminiAgent("")
 	if agent == nil {
 		t.Fatal("NewGeminiAgent() returned nil")
 	}
 }
 
 func TestGeminiAgent_Name(t *testing.T) {
-	agent := NewGeminiAgent()
+	agent := NewGeminiAgent("")
 	got := agent.Name()
 	want := "gemini"
 	if got != want {
@@ -27,7 +27,7 @@ func TestGeminiAgent_Name(t *testing.T) {
 }
 
 func TestGeminiAgent_IsAvailable(t *testing.T) {
-	agent := NewGeminiAgent()
+	agent := NewGeminiAgent("")
 	err := agent.IsAvailable()
 
 	// Check if gemini is in PATH
@@ -55,7 +55,7 @@ func TestGeminiAgent_ExecuteReview_GeminiNotAvailable(t *testing.T) {
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", "")
 
-	agent := NewGeminiAgent()
+	agent := NewGeminiAgent("")
 	ctx := context.Background()
 	config := &ReviewConfig{
 		BaseRef: "main",
@@ -85,7 +85,7 @@ func TestGeminiAgent_ExecuteSummary_GeminiNotAvailable(t *testing.T) {
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", "")
 
-	agent := NewGeminiAgent()
+	agent := NewGeminiAgent("")
 	ctx := context.Background()
 
 	result, err := agent.ExecuteSummary(ctx, "test prompt", []byte(`{"findings":[]}`))
@@ -144,7 +144,7 @@ func TestGeminiAgent_ExecuteReview_Args(t *testing.T) {
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", tmpDir+":"+originalPath)
 
-	agent := NewGeminiAgent()
+	agent := NewGeminiAgent("")
 	ctx := context.Background()
 	config := &ReviewConfig{
 		BaseRef: "HEAD",
@@ -218,7 +218,7 @@ func TestGeminiAgent_ExecuteReview_RefFileMode(t *testing.T) {
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", tmpDir+":"+originalPath)
 
-	agent := NewGeminiAgent()
+	agent := NewGeminiAgent("")
 	ctx := context.Background()
 	config := &ReviewConfig{
 		BaseRef: "HEAD",
@@ -259,7 +259,7 @@ func TestGeminiAgent_ExecuteSummary_Args(t *testing.T) {
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", tmpDir+":"+originalPath)
 
-	agent := NewGeminiAgent()
+	agent := NewGeminiAgent("")
 	ctx := context.Background()
 
 	result, err := agent.ExecuteSummary(ctx, "summarize", []byte(`{"findings":[]}`))

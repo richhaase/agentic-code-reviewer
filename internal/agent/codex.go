@@ -13,11 +13,14 @@ import (
 var _ Agent = (*CodexAgent)(nil)
 
 // CodexAgent implements the Agent interface for the Codex CLI backend.
-type CodexAgent struct{}
+type CodexAgent struct {
+	model string
+}
 
 // NewCodexAgent creates a new CodexAgent instance.
-func NewCodexAgent() *CodexAgent {
-	return &CodexAgent{}
+// If model is non-empty, it overrides the default model via --model.
+func NewCodexAgent(model string) *CodexAgent {
+	return &CodexAgent{model: model}
 }
 
 // Name returns the agent's identifier.
@@ -46,15 +49,22 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (*
 	}
 
 	if config.Guidance != "" {
+		args := []string{"exec", "--json", "--color", "never", "-"}
+		if c.model != "" {
+			args = append([]string{"--model", c.model}, args...)
+		}
 		return executeDiffBasedReview(ctx, config, diffReviewConfig{
 			Command:       "codex",
-			Args:          []string{"exec", "--json", "--color", "never", "-"},
+			Args:          args,
 			DefaultPrompt: DefaultCodexPrompt,
 			RefFilePrompt: DefaultCodexRefFilePrompt,
 		})
 	}
 
 	args := []string{"exec", "--json", "--color", "never", "review", "--base", config.BaseRef}
+	if c.model != "" {
+		args = append([]string{"--model", c.model}, args...)
+	}
 
 	return executeCommand(ctx, executeOptions{
 		Command: "codex",
@@ -76,6 +86,9 @@ func (c *CodexAgent) ExecuteSummary(ctx context.Context, prompt string, input []
 	}
 
 	args := []string{"exec", "--json", "--color", "never", "-"}
+	if c.model != "" {
+		args = append([]string{"--model", c.model}, args...)
+	}
 	// Use MultiReader to avoid copying large input byte slice
 	stdin := io.MultiReader(
 		strings.NewReader(prompt),
