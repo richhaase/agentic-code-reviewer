@@ -47,6 +47,9 @@ var (
 	fpFilterTimeout     time.Duration
 	noPRFeedback        bool
 	prFeedbackAgent     string
+	phase               string
+	formatOutput        string
+	autoPhase           bool
 )
 
 func main() {
@@ -130,6 +133,12 @@ Exit codes:
 		"Disable reading PR comments for feedback context (env: ACR_PR_FEEDBACK=false)")
 	rootCmd.Flags().StringVar(&prFeedbackAgent, "pr-feedback-agent", "",
 		"Agent for PR feedback summarization (default: same as --summarizer-agent, env: ACR_PR_FEEDBACK_AGENT)")
+	rootCmd.Flags().StringVar(&phase, "phase", "",
+		"Review phases (comma-separated): arch, diff, arch,diff")
+	rootCmd.Flags().StringVar(&formatOutput, "format", "text",
+		"Output format: text or json")
+	rootCmd.Flags().BoolVar(&autoPhase, "auto-phase", false,
+		"Auto-select review phases based on diff size")
 
 	rootCmd.AddCommand(newConfigCmd())
 
@@ -518,6 +527,9 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		UseRefFile:      refFile,
 		ExcludePatterns: cfgResult.excludePatterns,
 		WorkDir:         wt.workDir,
+		Phase:           phase,
+		Format:          formatOutput,
+		AutoPhase:       autoPhase,
 	}
 	code := executeReview(ctx, opts, logger)
 	return exitCode(code)

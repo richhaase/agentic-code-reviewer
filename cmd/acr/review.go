@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
@@ -111,8 +112,29 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		logger.Logf(terminal.StyleDim, "Ref-file mode enabled")
 	}
 
-	// Run reviewers
-	r, err := runner.New(runner.Config{
+	// Resolve review phases
+	phaseStr := opts.Phase
+	if opts.AutoPhase && phaseStr == "" {
+		size, fileCount, lineCount, classifyErr := git.ClassifyDiffSize(ctx, resolvedBaseRef, opts.WorkDir)
+		if classifyErr != nil {
+			if opts.Verbose {
+				logger.Logf(terminal.StyleWarning, "Auto-phase: diff size classification failed: %v", classifyErr)
+			}
+		} else {
+			if opts.Verbose {
+				logger.Logf(terminal.StyleDim, "Auto-phase: diff is %s (%d files, %d lines)", size, fileCount, lineCount)
+			}
+			switch size {
+			case git.DiffSizeSmall:
+				phaseStr = "diff"
+			default:
+				phaseStr = "arch,diff"
+			}
+		}
+	}
+
+	// Build runner: phase-based (NewWithSpecs) or legacy (New)
+	runnerConfig := runner.Config{
 		Reviewers:       opts.Reviewers,
 		Concurrency:     opts.Concurrency,
 		BaseRef:         resolvedBaseRef,
@@ -124,7 +146,25 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		UseRefFile:      opts.UseRefFile,
 		Diff:            diff,
 		DiffPrecomputed: diffPrecomputed,
-	}, reviewAgents, logger)
+	}
+
+	var r *runner.Runner
+	if phaseStr != "" {
+		phases := parsePhases(phaseStr, opts.Reviewers)
+		if opts.Verbose {
+			for _, p := range phases {
+				logger.Logf(terminal.StyleDim, "Phase %q: %d reviewer(s)", p.Phase, p.ReviewerCount)
+			}
+		}
+		specs, specErr := runner.BuildReviewerSpecs(phases, reviewAgents, opts.Guidance, diff, diffPrecomputed)
+		if specErr != nil {
+			logger.Logf(terminal.StyleError, "Phase config error: %v", specErr)
+			return domain.ExitError
+		}
+		r, err = runner.NewWithSpecs(runnerConfig, specs, logger)
+	} else {
+		r, err = runner.New(runnerConfig, reviewAgents, logger)
+	}
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Runner initialization failed: %v", err)
 		return domain.ExitError
@@ -290,9 +330,33 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		excludeFiltered,
 		summaryResult.Grouped.Findings,
 	)
+	// Compute Ok field from post-filter state.
+	// Ok is true when no surviving finding group references a blocking aggregated finding.
+	summaryResult.Grouped.Ok = true
+	for _, fg := range summaryResult.Grouped.Findings {
+		for _, src := range fg.Sources {
+			if src >= 0 && src < len(aggregated) && aggregated[src].Severity == "blocking" {
+				summaryResult.Grouped.Ok = false
+				break
+			}
+		}
+		if !summaryResult.Grouped.Ok {
+			break
+		}
+	}
+
 	// Render and print report
-	report := runner.RenderReport(summaryResult.Grouped, summaryResult, stats)
-	fmt.Println(report)
+	if opts.Format == "json" {
+		jsonBytes, jsonErr := runner.RenderJSON(&summaryResult.Grouped)
+		if jsonErr != nil {
+			logger.Logf(terminal.StyleError, "JSON rendering failed: %v", jsonErr)
+			return domain.ExitError
+		}
+		fmt.Println(string(jsonBytes))
+	} else {
+		report := runner.RenderReport(summaryResult.Grouped, summaryResult, stats)
+		fmt.Println(report)
+	}
 
 	if summaryResult.ExitCode != 0 {
 		return domain.ExitError
@@ -304,6 +368,40 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 	}
 
 	return handleFindings(ctx, opts, summaryResult.Grouped, aggregated, stats, logger)
+}
+
+// parsePhases converts a comma-separated phase string into PhaseConfigs.
+// "arch" → 1 arch reviewer; "diff" → N diff reviewers; "arch,diff" → 1 arch + N diff.
+func parsePhases(phaseStr string, totalReviewers int) []runner.PhaseConfig {
+	var phases []runner.PhaseConfig
+	parts := strings.Split(phaseStr, ",")
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		switch p {
+		case "arch":
+			phases = append(phases, runner.PhaseConfig{
+				Phase:         "arch",
+				ReviewerCount: 1,
+			})
+		case "diff":
+			count := totalReviewers
+			// If arch is also present, use remaining reviewers for diff
+			for _, existing := range phases {
+				count -= existing.ReviewerCount
+			}
+			if count < 1 {
+				count = 1
+			}
+			phases = append(phases, runner.PhaseConfig{
+				Phase:         "diff",
+				ReviewerCount: count,
+			})
+		}
+	}
+	return phases
 }
 
 // diffFindingGroups returns groups present in before but not in after.
