@@ -54,10 +54,13 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (*
 		model = config.Model
 	}
 
-	// Use diff-based review path when guidance, phase, or per-reviewer diff is set.
-	// Codex's built-in "review --base" path ignores ReviewConfig.Diff/Phase/TargetFiles,
-	// so we must route through the diff-based path for spec-driven reviews.
-	if config.Guidance != "" || config.Phase != "" || (config.Diff != "" && config.DiffPrecomputed) {
+	// Use diff-based review path when guidance or phase is set.
+	// Codex's built-in "review --base" path ignores ReviewConfig.Phase/TargetFiles,
+	// so we must route through the diff-based path for those features.
+	// Note: DiffPrecomputed alone does NOT trigger this path — in mixed-agent runs
+	// (codex+claude), DiffPrecomputed is globally true for Claude's benefit,
+	// but Codex should still use its built-in review when no guidance/phase is set.
+	if config.Guidance != "" || config.Phase != "" {
 		args := []string{"exec", "--json", "--color", "never", "-"}
 		if model != "" {
 			args = append([]string{"--model", model}, args...)
