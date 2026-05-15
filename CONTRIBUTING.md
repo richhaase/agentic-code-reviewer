@@ -27,10 +27,11 @@ contributed code using the repository's `.acr.yaml` configuration
 Note: the repository configuration uses Claude Code for part of the review, but
 we recommend against using Claude with ACR unless you intentionally accept
 Anthropic's non-interactive `claude -p`/Agent SDK billing model. ACR invokes
-Claude in `claude --print` mode for Claude review and summary phases. Starting
-June 15, 2026, subscription-authenticated usage draws from a separate Agent SDK
-credit, while `ANTHROPIC_API_KEY` authentication uses pay-as-you-go API billing.
-Prefer overriding `--reviewer-agent`, `--summarizer-agent`, `--reviewers`, or
+Claude in non-interactive mode (`claude -p`; ACR uses the equivalent `--print`
+flag internally) for Claude review and summary phases. Starting June 15, 2026,
+subscription-authenticated usage draws from a separate Agent SDK credit, while
+`ANTHROPIC_API_KEY` authentication uses pay-as-you-go API billing. Prefer
+overriding `--reviewer-agent`, `--summarizer-agent`, `--reviewers`, or
 `--concurrency` if you want to avoid Claude usage.
 
     acr --pr <your-pr-number>

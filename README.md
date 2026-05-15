@@ -35,10 +35,11 @@ You need **at least one** of the following LLM CLIs installed and authenticated:
 > **Claude Code billing warning:** We recommend against using Claude Code as an
 > ACR agent unless you explicitly accept Anthropic's non-interactive
 > `claude -p`/Agent SDK billing model. When `claude` is selected, ACR invokes
-> Claude Code in `claude --print` mode, equivalent to `claude -p`, for each
-> Claude reviewer and for Claude-powered summarization, false-positive filtering,
-> and PR feedback, so one ACR run can start several non-interactive Claude
-> sessions. Anthropic says that starting June 15, 2026,
+> Claude Code in non-interactive mode (`claude -p`; ACR uses the equivalent
+> `--print` flag internally) for each Claude reviewer and for Claude-powered
+> summarization, false-positive filtering, and PR feedback, so one ACR run can
+> start several non-interactive Claude sessions. Anthropic says that starting
+> June 15, 2026,
 > subscription-authenticated `claude -p` and Agent SDK usage will draw from a
 > separate monthly Agent SDK credit instead of normal interactive Claude Code
 > subscription limits. After that credit is exhausted, usage moves to extra usage
