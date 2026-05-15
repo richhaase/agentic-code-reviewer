@@ -32,6 +32,19 @@ You need **at least one** of the following LLM CLIs installed and authenticated:
 | Claude Code | [github.com/anthropics/claude-code](https://github.com/anthropics/claude-code) |
 | Gemini CLI | [github.com/google-gemini/gemini-cli](https://github.com/google-gemini/gemini-cli) |
 
+> **Claude Code billing note:** When `claude` is selected, ACR invokes Claude Code
+> in non-interactive `claude --print` mode, equivalent to `claude -p`, for each
+> Claude reviewer and for Claude-powered summarization, false-positive filtering,
+> and PR feedback. Anthropic says that starting June 15, 2026,
+> subscription-authenticated `claude -p` and Agent SDK usage will draw from a
+> separate monthly Agent SDK credit instead of normal interactive Claude Code
+> subscription limits. After that credit is exhausted, usage moves to extra usage
+> at standard API rates only if extra usage is enabled; otherwise requests stop
+> until the credit refreshes. API-key authentication with `ANTHROPIC_API_KEY`
+> continues to use pay-as-you-go API billing and does not receive the Agent SDK
+> credit. See Anthropic's [Agent SDK plan billing](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)
+> and [`claude -p` documentation](https://code.claude.com/docs/en/headless).
+
 Optional:
 
 | Tool | Installation | Purpose |
@@ -198,6 +211,7 @@ acr --reviewer-agent claude --reviewer-model opus-4 \
 ```
 
 Different agents may find different issues. When multiple agents are specified (comma-separated), reviewers are assigned to agents in round-robin order. The appropriate CLI must be installed and authenticated for all selected agents.
+If you use `claude`, review the Claude Code billing note above before running high reviewer counts or selecting Claude for multiple phases.
 
 ### Review Guidance
 

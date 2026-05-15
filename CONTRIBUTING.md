@@ -24,6 +24,14 @@ All PRs must include evidence of a successful ACR run against the
 contributed code using the repository's `.acr.yaml` configuration
 (which uses all three agent types with 6 reviewers):
 
+Note: the repository configuration uses Claude Code for part of the review.
+ACR invokes Claude in non-interactive `claude --print` mode, which Anthropic
+treats like `claude -p`/Agent SDK usage. Starting June 15, 2026, that usage
+uses a separate Agent SDK credit for subscription-authenticated Claude plans,
+or pay-as-you-go API billing when authenticated with `ANTHROPIC_API_KEY`.
+Adjust `--reviewer-agent`, `--summarizer-agent`, `--reviewers`, or
+`--concurrency` if needed.
+
     acr --pr <your-pr-number>
 
 If you don't have access to all three agents (codex, claude, gemini),
