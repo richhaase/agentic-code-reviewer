@@ -127,8 +127,8 @@ homebrew_casks:
 
       ACR runs parallel code reviews using AI agents and summarizes findings.
       It requires at least one supported LLM CLI: codex, claude, or gemini.
-      Claude users should review Anthropic's claude -p / Agent SDK billing
-      terms before running high reviewer counts or Claude-powered summaries.
+      Claude Code is not recommended with ACR unless you explicitly accept
+      Anthropic's claude -p / Agent SDK billing model.
 
 # Sign and notarize macOS binaries
 notarize:
