@@ -14,7 +14,7 @@ var _ io.Closer = (*cmdReader)(nil)
 // cmdReader wraps an io.Reader and ensures the command is waited on when closed.
 // It implements io.Closer and provides process exit code and stderr output
 // after Close().
-// This type is used by all agent implementations (codex, claude, gemini) to manage
+// This type is used by all agent implementations (agy, codex, claude, gemini) to manage
 // subprocess lifecycle.
 type cmdReader struct {
 	io.Reader

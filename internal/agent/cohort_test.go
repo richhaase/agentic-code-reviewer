@@ -23,8 +23,8 @@ func TestParseAgentNames(t *testing.T) {
 		},
 		{
 			name:     "multiple agents comma-separated",
-			input:    "codex,claude,gemini",
-			expected: []string{"codex", "claude", "gemini"},
+			input:    "agy,codex,claude,gemini",
+			expected: []string{"agy", "codex", "claude", "gemini"},
 		},
 		{
 			name:     "multiple agents with spaces",
@@ -76,7 +76,7 @@ func TestValidateAgentNames(t *testing.T) {
 		},
 		{
 			name:      "valid multiple agents",
-			agents:    []string{"codex", "claude", "gemini"},
+			agents:    []string{"agy", "codex", "claude", "gemini"},
 			expectErr: false,
 		},
 		{

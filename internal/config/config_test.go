@@ -980,6 +980,7 @@ func TestValidate_ReviewerAgent(t *testing.T) {
 		{"valid codex", "codex", false},
 		{"valid claude", "claude", false},
 		{"valid gemini", "gemini", false},
+		{"valid agy", "agy", false},
 		{"invalid agent", "invalid", true},
 		{"empty agent", "", true},
 	}

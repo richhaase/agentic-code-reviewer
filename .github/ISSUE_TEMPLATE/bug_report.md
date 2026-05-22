@@ -24,7 +24,7 @@ assignees: ''
 
 - ACR version: (`acr --version`)
 - OS: 
-- Agent: (codex/claude/gemini)
+- Agent: (agy/codex/claude/gemini)
 
 ## Additional Context
 

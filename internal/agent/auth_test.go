@@ -13,6 +13,7 @@ func TestIsAuthFailure(t *testing.T) {
 		want     bool
 	}{
 		{"gemini exit 41", "gemini", 41, "", true},
+		{"agy auth stderr", "agy", 1, "authentication required", true},
 		{"gemini exit 0 is never auth failure", "gemini", 0, "", false},
 		{"gemini other exit code", "gemini", 1, "", false},
 		{"unknown agent with auth stderr", "unknown", 1, "api_key not set", true},
@@ -38,7 +39,7 @@ func TestIsAuthFailure(t *testing.T) {
 }
 
 func TestAuthHint(t *testing.T) {
-	agents := []string{"gemini", "claude", "codex", "unknown"}
+	agents := []string{"agy", "gemini", "claude", "codex", "unknown"}
 	for _, name := range agents {
 		t.Run(name, func(t *testing.T) {
 			hint := AuthHint(name)

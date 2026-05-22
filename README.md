@@ -1,6 +1,6 @@
 # ACR - Agentic Code Reviewer
 
-A CLI tool that runs parallel AI-powered code reviews using LLM agents ([Codex](https://github.com/openai/codex), [Claude Code](https://github.com/anthropics/claude-code), or [Gemini CLI](https://github.com/google-gemini/gemini-cli)) and aggregates findings intelligently.
+A CLI tool that runs parallel AI-powered code reviews using LLM agents ([Antigravity CLI](https://antigravity.google/docs/cli), [Codex](https://github.com/openai/codex), [Claude Code](https://github.com/anthropics/claude-code), or [Gemini CLI](https://github.com/google-gemini/gemini-cli)) and aggregates findings intelligently.
 
 <!-- Uncomment after recording the demo:
 <p align="center">
@@ -28,6 +28,7 @@ You need **at least one** of the following LLM CLIs installed and authenticated:
 
 | Agent | Installation |
 |-------|--------------|
+| Antigravity CLI | [antigravity.google/docs/cli](https://antigravity.google/docs/cli) |
 | Codex | [github.com/openai/codex](https://github.com/openai/codex) (default) |
 | Claude Code | [github.com/anthropics/claude-code](https://github.com/anthropics/claude-code) |
 | Gemini CLI | [github.com/google-gemini/gemini-cli](https://github.com/google-gemini/gemini-cli) |
@@ -40,7 +41,7 @@ Optional:
 
 ## How It Works
 
-ACR spawns multiple parallel reviewers, each invoking your chosen LLM agent (Codex, Claude, or Gemini) independently. The parallel approach increases coverage: different reviewers may catch different issues. After all reviewers complete, ACR aggregates and clusters similar findings using an LLM summarizer, filters out likely false positives, then presents a consolidated report.
+ACR spawns multiple parallel reviewers, each invoking your chosen LLM agent (Antigravity, Codex, Claude, or Gemini) independently. The parallel approach increases coverage: different reviewers may catch different issues. After all reviewers complete, ACR aggregates and clusters similar findings using an LLM summarizer, filters out likely false positives, then presents a consolidated report.
 
 ```mermaid
 graph TD
@@ -129,8 +130,8 @@ acr --verbose
 | `--ref-file`        |       | false   | Write diff to temp file instead of embedding in prompt (auto for large diffs) |
 | `--exclude-pattern` |       |         | Exclude findings matching regex (repeat)  |
 | `--no-config`       |       | false   | Skip loading .acr.yaml config file        |
-| `--reviewer-agent`  | `-a`  | codex   | Agent(s) for reviews, comma-separated (codex, claude, gemini) |
-| `--summarizer-agent`| `-s`  | codex   | Agent for summarization (codex, claude, gemini) |
+| `--reviewer-agent`  | `-a`  | codex   | Agent(s) for reviews, comma-separated (agy, codex, claude, gemini) |
+| `--summarizer-agent`| `-s`  | codex   | Agent for summarization (agy, codex, claude, gemini) |
 | `--reviewer-model`  |       |         | LLM model for review agents (env: ACR_REVIEWER_MODEL) |
 | `--summarizer-model`|       |         | LLM model for summarizer/FP filter agents (env: ACR_SUMMARIZER_MODEL) |
 
@@ -172,6 +173,7 @@ ACR supports multiple AI backends for code review:
 
 | Agent | CLI | Description |
 |-------|-----|-------------|
+| `agy` | [Antigravity CLI](https://antigravity.google/docs/cli) | Google's Antigravity via CLI |
 | `codex` | [Codex](https://github.com/openai/codex) | Default. Uses built-in `codex exec review` |
 | `claude` | [Claude Code](https://github.com/anthropics/claude-code) | Anthropic's Claude via CLI |
 | `gemini` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | Google's Gemini via CLI |
@@ -183,11 +185,14 @@ acr --reviewer-agent claude
 # Use Gemini for reviews
 acr -a gemini
 
+# Use Antigravity CLI for reviews
+acr -a agy
+
 # Use different agents for review and summarization
 acr --reviewer-agent gemini --summarizer-agent claude
 
 # Use multiple agents in round-robin (reviewers alternate between agents)
-acr -r 6 --reviewer-agent codex,claude,gemini
+acr -r 8 --reviewer-agent agy,codex,claude,gemini
 
 # Override the model used by review agents
 acr --reviewer-agent claude --reviewer-model sonnet-4
@@ -196,6 +201,8 @@ acr --reviewer-agent claude --reviewer-model sonnet-4
 acr --reviewer-agent claude --reviewer-model opus-4 \
     --summarizer-agent claude --summarizer-model haiku-4
 ```
+
+Antigravity CLI (`agy`) manages model selection in its own configuration; ACR does not pass `--reviewer-model` or `--summarizer-model` through to `agy`.
 
 Different agents may find different issues. When multiple agents are specified (comma-separated), reviewers are assigned to agents in round-robin order. The appropriate CLI must be installed and authenticated for all selected agents.
 
@@ -272,12 +279,13 @@ retries: 1                # Retry failed reviewers N times
 fetch: true               # Fetch base ref from origin before diff
 
 # Agent selection
-# reviewer_agent: codex   # Single agent for reviews (codex, claude, gemini)
+# reviewer_agent: codex   # Single agent for reviews (agy, codex, claude, gemini)
 # reviewer_agents:        # Multiple agents for round-robin assignment
+#   - agy
 #   - codex
 #   - claude
 #   - gemini
-# summarizer_agent: codex # Agent for summarization (codex, claude, gemini)
+# summarizer_agent: codex # Agent for summarization (agy, codex, claude, gemini)
 # reviewer_model: ""      # LLM model override for review agents
 # summarizer_model: ""    # LLM model override for summarizer/FP filter agents
 summarizer_timeout: 5m    # Timeout for summarizer phase

@@ -22,6 +22,7 @@ var authStderrPatterns = []string{
 
 // authHints maps agent names to actionable error messages shown on auth failure.
 var authHints = map[string]string{
+	"agy":    "Run 'agy' and complete Google sign-in, or check your Antigravity CLI credentials.",
 	"gemini": "Set GEMINI_API_KEY or run 'gemini auth login' to authenticate.",
 	"claude": "Run 'claude login' or check your API key configuration.",
 	"codex":  "Set OPENAI_API_KEY or run 'codex auth' to authenticate.",

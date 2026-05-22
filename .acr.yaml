@@ -19,13 +19,13 @@ reviewers: 6
 # Fetch latest base ref from origin before diff (default: true)
 # fetch: true
 
-# Agent(s) for reviews: codex, claude, gemini
+# Agent(s) for reviews: agy, codex, claude, gemini
 reviewer_agents:
   - codex
   - claude
   - gemini
 
-# Agent for summarization: codex, claude, gemini
+# Agent for summarization: agy, codex, claude, gemini
 summarizer_agent: claude
 # Path to file containing review guidance
 # guidance_file: ""

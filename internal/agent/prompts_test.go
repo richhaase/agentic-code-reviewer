@@ -48,11 +48,31 @@ func TestDefaultGeminiPrompt(t *testing.T) {
 	}
 }
 
+func TestDefaultAntigravityPrompt(t *testing.T) {
+	if DefaultAntigravityPrompt == "" {
+		t.Error("DefaultAntigravityPrompt should not be empty")
+	}
+
+	requiredElements := []string{
+		"bugs",
+		"security",
+		"file",
+		"line",
+	}
+
+	lowerPrompt := strings.ToLower(DefaultAntigravityPrompt)
+	for _, element := range requiredElements {
+		if !strings.Contains(lowerPrompt, element) {
+			t.Errorf("DefaultAntigravityPrompt should contain %q", element)
+		}
+	}
+}
+
 func TestDefaultPromptsAreDecoupled(t *testing.T) {
 	// Prompts are decoupled to allow independent tuning per agent
 	// Both should be valid prompts but don't need to be identical
-	if DefaultClaudePrompt == "" || DefaultGeminiPrompt == "" {
-		t.Error("Both prompts should be non-empty")
+	if DefaultAntigravityPrompt == "" || DefaultClaudePrompt == "" || DefaultGeminiPrompt == "" {
+		t.Error("All prompts should be non-empty")
 	}
 }
 
@@ -123,10 +143,12 @@ func TestRenderPrompt(t *testing.T) {
 
 func TestDefaultPrompts_ContainPlaceholder(t *testing.T) {
 	prompts := map[string]string{
-		"DefaultClaudePrompt":        DefaultClaudePrompt,
-		"DefaultClaudeRefFilePrompt": DefaultClaudeRefFilePrompt,
-		"DefaultGeminiPrompt":        DefaultGeminiPrompt,
-		"DefaultGeminiRefFilePrompt": DefaultGeminiRefFilePrompt,
+		"DefaultAntigravityPrompt":        DefaultAntigravityPrompt,
+		"DefaultAntigravityRefFilePrompt": DefaultAntigravityRefFilePrompt,
+		"DefaultClaudePrompt":             DefaultClaudePrompt,
+		"DefaultClaudeRefFilePrompt":      DefaultClaudeRefFilePrompt,
+		"DefaultGeminiPrompt":             DefaultGeminiPrompt,
+		"DefaultGeminiRefFilePrompt":      DefaultGeminiRefFilePrompt,
 	}
 
 	for name, prompt := range prompts {
@@ -140,10 +162,12 @@ func TestDefaultPrompts_ContainPlaceholder(t *testing.T) {
 
 func TestRenderPrompt_DefaultPrompts_NoGuidance(t *testing.T) {
 	prompts := map[string]string{
-		"DefaultClaudePrompt":        DefaultClaudePrompt,
-		"DefaultClaudeRefFilePrompt": DefaultClaudeRefFilePrompt,
-		"DefaultGeminiPrompt":        DefaultGeminiPrompt,
-		"DefaultGeminiRefFilePrompt": DefaultGeminiRefFilePrompt,
+		"DefaultAntigravityPrompt":        DefaultAntigravityPrompt,
+		"DefaultAntigravityRefFilePrompt": DefaultAntigravityRefFilePrompt,
+		"DefaultClaudePrompt":             DefaultClaudePrompt,
+		"DefaultClaudeRefFilePrompt":      DefaultClaudeRefFilePrompt,
+		"DefaultGeminiPrompt":             DefaultGeminiPrompt,
+		"DefaultGeminiRefFilePrompt":      DefaultGeminiRefFilePrompt,
 	}
 
 	for name, prompt := range prompts {

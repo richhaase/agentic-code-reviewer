@@ -12,7 +12,7 @@ import (
 // temp file instead of passing via stdin. This avoids ARG_MAX limits (~128KB
 // on macOS) and keeps prompts manageable for LLM context windows.
 // 100KB provides headroom below the limit while handling most typical diffs.
-// All supported agents (Claude, Codex, Gemini) have file system access and can
+// All supported agents (Antigravity, Claude, Codex, Gemini) have file system access and can
 // read files from the working directory when instructed via the prompt.
 const RefFileSizeThreshold = 100 * 1024 // 100KB
 

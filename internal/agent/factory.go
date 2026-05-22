@@ -15,6 +15,11 @@ type agentRegistry struct {
 // registry maps agent names to their factory functions.
 // To add a new agent, add an entry here - no other changes needed.
 var registry = map[string]agentRegistry{
+	"agy": {
+		newAgent:         func(model string) Agent { return NewAntigravityAgent(model) },
+		newReviewParser:  func(id int) ReviewParser { return NewAntigravityOutputParser(id) },
+		newSummaryParser: func() SummaryParser { return NewAntigravitySummaryParser() },
+	},
 	"codex": {
 		newAgent:         func(model string) Agent { return NewCodexAgent(model) },
 		newReviewParser:  func(id int) ReviewParser { return NewCodexOutputParser(id) },
@@ -50,7 +55,7 @@ const DefaultAgent = "codex"
 const DefaultSummarizerAgent = "codex"
 
 // NewAgent creates an Agent by name with the default model.
-// Supported agents: codex, claude, gemini
+// Supported agents: agy, codex, claude, gemini
 func NewAgent(name string) (Agent, error) {
 	return NewAgentWithModel(name, "")
 }

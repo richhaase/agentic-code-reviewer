@@ -157,6 +157,55 @@ func TestGeminiSummaryParser_ExtractText(t *testing.T) {
 	}
 }
 
+func TestAntigravitySummaryParser_ExtractText(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantSub string
+		wantErr bool
+	}{
+		{
+			name:    "valid raw JSON",
+			input:   `{"evaluations":[]}`,
+			wantSub: "evaluations",
+		},
+		{
+			name:    "response with code fence",
+			input:   "```json\n{\"evaluations\":[]}\n```",
+			wantSub: "evaluations",
+		},
+		{
+			name:    "JSON embedded in prose",
+			input:   "Here is the result:\n{\"evaluations\":[]}",
+			wantSub: "evaluations",
+		},
+		{
+			name:    "invalid JSON",
+			input:   "not json",
+			wantErr: true,
+		},
+	}
+
+	p := NewAntigravitySummaryParser()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := p.ExtractText([]byte(tt.input))
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !strings.Contains(got, tt.wantSub) {
+				t.Errorf("ExtractText() = %q, want substring %q", got, tt.wantSub)
+			}
+		})
+	}
+}
+
 // Verify Parse still works after refactor (regression test)
 func TestCodexSummaryParser_Parse_StillWorks(t *testing.T) {
 	input := `{"type":"item.completed","item":{"type":"agent_message","text":"{\"findings\":[{\"title\":\"test\",\"summary\":\"s\",\"messages\":[\"m\"],\"reviewer_count\":1,\"sources\":[0]}],\"info\":[]}"}}`
@@ -188,6 +237,19 @@ func TestGeminiSummaryParser_Parse_StillWorks(t *testing.T) {
 	input := `{"response":"{\"findings\":[{\"title\":\"test\",\"summary\":\"s\",\"messages\":[\"m\"],\"reviewer_count\":1,\"sources\":[0]}],\"info\":[]}"}`
 
 	p := NewGeminiSummaryParser()
+	grouped, err := p.Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(grouped.Findings) != 1 {
+		t.Errorf("expected 1 finding, got %d", len(grouped.Findings))
+	}
+}
+
+func TestAntigravitySummaryParser_Parse_StillWorks(t *testing.T) {
+	input := `{"findings":[{"title":"test","summary":"s","messages":["m"],"reviewer_count":1,"sources":[0]}],"info":[]}`
+
+	p := NewAntigravitySummaryParser()
 	grouped, err := p.Parse([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
