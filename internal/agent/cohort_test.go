@@ -181,6 +181,67 @@ func TestAgentForReviewer_InvalidReviewerID(t *testing.T) {
 	}
 }
 
+func TestAgentsNeedDiff(t *testing.T) {
+	tests := []struct {
+		name   string
+		agents []Agent
+		want   bool
+	}{
+		{
+			name:   "codex only uses built-in diff",
+			agents: []Agent{&mockAgent{name: "codex"}},
+			want:   false,
+		},
+		{
+			name:   "agy needs precomputed diff",
+			agents: []Agent{&mockAgent{name: "agy"}},
+			want:   true,
+		},
+		{
+			name: "mixed codex and agy needs precomputed diff",
+			agents: []Agent{
+				&mockAgent{name: "codex"},
+				&mockAgent{name: "agy"},
+			},
+			want: true,
+		},
+		{
+			name:   "empty agents do not need diff",
+			agents: []Agent{},
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := AgentsNeedDiff(tt.agents); got != tt.want {
+				t.Errorf("AgentsNeedDiff() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAgentNeedsDiff(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{name: "codex", want: false},
+		{name: "agy", want: true},
+		{name: "claude", want: true},
+		{name: "gemini", want: true},
+		{name: "future-agent", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := AgentNeedsDiff(tt.name); got != tt.want {
+				t.Errorf("AgentNeedsDiff(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFormatDistribution(t *testing.T) {
 	tests := []struct {
 		name           string

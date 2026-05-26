@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"syscall"
 )
 
 // maxStderrSize is the maximum bytes captured from agent subprocess stderr.
@@ -88,8 +87,10 @@ func executeCommand(ctx context.Context, opts executeOptions) (*ExecutionResult,
 		cmd.Dir = opts.WorkDir
 	}
 
-	// Set process group for proper signal handling
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Set process group so cancellation can terminate the agent CLI and any
+	// helper processes that inherited its stdout/stderr pipes.
+	configureProcessGroup(cmd)
+	cmd.Cancel = func() error { return terminateProcessGroup(cmd) }
 
 	// Capture stderr for error diagnostics (capped to prevent unbounded memory)
 	stderr := newCappedBuffer(maxStderrSize)

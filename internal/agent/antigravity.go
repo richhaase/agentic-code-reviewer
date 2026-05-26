@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -59,35 +60,23 @@ func (a *AntigravityAgent) ExecuteReview(ctx context.Context, config *ReviewConf
 }
 
 // ExecuteSummary runs a summarization task using the agy CLI.
-// Uses 'agy --print' with the prompt and input piped via stdin.
-// For large inputs (>100KB), writes input to a temp file and instructs agy
-// to read it to avoid oversized prompts.
+// Uses 'agy --print -' with the prompt and input piped via stdin.
 func (a *AntigravityAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (*ExecutionResult, error) {
 	if err := a.IsAvailable(); err != nil {
 		return nil, err
 	}
 
-	var stdin io.Reader
-	var tempFilePath string
-
-	if len(input) > RefFileSizeThreshold {
-		absPath, err := WriteInputToTempFile("", input, "summary-input.json")
-		if err != nil {
-			return nil, err
-		}
-		tempFilePath = absPath
-		fullPrompt := fmt.Sprintf("%s\n\nThe input JSON is in file: %s\nRead the file to examine it.", prompt, absPath)
-		stdin = bytes.NewReader([]byte(fullPrompt))
-	} else {
-		fullPrompt := prompt + "\n\nINPUT JSON:\n" + string(input) + "\n"
-		stdin = bytes.NewReader([]byte(fullPrompt))
-	}
+	stdin := io.MultiReader(
+		strings.NewReader(prompt),
+		strings.NewReader("\n\nINPUT JSON:\n"),
+		bytes.NewReader(input),
+		strings.NewReader("\n"),
+	)
 
 	return executeCommand(ctx, executeOptions{
-		Command:      "agy",
-		Args:         antigravityPrintArgs(0),
-		Stdin:        stdin,
-		TempFilePath: tempFilePath,
+		Command: "agy",
+		Args:    antigravityPrintArgs(0),
+		Stdin:   stdin,
 	})
 }
 
@@ -95,5 +84,7 @@ func antigravityPrintArgs(timeout time.Duration) []string {
 	if timeout <= 0 {
 		timeout = antigravityDefaultPrintTimeout
 	}
-	return []string{"--print", "--print-timeout", timeout.String()}
+	// agy --print requires an argument. "-" tells agy to read the prompt
+	// from stdin, which avoids shell argument length limits for large diffs.
+	return []string{"--print", "-", "--print-timeout", timeout.String()}
 }

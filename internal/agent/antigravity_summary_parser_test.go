@@ -51,6 +51,30 @@ func TestAntigravitySummaryParser_Parse(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "missing findings field",
+			input:   []byte(`{"info":[]}`),
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name:    "missing info field",
+			input:   []byte(`{"findings":[]}`),
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name:    "null findings field",
+			input:   []byte(`{"findings":null,"info":[]}`),
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name:    "whitespace padded null findings field",
+			input:   []byte("{\"findings\": \n null \t,\"info\":[]}"),
+			want:    nil,
+			wantErr: true,
+		},
+		{
 			name:    "empty input",
 			input:   []byte(``),
 			want:    nil,

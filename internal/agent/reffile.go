@@ -60,6 +60,7 @@ func WriteDiffToTempFile(workDir, diff string) (string, error) {
 // Returns the absolute path to the temp file.
 // If workDir is empty, uses the current working directory (same as WriteDiffToTempFile).
 // This ensures the file is accessible by sandboxed agent tools (e.g., Claude's Read tool).
+// The suffix is a human-readable label only; a UUID is appended to avoid collisions.
 // The caller is responsible for cleaning up the file (use CleanupTempFile).
 func WriteInputToTempFile(workDir string, input []byte, suffix string) (string, error) {
 	wd, err := GetWorkDir(workDir)

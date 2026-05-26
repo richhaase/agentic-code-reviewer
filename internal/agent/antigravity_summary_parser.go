@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
@@ -35,5 +36,25 @@ func (p *AntigravitySummaryParser) Parse(data []byte) (*domain.GroupedFindings, 
 	if err := json.Unmarshal([]byte(text), &grouped); err != nil {
 		return nil, err
 	}
+	if err := validateGroupedFindingsShape([]byte(text)); err != nil {
+		return nil, err
+	}
 	return &grouped, nil
+}
+
+func validateGroupedFindingsShape(data []byte) error {
+	var shape struct {
+		Findings *[]domain.FindingGroup `json:"findings"`
+		Info     *[]domain.FindingGroup `json:"info"`
+	}
+	if err := json.Unmarshal(data, &shape); err != nil {
+		return err
+	}
+	if shape.Findings == nil {
+		return fmt.Errorf(`summary JSON missing required "findings" array`)
+	}
+	if shape.Info == nil {
+		return fmt.Errorf(`summary JSON missing required "info" array`)
+	}
+	return nil
 }

@@ -133,14 +133,8 @@ func TestAntigravityAgent_ExecuteReview_Args(t *testing.T) {
 	}
 
 	outputStr := string(output)
-	if !strings.Contains(outputStr, "ARG:--print") {
-		t.Errorf("expected --print in args, got:\n%s", outputStr)
-	}
-	if !strings.Contains(outputStr, "ARG:--print-timeout") {
-		t.Errorf("expected --print-timeout in args, got:\n%s", outputStr)
-	}
-	if !strings.Contains(outputStr, "ARG:10m0s") {
-		t.Errorf("expected configured timeout in args, got:\n%s", outputStr)
+	if !strings.Contains(outputStr, "ARG:--print\nARG:-\nARG:--print-timeout\nARG:10m0s\n") {
+		t.Errorf("expected agy print stdin args with configured timeout, got:\n%s", outputStr)
 	}
 }
 
@@ -219,11 +213,8 @@ func TestAntigravityAgent_ExecuteSummary_Args(t *testing.T) {
 	}
 
 	outputStr := string(output)
-	if !strings.Contains(outputStr, "ARG:--print") {
-		t.Errorf("expected --print in args, got:\n%s", outputStr)
-	}
-	if !strings.Contains(outputStr, "ARG:--print-timeout") {
-		t.Errorf("expected --print-timeout in args, got:\n%s", outputStr)
+	if !strings.Contains(outputStr, "ARG:--print\nARG:-\nARG:--print-timeout\nARG:30m0s\n") {
+		t.Errorf("expected agy print stdin args with default timeout, got:\n%s", outputStr)
 	}
 	if strings.Contains(outputStr, "ignored-model") {
 		t.Errorf("agy should not receive unsupported model arg, got:\n%s", outputStr)
