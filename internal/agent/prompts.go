@@ -53,32 +53,6 @@ Skip:
 Output format: file:line: description
 {{guidance}}`
 
-// DefaultGeminiPrompt is the default review prompt for Gemini-based agents.
-// Decoupled from Claude prompt to allow independent tuning.
-const DefaultGeminiPrompt = `You are a code reviewer. Review the provided code changes (git diff) and identify actionable issues.
-
-Focus on:
-- Bugs and logic errors
-- Security vulnerabilities (SQL injection, XSS, authentication issues, etc.)
-- Performance problems (inefficient algorithms, resource leaks, unnecessary operations)
-- Maintainability issues (code clarity, error handling, edge cases)
-- Best practices violations for the language/framework being used
-
-Output format:
-- One finding per message
-- Be specific: include file paths, line numbers, and exact issue descriptions
-- Keep findings concise but complete (1-3 sentences)
-- Only report actual issues - do not output "looks good" or "no issues found" messages
-- If there are genuinely no issues, output nothing
-
-Example findings:
-- "auth/login.go:45: SQL injection vulnerability - user input not sanitized before query"
-- "api/handler.go:123: Resource leak - HTTP response body not closed in error path"
-- "utils/parser.go:67: Potential panic - missing nil check before dereferencing pointer"
-
-Review the changes now and output your findings.
-{{guidance}}`
-
 // DefaultClaudeRefFilePrompt is the review prompt used when the diff is passed via
 // a reference file instead of being embedded in the prompt. This avoids "prompt too long"
 // errors for large diffs by having Claude read the diff using its file tools.
@@ -124,36 +98,6 @@ Skip:
 - Suggestions
 
 Output format: file:line: description
-{{guidance}}`
-
-// DefaultGeminiRefFilePrompt is the review prompt used when the diff is passed via
-// a reference file instead of being embedded in the prompt. This avoids prompt length
-// errors for large diffs by having Gemini read the diff from the file.
-const DefaultGeminiRefFilePrompt = `You are a code reviewer. Review the code changes in the diff file and identify actionable issues.
-
-The diff to review is in file: %s
-Read the file contents to examine the changes.
-
-Focus on:
-- Bugs and logic errors
-- Security vulnerabilities (SQL injection, XSS, authentication issues, etc.)
-- Performance problems (inefficient algorithms, resource leaks, unnecessary operations)
-- Maintainability issues (code clarity, error handling, edge cases)
-- Best practices violations for the language/framework being used
-
-Output format:
-- One finding per message
-- Be specific: include file paths, line numbers, and exact issue descriptions
-- Keep findings concise but complete (1-3 sentences)
-- Only report actual issues - do not output "looks good" or "no issues found" messages
-- If there are genuinely no issues, output nothing
-
-Example findings:
-- "auth/login.go:45: SQL injection vulnerability - user input not sanitized before query"
-- "api/handler.go:123: Resource leak - HTTP response body not closed in error path"
-- "utils/parser.go:67: Potential panic - missing nil check before dereferencing pointer"
-
-Review the changes now and output your findings.
 {{guidance}}`
 
 // DefaultCodexPrompt is the default review prompt for Codex-based agents.

@@ -229,7 +229,7 @@ func TestBuildStats_TracksAgentNames(t *testing.T) {
 	results := []domain.ReviewerResult{
 		{ReviewerID: 1, AgentName: "codex", ExitCode: 0, Duration: time.Second},
 		{ReviewerID: 2, AgentName: "claude", ExitCode: 1, Duration: time.Second},
-		{ReviewerID: 3, AgentName: "gemini", ExitCode: 0, Duration: time.Second},
+		{ReviewerID: 3, AgentName: "agy", ExitCode: 0, Duration: time.Second},
 	}
 
 	stats := BuildStats(results, 3, time.Second)
@@ -240,8 +240,8 @@ func TestBuildStats_TracksAgentNames(t *testing.T) {
 	if stats.ReviewerAgentNames[2] != "claude" {
 		t.Errorf("expected agent name 'claude' for reviewer 2, got %q", stats.ReviewerAgentNames[2])
 	}
-	if stats.ReviewerAgentNames[3] != "gemini" {
-		t.Errorf("expected agent name 'gemini' for reviewer 3, got %q", stats.ReviewerAgentNames[3])
+	if stats.ReviewerAgentNames[3] != "agy" {
+		t.Errorf("expected agent name 'agy' for reviewer 3, got %q", stats.ReviewerAgentNames[3])
 	}
 }
 
@@ -346,7 +346,7 @@ func TestRunReviewer_RecoverableParseError(t *testing.T) {
 func TestBuildStats_CategorizesAuthFailedReviewers(t *testing.T) {
 	results := []domain.ReviewerResult{
 		{ReviewerID: 1, ExitCode: 0, Duration: time.Second},
-		{ReviewerID: 2, ExitCode: 41, AuthFailed: true, AgentName: "gemini", Duration: time.Second},
+		{ReviewerID: 2, ExitCode: 1, AuthFailed: true, AgentName: "agy", Duration: time.Second},
 		{ReviewerID: 3, ExitCode: 1, Duration: time.Second},
 	}
 
@@ -365,8 +365,8 @@ func TestBuildStats_CategorizesAuthFailedReviewers(t *testing.T) {
 
 func TestBuildStats_AllFailedIncludesAuthFailures(t *testing.T) {
 	results := []domain.ReviewerResult{
-		{ReviewerID: 1, AuthFailed: true, ExitCode: 41},
-		{ReviewerID: 2, AuthFailed: true, ExitCode: 41},
+		{ReviewerID: 1, AuthFailed: true, ExitCode: 1},
+		{ReviewerID: 2, AuthFailed: true, ExitCode: 1},
 	}
 
 	stats := BuildStats(results, 2, time.Second)
@@ -400,7 +400,7 @@ func (m *mockAuthFailAgent) ExecuteSummary(_ context.Context, _ string, _ []byte
 }
 
 func TestRunReviewerWithRetry_SkipsRetryOnAuthFailure(t *testing.T) {
-	mock := &mockAuthFailAgent{name: "gemini", exitCode: 41, stderr: ""}
+	mock := &mockAuthFailAgent{name: "agy", exitCode: 1, stderr: "authentication required"}
 
 	r := &Runner{
 		config:    Config{Reviewers: 1, Retries: 2, Timeout: 10 * time.Second},
@@ -417,8 +417,8 @@ func TestRunReviewerWithRetry_SkipsRetryOnAuthFailure(t *testing.T) {
 	if !result.AuthFailed {
 		t.Error("expected AuthFailed to be true")
 	}
-	if result.ExitCode != 41 {
-		t.Errorf("expected exit code 41, got %d", result.ExitCode)
+	if result.ExitCode != 1 {
+		t.Errorf("expected exit code 1, got %d", result.ExitCode)
 	}
 }
 

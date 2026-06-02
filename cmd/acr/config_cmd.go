@@ -106,11 +106,11 @@ func newConfigInitCmd() *cobra.Command {
 # Fetch latest base ref from origin before diff (default: true)
 # fetch: true
 
-# Agent(s) for reviews: agy, codex, claude, gemini
+# Agent(s) for reviews: agy, codex, claude
 # reviewer_agents:
 #   - codex
 
-# Agent for summarization: agy, codex, claude, gemini
+# Agent for summarization: agy, codex, claude
 # summarizer_agent: codex
 
 # Timeout for summarizer phase (default: 5m)

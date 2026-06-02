@@ -31,10 +31,9 @@ func TestNewAgent(t *testing.T) {
 			wantErr:   false,
 		},
 		{
-			name:      "gemini agent",
+			name:      "removed gemini agent",
 			agentName: "gemini",
-			wantName:  "gemini",
-			wantErr:   false,
+			wantErr:   true,
 		},
 		{
 			name:      "unknown agent",
@@ -96,10 +95,10 @@ func TestNewReviewParser(t *testing.T) {
 			wantErr:    false,
 		},
 		{
-			name:       "gemini parser",
+			name:       "removed gemini parser",
 			agentName:  "gemini",
 			reviewerID: 3,
-			wantErr:    false,
+			wantErr:    true,
 		},
 		{
 			name:       "unknown agent parser",
@@ -129,7 +128,7 @@ func TestNewReviewParser(t *testing.T) {
 }
 
 func TestSupportedAgents(t *testing.T) {
-	expected := []string{"agy", "codex", "claude", "gemini"}
+	expected := []string{"agy", "claude", "codex"}
 	if len(SupportedAgents) != len(expected) {
 		t.Errorf("SupportedAgents has %d elements, want %d", len(SupportedAgents), len(expected))
 	}

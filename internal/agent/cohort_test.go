@@ -23,18 +23,18 @@ func TestParseAgentNames(t *testing.T) {
 		},
 		{
 			name:     "multiple agents comma-separated",
-			input:    "agy,codex,claude,gemini",
-			expected: []string{"agy", "codex", "claude", "gemini"},
+			input:    "agy,codex,claude",
+			expected: []string{"agy", "codex", "claude"},
 		},
 		{
 			name:     "multiple agents with spaces",
-			input:    "codex, claude, gemini",
-			expected: []string{"codex", "claude", "gemini"},
+			input:    "codex, claude, agy",
+			expected: []string{"codex", "claude", "agy"},
 		},
 		{
 			name:     "extra whitespace trimmed",
-			input:    "  codex  ,  claude  ,  gemini  ",
-			expected: []string{"codex", "claude", "gemini"},
+			input:    "  codex  ,  claude  ,  agy  ",
+			expected: []string{"codex", "claude", "agy"},
 		},
 		{
 			name:     "empty parts ignored",
@@ -76,7 +76,7 @@ func TestValidateAgentNames(t *testing.T) {
 		},
 		{
 			name:      "valid multiple agents",
-			agents:    []string{"agy", "codex", "claude", "gemini"},
+			agents:    []string{"agy", "codex", "claude"},
 			expectErr: false,
 		},
 		{
@@ -114,7 +114,7 @@ func TestAgentForReviewer(t *testing.T) {
 	agents := []Agent{
 		&mockAgent{name: "codex"},
 		&mockAgent{name: "claude"},
-		&mockAgent{name: "gemini"},
+		&mockAgent{name: "agy"},
 	}
 
 	tests := []struct {
@@ -123,10 +123,10 @@ func TestAgentForReviewer(t *testing.T) {
 	}{
 		{1, "codex"},  // (1-1) % 3 = 0 → codex
 		{2, "claude"}, // (2-1) % 3 = 1 → claude
-		{3, "gemini"}, // (3-1) % 3 = 2 → gemini
+		{3, "agy"},    // (3-1) % 3 = 2 → agy
 		{4, "codex"},  // (4-1) % 3 = 0 → codex (wrap around)
 		{5, "claude"}, // (5-1) % 3 = 1 → claude
-		{6, "gemini"}, // (6-1) % 3 = 2 → gemini
+		{6, "agy"},    // (6-1) % 3 = 2 → agy
 		{7, "codex"},  // (7-1) % 3 = 0 → codex
 	}
 
@@ -229,7 +229,6 @@ func TestAgentNeedsDiff(t *testing.T) {
 		{name: "codex", want: false},
 		{name: "agy", want: true},
 		{name: "claude", want: true},
-		{name: "gemini", want: true},
 		{name: "future-agent", want: true},
 	}
 
@@ -269,17 +268,17 @@ func TestFormatDistribution(t *testing.T) {
 			agents: []Agent{
 				&mockAgent{name: "codex"},
 				&mockAgent{name: "claude"},
-				&mockAgent{name: "gemini"},
+				&mockAgent{name: "agy"},
 			},
 			totalReviewers: 5,
-			expected:       "2×claude, 2×codex, 1×gemini", // sorted alphabetically
+			expected:       "1×agy, 2×claude, 2×codex", // sorted alphabetically
 		},
 		{
 			name: "fewer reviewers than agents",
 			agents: []Agent{
 				&mockAgent{name: "codex"},
 				&mockAgent{name: "claude"},
-				&mockAgent{name: "gemini"},
+				&mockAgent{name: "agy"},
 			},
 			totalReviewers: 2,
 			expected:       "1×claude, 1×codex",

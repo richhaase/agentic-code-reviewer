@@ -7,7 +7,7 @@ obligate acceptance.
 ## Prerequisites
 
 - Go 1.25+
-- At least one LLM CLI (codex, claude, or gemini) installed and authenticated
+- At least one LLM CLI (agy, codex, or claude) installed and authenticated
 - gh CLI (for integration testing)
 
 ## Development Workflow
@@ -22,14 +22,14 @@ obligate acceptance.
 
 All PRs must include evidence of a successful ACR run against the
 contributed code using the repository's `.acr.yaml` configuration
-(which uses all three agent types with 6 reviewers):
+(which uses the configured agent mix):
 
     acr --pr <your-pr-number>
 
-If you don't have access to all three agents (codex, claude, gemini),
+If you don't have access to all configured agents (agy, codex, claude),
 you must review with at least 2. Override with:
 
-    acr --pr <your-pr-number> --reviewer-agent codex,claude
+    acr --pr <your-pr-number> --reviewer-agent agy,codex
 
 ## Project Structure
 

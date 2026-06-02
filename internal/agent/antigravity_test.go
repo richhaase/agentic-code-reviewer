@@ -133,8 +133,46 @@ func TestAntigravityAgent_ExecuteReview_Args(t *testing.T) {
 	}
 
 	outputStr := string(output)
-	if !strings.Contains(outputStr, "ARG:--print\nARG:-\nARG:--print-timeout\nARG:10m0s\n") {
+	if !strings.Contains(outputStr, "ARG:--print=-\nARG:--print-timeout\nARG:10m\n") {
 		t.Errorf("expected agy print stdin args with configured timeout, got:\n%s", outputStr)
+	}
+}
+
+func TestAntigravityPrintArgs_FormatsTimeoutForCLI(t *testing.T) {
+	tests := []struct {
+		name    string
+		timeout time.Duration
+		want    []string
+	}{
+		{
+			name:    "whole minutes",
+			timeout: 10 * time.Minute,
+			want:    []string{"--print=-", "--print-timeout", "10m"},
+		},
+		{
+			name:    "whole seconds",
+			timeout: 90 * time.Second,
+			want:    []string{"--print=-", "--print-timeout", "90s"},
+		},
+		{
+			name:    "default",
+			timeout: 0,
+			want:    []string{"--print=-", "--print-timeout", "30m"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := antigravityPrintArgs(tt.timeout)
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("got %v, want %v", got, tt.want)
+				}
+			}
+		})
 	}
 }
 
@@ -213,7 +251,7 @@ func TestAntigravityAgent_ExecuteSummary_Args(t *testing.T) {
 	}
 
 	outputStr := string(output)
-	if !strings.Contains(outputStr, "ARG:--print\nARG:-\nARG:--print-timeout\nARG:30m0s\n") {
+	if !strings.Contains(outputStr, "ARG:--print=-\nARG:--print-timeout\nARG:30m\n") {
 		t.Errorf("expected agy print stdin args with default timeout, got:\n%s", outputStr)
 	}
 	if strings.Contains(outputStr, "ignored-model") {

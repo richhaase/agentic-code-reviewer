@@ -39,22 +39,21 @@ func (p *AntigravitySummaryParser) Parse(data []byte) (*domain.GroupedFindings, 
 	if err := validateGroupedFindingsShape([]byte(text)); err != nil {
 		return nil, err
 	}
+	if grouped.Info == nil {
+		grouped.Info = []domain.FindingGroup{}
+	}
 	return &grouped, nil
 }
 
 func validateGroupedFindingsShape(data []byte) error {
 	var shape struct {
 		Findings *[]domain.FindingGroup `json:"findings"`
-		Info     *[]domain.FindingGroup `json:"info"`
 	}
 	if err := json.Unmarshal(data, &shape); err != nil {
 		return err
 	}
 	if shape.Findings == nil {
 		return fmt.Errorf(`summary JSON missing required "findings" array`)
-	}
-	if shape.Info == nil {
-		return fmt.Errorf(`summary JSON missing required "info" array`)
 	}
 	return nil
 }

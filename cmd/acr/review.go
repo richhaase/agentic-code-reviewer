@@ -103,7 +103,7 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		logger.Logf(terminal.StyleDim, "Diff size: %d bytes", len(diff))
 	}
 
-	// Pass precomputed diff to agents that need it (Antigravity, Claude, Gemini).
+	// Pass precomputed diff to agents that need it (Antigravity, Claude).
 	// Codex ignores it (built-in diff via --base).
 	diffPrecomputed := agent.AgentsNeedDiff(reviewAgents)
 

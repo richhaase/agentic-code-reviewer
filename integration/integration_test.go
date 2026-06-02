@@ -8,7 +8,7 @@
 // Mock agents return canned responses in the correct format for each agent type:
 //   - codex: JSONL event stream (--json mode)
 //   - claude: JSON wrapper with result field (--output-format json mode)
-//   - gemini: JSON wrapper with response field (-o json mode)
+//   - agy: plain review text and raw JSON summaries (--print mode)
 package integration
 
 import (
@@ -208,19 +208,19 @@ func claudeSummarizerJSON() string {
 	return `{"type":"result","result":"{\"findings\":[{\"title\":\"Unchecked return value\",\"summary\":\"fmt.Println return value ignored\",\"messages\":[\"main.go:6: Return value not checked\"],\"reviewer_count\":1,\"sources\":[0]}],\"info\":[]}"}`
 }
 
-// gemini reviewer returns plain text
-const geminiReviewerResponse = `- main.go:6: fmt.Println return value is not checked for errors.
+// agy reviewer returns plain text
+const agyReviewerResponse = `- main.go:6: fmt.Println return value is not checked for errors.
 `
 
-// gemini summarizer response (JSON wrapper with response field)
-func geminiSummarizerJSON() string {
-	return `{"response":"{\"findings\":[{\"title\":\"Unchecked Println\",\"summary\":\"Return value ignored\",\"messages\":[\"main.go:6: unchecked\"],\"reviewer_count\":1,\"sources\":[0]}],\"info\":[]}"}`
+// agy summarizer response is raw JSON
+func agySummarizerJSON() string {
+	return `{"findings":[{"title":"Unchecked Println","summary":"Return value ignored","messages":["main.go:6: unchecked"],"reviewer_count":1,"sources":[0]}],"info":[]}`
 }
 
 // LGTM responses (no findings)
 const codexLGTMReview = "The code looks good. No issues found."
 const claudeLGTMReview = "No issues found. The code is clean."
-const geminiLGTMReview = "Code review complete. No problems detected."
+const agyLGTMReview = "Code review complete. No problems detected."
 
 const codexLGTMSummary = `{"type":"item.completed","item":{"type":"agent_message","text":"{\"findings\":[],\"info\":[]}"}}`
 
@@ -228,8 +228,8 @@ func claudeLGTMSummary() string {
 	return `{"type":"result","result":"{\"findings\":[],\"info\":[]}"}`
 }
 
-func geminiLGTMSummary() string {
-	return `{"response":"{\"findings\":[],\"info\":[]}"}`
+func agyLGTMSummary() string {
+	return `{"findings":[],"info":[]}`
 }
 
 // --- Mock CLI Script Generators ---
@@ -288,29 +288,24 @@ fi
 	writeMock(t, dir, "claude", script)
 }
 
-func writeMockGemini(t *testing.T, dir string, reviewResponse, summaryResponse string) {
+func writeMockAgy(t *testing.T, dir string, reviewResponse, summaryResponse string) {
 	t.Helper()
-	// Gemini uses -o json for structured output (summarizer) vs no -o (reviewer)
 	script := fmt.Sprintf(`#!/bin/sh
-has_json=false
-for arg in "$@"; do
-    if [ "$arg" = "json" ]; then
-        has_json=true
-    fi
-done
+input=$(cat)
 
-if [ "$has_json" = "true" ]; then
-    cat /dev/stdin >/dev/null 2>&1
+case "$input" in
+*"INPUT JSON:"*)
     printf '%%s\n' '%s'
-else
-    cat /dev/stdin >/dev/null 2>&1
+    ;;
+*)
     cat <<'REVIEW_EOF'
 %s
 REVIEW_EOF
-fi
+    ;;
+esac
 `, escape(summaryResponse), reviewResponse)
 
-	writeMock(t, dir, "gemini", script)
+	writeMock(t, dir, "agy", script)
 }
 
 func writeMock(t *testing.T, dir, name, script string) {
@@ -427,13 +422,13 @@ func TestClaudeReview_WithFindings(t *testing.T) {
 	}
 }
 
-func TestGeminiReview_WithFindings(t *testing.T) {
+func TestAntigravityReview_WithFindings(t *testing.T) {
 	env := setupTestEnv(t)
-	writeMockGemini(t, env.mockDir, geminiReviewerResponse, geminiSummarizerJSON())
+	writeMockAgy(t, env.mockDir, agyReviewerResponse, agySummarizerJSON())
 	writeMockGH(t, env.mockDir)
 
 	stdout, stderr, exitCode := env.run("--local", "--reviewers", "1",
-		"--reviewer-agent", "gemini", "--summarizer-agent", "gemini",
+		"--reviewer-agent", "agy", "--summarizer-agent", "agy",
 		"--base", "HEAD~1", "--no-fp-filter")
 
 	if exitCode != 1 {
@@ -481,13 +476,13 @@ func TestClaudeReview_LGTM(t *testing.T) {
 	}
 }
 
-func TestGeminiReview_LGTM(t *testing.T) {
+func TestAntigravityReview_LGTM(t *testing.T) {
 	env := setupTestEnv(t)
-	writeMockGemini(t, env.mockDir, geminiLGTMReview, geminiLGTMSummary())
+	writeMockAgy(t, env.mockDir, agyLGTMReview, agyLGTMSummary())
 	writeMockGH(t, env.mockDir)
 
 	stdout, stderr, exitCode := env.run("--local", "--reviewers", "1",
-		"--reviewer-agent", "gemini", "--summarizer-agent", "gemini",
+		"--reviewer-agent", "agy", "--summarizer-agent", "agy",
 		"--base", "HEAD~1")
 
 	if exitCode != 0 {
@@ -516,13 +511,13 @@ func TestFPFilter_ClaudeAgent(t *testing.T) {
 	}
 }
 
-func TestFPFilter_GeminiAgent(t *testing.T) {
+func TestFPFilter_AntigravityAgent(t *testing.T) {
 	env := setupTestEnv(t)
-	writeMockGemini(t, env.mockDir, geminiReviewerResponse, geminiSummarizerJSON())
+	writeMockAgy(t, env.mockDir, agyReviewerResponse, agySummarizerJSON())
 	writeMockGH(t, env.mockDir)
 
 	_, stderr, exitCode := env.run("--local", "--reviewers", "1",
-		"--reviewer-agent", "gemini", "--summarizer-agent", "gemini",
+		"--reviewer-agent", "agy", "--summarizer-agent", "agy",
 		"--base", "HEAD~1")
 
 	if exitCode != 0 && exitCode != 1 {
@@ -554,12 +549,12 @@ func TestMixedAgents(t *testing.T) {
 	env := setupTestEnv(t)
 	writeMockCodex(t, env.mockDir, codexReviewerResponse, codexSummarizerResponse)
 	writeMockClaude(t, env.mockDir, claudeReviewerResponse, claudeSummarizerJSON())
-	writeMockGemini(t, env.mockDir, geminiReviewerResponse, geminiSummarizerJSON())
+	writeMockAgy(t, env.mockDir, agyReviewerResponse, agySummarizerJSON())
 	writeMockGH(t, env.mockDir)
 
 	// Use codex as summarizer since all mock agents are available
 	stdout, stderr, exitCode := env.run("--local", "--reviewers", "3",
-		"--reviewer-agent", "codex,claude,gemini", "--summarizer-agent", "codex",
+		"--reviewer-agent", "codex,claude,agy", "--summarizer-agent", "codex",
 		"--base", "HEAD~1", "--no-fp-filter")
 
 	if exitCode != 1 {
@@ -672,7 +667,7 @@ func TestMissingAgentCLI(t *testing.T) {
 	writeMockGH(t, noAgentDir)
 
 	// Write dummy scripts that shadow real agent CLIs but exit with "not found"
-	for _, name := range []string{"codex", "claude", "gemini"} {
+	for _, name := range []string{"codex", "claude", "agy"} {
 		script := "#!/bin/sh\nexit 127\n"
 		if err := os.WriteFile(filepath.Join(noAgentDir, name), []byte(script), 0755); err != nil {
 			t.Fatal(err)

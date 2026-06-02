@@ -171,7 +171,7 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 
 	// Extract the response text using the agent-specific summary parser.
 	// Each agent wraps output differently (codex: JSONL events, claude: structured_output,
-	// gemini: response field). The parser's ExtractText strips these wrappers.
+	// agent-specific wrappers). The parser's ExtractText strips these wrappers.
 	parser, err := agent.NewSummaryParser(f.agentName)
 	if err != nil {
 		return skippedResult(grouped, start, "parser creation failed: "+err.Error())

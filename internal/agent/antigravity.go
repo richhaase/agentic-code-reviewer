@@ -60,7 +60,7 @@ func (a *AntigravityAgent) ExecuteReview(ctx context.Context, config *ReviewConf
 }
 
 // ExecuteSummary runs a summarization task using the agy CLI.
-// Uses 'agy --print -' with the prompt and input piped via stdin.
+// Uses 'agy --print=-' with the prompt and input piped via stdin.
 func (a *AntigravityAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (*ExecutionResult, error) {
 	if err := a.IsAvailable(); err != nil {
 		return nil, err
@@ -84,7 +84,18 @@ func antigravityPrintArgs(timeout time.Duration) []string {
 	if timeout <= 0 {
 		timeout = antigravityDefaultPrintTimeout
 	}
-	// agy --print requires an argument. "-" tells agy to read the prompt
-	// from stdin, which avoids shell argument length limits for large diffs.
-	return []string{"--print", "-", "--print-timeout", timeout.String()}
+	// agy --print requires an argument. Verified with agy 1.0.2:
+	// --print=- reads the prompt from stdin, which avoids shell argument
+	// length limits for large diffs and summary payloads.
+	return []string{"--print=-", "--print-timeout", formatAntigravityTimeout(timeout)}
+}
+
+func formatAntigravityTimeout(timeout time.Duration) string {
+	if timeout%time.Minute == 0 {
+		return fmt.Sprintf("%dm", int(timeout/time.Minute))
+	}
+	if timeout%time.Second == 0 {
+		return fmt.Sprintf("%ds", int(timeout/time.Second))
+	}
+	return timeout.String()
 }

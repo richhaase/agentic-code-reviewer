@@ -979,8 +979,8 @@ func TestValidate_ReviewerAgent(t *testing.T) {
 	}{
 		{"valid codex", "codex", false},
 		{"valid claude", "claude", false},
-		{"valid gemini", "gemini", false},
 		{"valid agy", "agy", false},
+		{"removed gemini", "gemini", true},
 		{"invalid agent", "invalid", true},
 		{"empty agent", "", true},
 	}
@@ -997,7 +997,7 @@ func TestValidate_ReviewerAgent(t *testing.T) {
 }
 
 func TestResolve_ReviewerAgents_FlagOverridesAll(t *testing.T) {
-	cfg := &Config{ReviewerAgent: strPtr("gemini")}
+	cfg := &Config{ReviewerAgent: strPtr("agy")}
 	envState := EnvState{ReviewerAgents: []string{"claude"}, ReviewerAgentsSet: true}
 	flagState := FlagState{ReviewerAgentsSet: true}
 	flagValues := ResolvedConfig{ReviewerAgents: []string{"codex"}}
@@ -1010,7 +1010,7 @@ func TestResolve_ReviewerAgents_FlagOverridesAll(t *testing.T) {
 }
 
 func TestResolve_ReviewerAgents_EnvOverridesConfig(t *testing.T) {
-	cfg := &Config{ReviewerAgent: strPtr("gemini")}
+	cfg := &Config{ReviewerAgent: strPtr("agy")}
 	envState := EnvState{ReviewerAgents: []string{"claude"}, ReviewerAgentsSet: true}
 	flagState := FlagState{} // no flags set
 	flagValues := ResolvedConfig{}
@@ -1023,15 +1023,15 @@ func TestResolve_ReviewerAgents_EnvOverridesConfig(t *testing.T) {
 }
 
 func TestResolve_ReviewerAgents_ConfigOverridesDefault(t *testing.T) {
-	cfg := &Config{ReviewerAgent: strPtr("gemini")}
+	cfg := &Config{ReviewerAgent: strPtr("agy")}
 	envState := EnvState{}   // no env vars set
 	flagState := FlagState{} // no flags set
 	flagValues := ResolvedConfig{}
 
 	result := Resolve(cfg, envState, flagState, flagValues)
 
-	if len(result.ReviewerAgents) != 1 || result.ReviewerAgents[0] != "gemini" {
-		t.Errorf("expected config value ['gemini'], got %v", result.ReviewerAgents)
+	if len(result.ReviewerAgents) != 1 || result.ReviewerAgents[0] != "agy" {
+		t.Errorf("expected config value ['agy'], got %v", result.ReviewerAgents)
 	}
 }
 
@@ -1409,7 +1409,7 @@ func TestLoadFromPathWithWarnings_DeprecatedReviewerAgentWithReviewerAgents(t *t
 	content := `reviewer_agent: claude
 reviewer_agents:
   - codex
-  - gemini
+  - agy
 `
 	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
 		t.Fatal(err)

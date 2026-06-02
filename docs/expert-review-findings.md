@@ -20,11 +20,11 @@ Items are grouped by theme and roughly ordered by impact within each group.
 
 ### A1. [ISSUE] Git diff generated independently per reviewer
 **Source**: Systems Expert, Software Expert
-**Files**: `internal/agent/claude.go:52`, `internal/agent/gemini.go:49`
+**Files**: `internal/agent/claude.go:52`, diff-based agent implementations
 
-Claude and Gemini agents each call `GetGitDiff()` inside `ExecuteReview()`. With N reviewers using these agents, the same `git diff` command runs N times concurrently. This wastes subprocess resources, wall-clock time, and could cause git index contention. Codex avoids this by using its built-in `review --base` mode.
+Diff-based agents each call `GetGitDiff()` inside `ExecuteReview()`. With N reviewers using these agents, the same `git diff` command runs N times concurrently. This wastes subprocess resources, wall-clock time, and could cause git index contention. Codex avoids this by using its built-in `review --base` mode.
 
-**Recommendation**: Generate the diff once in the runner and pass it to agents via `ReviewConfig`. Agents that need the raw diff (Claude, Gemini) use it directly; Codex ignores it.
+**Recommendation**: Generate the diff once in the runner and pass it to agents via `ReviewConfig`. Agents that need the raw diff use it directly; Codex ignores it.
 
 ---
 
@@ -48,9 +48,9 @@ The `runReview` function handles terminal detection, context/signal setup, PR va
 
 ---
 
-### A4. [ISSUE] Claude and Gemini ExecuteReview have significant duplication
+### A4. [ISSUE] Diff-based ExecuteReview implementations have significant duplication
 **Source**: Software Expert
-**Files**: `internal/agent/claude.go:46-88`, `internal/agent/gemini.go:43-85`
+**Files**: `internal/agent/claude.go`, diff-based agent implementations
 
 ~40 lines of near-identical structure: availability check, GetGitDiff, ref-file branching, prompt rendering, stdin composition, executeCommand. Only the CLI name, prompt constants, and flags differ.
 
@@ -82,7 +82,7 @@ These interfaces are defined but never used. `ExecuteReview` returns `*Execution
 **Source**: Software Expert
 **Files**: `internal/agent/doc.go:69-74`
 
-Mentions "Future Implementations" for Claude and Gemini (already implemented). References `AgentConfig` which doesn't exist (it's `ReviewConfig`).
+Mentions outdated future implementation details. References `AgentConfig` which doesn't exist (it's `ReviewConfig`).
 
 **Recommendation**: Update or remove — the code is self-documenting.
 
@@ -267,11 +267,11 @@ The spinner shows "Running reviewers (3/5)" but no elapsed time. For reviews tha
 
 ---
 
-### D3. [ISSUE] Long description says "Run codex review" but tool supports 3 agents
+### D3. [ISSUE] Long description says "Run codex review" but tool supports multiple agents
 **Source**: UX Expert
 **Files**: `cmd/acr/main.go:57`
 
-The `Long` description is Codex-centric despite supporting codex, claude, and gemini.
+The `Long` description is Codex-centric despite supporting multiple agents.
 
 **Recommendation**: Change to "Run parallel LLM-powered code reviews" or similar agent-agnostic phrasing.
 
@@ -387,7 +387,7 @@ The flow (reviewers -> summarizer -> FP filter -> report) could show phase numbe
 **Source**: Automation Expert
 **Files**: `.goreleaser.yaml:129`
 
-Caveats say "It requires the 'codex' CLI" but ACR now supports Claude and Gemini as alternatives.
+Caveats say "It requires the 'codex' CLI" but ACR now supports Antigravity and Claude as alternatives.
 
 ---
 

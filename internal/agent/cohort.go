@@ -103,7 +103,7 @@ func AgentNeedsDiff(name string) bool {
 	switch name {
 	case "codex":
 		return false
-	case "agy", "claude", "gemini":
+	case "agy", "claude":
 		return true
 	default:
 		return true
@@ -111,7 +111,7 @@ func AgentNeedsDiff(name string) bool {
 }
 
 // FormatDistribution returns a human-readable distribution summary.
-// Example: "2×codex, 2×claude, 1×gemini" for 5 reviewers with 3 agent types.
+// Example: "2×agy, 2×codex, 1×claude" for 5 reviewers with 3 agent types.
 func FormatDistribution(agents []Agent, totalReviewers int) string {
 	if len(agents) == 0 {
 		return ""

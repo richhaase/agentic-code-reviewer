@@ -4,7 +4,7 @@ This file provides guidance for AI assistants working on the ACR codebase.
 
 ## Project Overview
 
-ACR (Agentic Code Reviewer) is a Go CLI that runs parallel code reviews using LLM agents (Codex, Claude, or Gemini). It spawns N reviewers, collects their findings, deduplicates/clusters them via an LLM summarizer, and optionally posts results to GitHub PRs.
+ACR (Agentic Code Reviewer) is a Go CLI that runs parallel code reviews using LLM agents (Antigravity, Codex, or Claude). It spawns N reviewers, collects their findings, deduplicates/clusters them via an LLM summarizer, and optionally posts results to GitHub PRs.
 
 ## Build & Test Commands
 
@@ -34,9 +34,9 @@ cmd/acr/main.go          # CLI entry point, flag parsing, orchestration
 internal/
   agent/                 # LLM agent abstraction layer
     agent.go             # Agent interface (ExecuteReview, ExecuteSummary)
+    antigravity.go       # Antigravity agy CLI agent implementation
     codex.go             # Codex CLI agent implementation
     claude.go            # Claude CLI agent implementation
-    gemini.go            # Gemini CLI agent implementation
     factory.go           # Agent and parser factory functions
     parser.go            # ReviewParser and SummaryParser interfaces
     *_review_parser.go   # Agent-specific review output parsers
@@ -73,9 +73,9 @@ internal/
 
 ## Key Design Decisions
 
-1. **Multi-Agent Support**: Supports multiple LLM backends (Codex, Claude, Gemini) via the `Agent` interface. Each agent handles its own CLI invocation and output parsing. Adding new agents requires implementing `Agent`, `ReviewParser`, and `SummaryParser`.
+1. **Multi-Agent Support**: Supports multiple LLM backends (Antigravity, Codex, Claude) via the `Agent` interface. Each agent handles its own CLI invocation and output parsing. Adding new agents requires implementing `Agent`, `ReviewParser`, and `SummaryParser`.
 
-2. **External Dependencies**: Uses LLM CLIs (`codex`, `claude`, `gemini`) for reviews and `gh` CLI for GitHub. All are exec'd as subprocesses - no SDK dependencies.
+2. **External Dependencies**: Uses LLM CLIs (`agy`, `codex`, `claude`) for reviews and `gh` CLI for GitHub. All are exec'd as subprocesses - no SDK dependencies.
 
 3. **Parallel Execution**: Reviewers run concurrently via goroutines. Results collected via channels with context cancellation support.
 

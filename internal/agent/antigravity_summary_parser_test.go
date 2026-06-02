@@ -59,8 +59,8 @@ func TestAntigravitySummaryParser_Parse(t *testing.T) {
 		{
 			name:    "missing info field",
 			input:   []byte(`{"findings":[]}`),
-			want:    nil,
-			wantErr: true,
+			want:    &domain.GroupedFindings{Findings: []domain.FindingGroup{}, Info: []domain.FindingGroup{}},
+			wantErr: false,
 		},
 		{
 			name:    "null findings field",
