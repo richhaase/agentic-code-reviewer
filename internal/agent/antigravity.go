@@ -17,6 +17,11 @@ var _ Agent = (*AntigravityAgent)(nil)
 type AntigravityAgent struct{}
 
 const antigravityDefaultPrintTimeout = 30 * time.Minute
+
+// antigravityPrintTimeoutGrace keeps agy's own print timeout slightly above
+// ACR's context deadline. The Go context remains the authoritative timeout so
+// timed-out reviewers are categorized consistently, while agy's lower default
+// timeout is overridden for longer ACR phases.
 const antigravityPrintTimeoutGrace = 5 * time.Second
 
 // NewAntigravityAgent creates a new AntigravityAgent instance.
@@ -54,7 +59,7 @@ func (a *AntigravityAgent) ExecuteReview(ctx context.Context, config *ReviewConf
 
 	return executeDiffBasedReview(ctx, config, diffReviewConfig{
 		Command:       "agy",
-		Args:          antigravityPrintArgs(antigravityCommandTimeout(config.Timeout)),
+		Args:          antigravityPrintArgs(antigravityPrintTimeoutCeiling(config.Timeout)),
 		DefaultPrompt: DefaultAntigravityPrompt,
 		RefFilePrompt: DefaultAntigravityRefFilePrompt,
 	})
@@ -76,7 +81,7 @@ func (a *AntigravityAgent) ExecuteSummary(ctx context.Context, prompt string, in
 
 	return executeCommand(ctx, executeOptions{
 		Command: "agy",
-		Args:    antigravityPrintArgs(antigravityCommandTimeoutFromContext(ctx, time.Now())),
+		Args:    antigravityPrintArgs(antigravityPrintTimeoutCeilingFromContext(ctx, time.Now())),
 		Stdin:   stdin,
 	})
 }
@@ -105,14 +110,14 @@ func formatAntigravityTimeout(timeout time.Duration) string {
 	return fmt.Sprintf("%ds", seconds)
 }
 
-func antigravityCommandTimeout(timeout time.Duration) time.Duration {
+func antigravityPrintTimeoutCeiling(timeout time.Duration) time.Duration {
 	if timeout <= 0 {
 		return 0
 	}
 	return timeout + antigravityPrintTimeoutGrace
 }
 
-func antigravityCommandTimeoutFromContext(ctx context.Context, now time.Time) time.Duration {
+func antigravityPrintTimeoutCeilingFromContext(ctx context.Context, now time.Time) time.Duration {
 	deadline, ok := ctx.Deadline()
 	if !ok {
 		return 0

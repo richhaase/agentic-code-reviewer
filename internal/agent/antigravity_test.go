@@ -181,14 +181,14 @@ func TestAntigravityPrintArgs_FormatsTimeoutForCLI(t *testing.T) {
 	}
 }
 
-func TestAntigravityCommandTimeoutFromContext(t *testing.T) {
+func TestAntigravityPrintTimeoutCeilingFromContext(t *testing.T) {
 	now := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
 
-	t.Run("uses deadline with grace", func(t *testing.T) {
+	t.Run("uses deadline plus grace so context controls timeout", func(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), now.Add(10*time.Minute))
 		defer cancel()
 
-		got := antigravityCommandTimeoutFromContext(ctx, now)
+		got := antigravityPrintTimeoutCeilingFromContext(ctx, now)
 		want := 10*time.Minute + antigravityPrintTimeoutGrace
 		if got != want {
 			t.Fatalf("got %s, want %s", got, want)
@@ -196,7 +196,7 @@ func TestAntigravityCommandTimeoutFromContext(t *testing.T) {
 	})
 
 	t.Run("no deadline uses default", func(t *testing.T) {
-		got := antigravityCommandTimeoutFromContext(context.Background(), now)
+		got := antigravityPrintTimeoutCeilingFromContext(context.Background(), now)
 		if got != 0 {
 			t.Fatalf("got %s, want 0", got)
 		}
@@ -206,7 +206,7 @@ func TestAntigravityCommandTimeoutFromContext(t *testing.T) {
 		ctx, cancel := context.WithDeadline(context.Background(), now.Add(-time.Second))
 		defer cancel()
 
-		got := antigravityCommandTimeoutFromContext(ctx, now)
+		got := antigravityPrintTimeoutCeilingFromContext(ctx, now)
 		if got != time.Second {
 			t.Fatalf("got %s, want 1s", got)
 		}
