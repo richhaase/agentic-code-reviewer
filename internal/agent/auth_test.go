@@ -21,6 +21,8 @@ func TestIsAuthFailure(t *testing.T) {
 		{"stderr unauthorized", "codex", 1, "Error: Unauthorized", true},
 		{"stderr 401", "claude", 1, "HTTP 401 response", true},
 		{"stderr authentication required", "agy", 1, "authentication required", true},
+		{"stderr not authenticated", "agy", 1, "not authenticated", true},
+		{"stderr not signed in", "agy", 1, "not signed in", true},
 		{"stderr invalid credentials", "codex", 1, "invalid credentials", true},
 		{"stderr bare credentials is not auth failure", "codex", 1, "credential helper error", false},
 		{"exit 0 ignores auth stderr", "codex", 0, "api_key not set", false},

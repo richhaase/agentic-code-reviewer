@@ -18,6 +18,9 @@ var authStderrPatterns = []string{
 	"401",
 	"authentication required",
 	"invalid credentials",
+	"login required",
+	"not authenticated",
+	"not signed in",
 }
 
 // authHints maps agent names to actionable error messages shown on auth failure.

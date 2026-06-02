@@ -133,7 +133,7 @@ func TestAntigravityAgent_ExecuteReview_Args(t *testing.T) {
 	}
 
 	outputStr := string(output)
-	if !strings.Contains(outputStr, "ARG:--print=-\nARG:--print-timeout\nARG:10m\n") {
+	if !strings.Contains(outputStr, "ARG:--print=-\nARG:--print-timeout\nARG:605s\n") {
 		t.Errorf("expected agy print stdin args with configured timeout, got:\n%s", outputStr)
 	}
 }
@@ -155,6 +155,11 @@ func TestAntigravityPrintArgs_FormatsTimeoutForCLI(t *testing.T) {
 			want:    []string{"--print=-", "--print-timeout", "90s"},
 		},
 		{
+			name:    "fractional seconds round up",
+			timeout: 1500 * time.Millisecond,
+			want:    []string{"--print=-", "--print-timeout", "2s"},
+		},
+		{
 			name:    "default",
 			timeout: 0,
 			want:    []string{"--print=-", "--print-timeout", "30m"},
@@ -174,6 +179,38 @@ func TestAntigravityPrintArgs_FormatsTimeoutForCLI(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAntigravityCommandTimeoutFromContext(t *testing.T) {
+	now := time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC)
+
+	t.Run("uses deadline with grace", func(t *testing.T) {
+		ctx, cancel := context.WithDeadline(context.Background(), now.Add(10*time.Minute))
+		defer cancel()
+
+		got := antigravityCommandTimeoutFromContext(ctx, now)
+		want := 10*time.Minute + antigravityPrintTimeoutGrace
+		if got != want {
+			t.Fatalf("got %s, want %s", got, want)
+		}
+	})
+
+	t.Run("no deadline uses default", func(t *testing.T) {
+		got := antigravityCommandTimeoutFromContext(context.Background(), now)
+		if got != 0 {
+			t.Fatalf("got %s, want 0", got)
+		}
+	})
+
+	t.Run("expired deadline uses minimum", func(t *testing.T) {
+		ctx, cancel := context.WithDeadline(context.Background(), now.Add(-time.Second))
+		defer cancel()
+
+		got := antigravityCommandTimeoutFromContext(ctx, now)
+		if got != time.Second {
+			t.Fatalf("got %s, want 1s", got)
+		}
+	})
 }
 
 func TestAntigravityAgent_ExecuteReview_RefFileMode(t *testing.T) {
