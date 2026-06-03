@@ -2,6 +2,13 @@
 
 A CLI tool that runs parallel AI-powered code reviews using LLM agents ([Antigravity CLI](https://antigravity.google/docs/cli), [Codex](https://github.com/openai/codex), or [Claude Code](https://github.com/anthropics/claude-code)) and aggregates findings intelligently.
 
+> **Warning: Gemini CLI is no longer supported as of ACR v0.16.0.**
+> Google is transitioning Gemini CLI users to Antigravity CLI (`agy`) and says
+> Gemini CLI will stop serving requests for Google AI Pro, Ultra, and free
+> Gemini Code Assist individual users on June 18, 2026. Use Antigravity CLI
+> (`agy`) with ACR instead. See Google's
+> [Gemini CLI to Antigravity CLI transition announcement](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/).
+
 <!-- Uncomment after recording the demo:
 <p align="center">
   <img src="docs/assets/demo.svg" alt="ACR demo" width="800">
