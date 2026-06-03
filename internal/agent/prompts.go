@@ -34,8 +34,27 @@ Skip:
 Output format: file:line: description
 {{guidance}}`
 
+// DefaultAntigravityPrompt is the default review prompt for Antigravity CLI.
+const DefaultAntigravityPrompt = `Review this git diff for bugs.
+
+Look for:
+- Logic errors, wrong behavior, crashes
+- Security issues (injection, auth bypass, exposure)
+- Silent failures, swallowed errors
+- Wrong type conversions
+- Missing operations (data not passed, steps skipped)
+
+Skip:
+- Style/formatting
+- Performance unless severe
+- Test files
+- Suggestions
+
+Output format: file:line: description
+{{guidance}}`
+
 // DefaultGeminiPrompt is the default review prompt for Gemini-based agents.
-// Decoupled from Claude prompt to allow independent tuning.
+// Decoupled from other prompts to allow independent tuning.
 const DefaultGeminiPrompt = `You are a code reviewer. Review the provided code changes (git diff) and identify actionable issues.
 
 Focus on:
@@ -67,6 +86,29 @@ const DefaultClaudeRefFilePrompt = `Review this git diff for bugs.
 
 The diff to review is in file: %s
 Use the Read tool to examine it.
+
+Look for:
+- Logic errors, wrong behavior, crashes
+- Security issues (injection, auth bypass, exposure)
+- Silent failures, swallowed errors
+- Wrong type conversions
+- Missing operations (data not passed, steps skipped)
+
+Skip:
+- Style/formatting
+- Performance unless severe
+- Test files
+- Suggestions
+
+Output format: file:line: description
+{{guidance}}`
+
+// DefaultAntigravityRefFilePrompt is the review prompt used when the diff is
+// passed via a reference file instead of being embedded in the prompt.
+const DefaultAntigravityRefFilePrompt = `Review this git diff for bugs.
+
+The diff to review is in file: %s
+Read the file contents to examine the changes.
 
 Look for:
 - Logic errors, wrong behavior, crashes

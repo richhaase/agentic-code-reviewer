@@ -13,6 +13,12 @@ func TestNewAgent(t *testing.T) {
 		wantErr   bool
 	}{
 		{
+			name:      "agy agent",
+			agentName: "agy",
+			wantName:  "agy",
+			wantErr:   false,
+		},
+		{
 			name:      "codex agent",
 			agentName: "codex",
 			wantName:  "codex",
@@ -72,6 +78,12 @@ func TestNewReviewParser(t *testing.T) {
 		wantErr    bool
 	}{
 		{
+			name:       "agy parser",
+			agentName:  "agy",
+			reviewerID: 1,
+			wantErr:    false,
+		},
+		{
 			name:       "codex parser",
 			agentName:  "codex",
 			reviewerID: 1,
@@ -117,7 +129,7 @@ func TestNewReviewParser(t *testing.T) {
 }
 
 func TestSupportedAgents(t *testing.T) {
-	expected := []string{"codex", "claude", "gemini"}
+	expected := []string{"agy", "claude", "codex", "gemini"}
 	if len(SupportedAgents) != len(expected) {
 		t.Errorf("SupportedAgents has %d elements, want %d", len(SupportedAgents), len(expected))
 	}

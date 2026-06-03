@@ -17,6 +17,8 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
+const geminiDeprecationWarning = "Gemini CLI is deprecated for consumer use. ACR still supports gemini for enterprise Gemini CLI users, but use agy for new or non-enterprise Google-agent usage. Google says individual Gemini CLI requests stop serving on June 18, 2026: https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/"
+
 func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger) domain.ExitCode {
 	if opts.Concurrency < opts.Reviewers {
 		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, %d concurrent, base=%s)%s",
@@ -24,6 +26,10 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 	} else {
 		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, base=%s)%s",
 			terminal.Color(terminal.Dim), opts.Reviewers, opts.Base, terminal.Color(terminal.Reset))
+	}
+
+	if usesGeminiAgent(opts) {
+		logger.Logf(terminal.StyleWarning, "%s", geminiDeprecationWarning)
 	}
 
 	if err := agent.ValidateAgentNames(opts.ReviewerAgents); err != nil {
@@ -103,7 +109,7 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		logger.Logf(terminal.StyleDim, "Diff size: %d bytes", len(diff))
 	}
 
-	// Pass precomputed diff to agents that need it (Claude, Gemini).
+	// Pass precomputed diff to agents that need it (Antigravity, Claude, Gemini).
 	// Codex ignores it (built-in diff via --base).
 	diffPrecomputed := agent.AgentsNeedDiff(reviewAgents)
 
@@ -304,6 +310,25 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 	}
 
 	return handleFindings(ctx, opts, summaryResult.Grouped, aggregated, stats, logger)
+}
+
+func usesGeminiAgent(opts ReviewOpts) bool {
+	for _, reviewerAgent := range opts.ReviewerAgents {
+		if reviewerAgent == "gemini" {
+			return true
+		}
+	}
+	if opts.SummarizerAgent == "gemini" {
+		return true
+	}
+	if opts.PRFeedbackEnabled && opts.DetectedPR != "" && opts.FPFilterEnabled {
+		feedbackAgent := opts.PRFeedbackAgent
+		if feedbackAgent == "" {
+			feedbackAgent = opts.SummarizerAgent
+		}
+		return feedbackAgent == "gemini"
+	}
+	return false
 }
 
 // diffFindingGroups returns groups present in before but not in after.

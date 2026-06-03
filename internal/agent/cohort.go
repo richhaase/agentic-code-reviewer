@@ -87,18 +87,31 @@ func CreateAgentsWithModel(names []string, model string) ([]Agent, error) {
 }
 
 // AgentsNeedDiff returns true if any agent in the list requires a pre-computed diff.
-// Codex has built-in diff via --base and doesn't need one.
+// Codex has built-in diff via --base and doesn't need one. Other supported
+// agents receive prompts over stdin, so the runner precomputes and shares the diff.
 func AgentsNeedDiff(agents []Agent) bool {
 	for _, a := range agents {
-		if a.Name() != "codex" {
+		if AgentNeedsDiff(a.Name()) {
 			return true
 		}
 	}
 	return false
 }
 
+// AgentNeedsDiff reports whether an agent needs ACR to provide the git diff.
+func AgentNeedsDiff(name string) bool {
+	switch name {
+	case "codex":
+		return false
+	case "agy", "claude", "gemini":
+		return true
+	default:
+		return true
+	}
+}
+
 // FormatDistribution returns a human-readable distribution summary.
-// Example: "2×codex, 2×claude, 1×gemini" for 5 reviewers with 3 agent types.
+// Example: "2×agy, 2×codex, 1×claude" for 5 reviewers with 3 agent types.
 func FormatDistribution(agents []Agent, totalReviewers int) string {
 	if len(agents) == 0 {
 		return ""

@@ -5,7 +5,6 @@ import (
 	"io"
 	"os/exec"
 	"sync"
-	"syscall"
 )
 
 // Compile-time interface check
@@ -14,7 +13,7 @@ var _ io.Closer = (*cmdReader)(nil)
 // cmdReader wraps an io.Reader and ensures the command is waited on when closed.
 // It implements io.Closer and provides process exit code and stderr output
 // after Close().
-// This type is used by all agent implementations (codex, claude, gemini) to manage
+// This type is used by all agent implementations (agy, codex, claude, gemini) to manage
 // subprocess lifecycle.
 type cmdReader struct {
 	io.Reader
@@ -40,13 +39,8 @@ func (r *cmdReader) Close() error {
 
 		// Kill the process group if context was canceled or timed out
 		if r.cmd != nil && r.cmd.Process != nil {
-			// Capture PID before any state changes to prevent race condition
-			pid := r.cmd.Process.Pid
-
 			if r.ctx != nil && r.ctx.Err() != nil {
-				// Kill the entire process group (negative PID)
-				// Ignore errors - process may have already exited
-				_ = syscall.Kill(-pid, syscall.SIGKILL)
+				_ = terminateProcessGroup(r.cmd)
 			}
 
 			// Wait for command to complete and capture exit code

@@ -417,7 +417,7 @@ func TestRenderReport_WithWarnings(t *testing.T) {
 			ReviewerAgentNames: map[int]string{
 				2: "codex",
 				4: "claude",
-				5: "gemini",
+				5: "agy",
 			},
 		}
 
@@ -432,7 +432,7 @@ func TestRenderReport_WithWarnings(t *testing.T) {
 		if !strings.Contains(result, "Failed reviewers: #2 (codex), #4 (claude)") {
 			t.Error("expected failed reviewers with agent names")
 		}
-		if !strings.Contains(result, "Timed out reviewers: #5 (gemini)") {
+		if !strings.Contains(result, "Timed out reviewers: #5 (agy)") {
 			t.Error("expected timed out reviewers with agent names")
 		}
 	})
@@ -555,7 +555,7 @@ func TestRenderReport_WithAuthFailedWarning(t *testing.T) {
 		stats := domain.ReviewStats{
 			AuthFailedReviewers: []int{2},
 			ReviewerAgentNames: map[int]string{
-				2: "gemini",
+				2: "agy",
 			},
 		}
 
@@ -567,7 +567,7 @@ func TestRenderReport_WithAuthFailedWarning(t *testing.T) {
 		if !strings.Contains(result, "Auth failed") {
 			t.Error("expected 'Auth failed' in warnings")
 		}
-		if !strings.Contains(result, "#2 (gemini)") {
+		if !strings.Contains(result, "#2 (agy)") {
 			t.Error("expected reviewer ID with agent name")
 		}
 	})

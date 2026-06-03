@@ -3,8 +3,10 @@ package runner
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"strconv"
 	"sync/atomic"
@@ -19,6 +21,36 @@ import (
 // verbose output. Longer findings are truncated with "..." to prevent
 // excessive terminal output while preserving enough context for debugging.
 const maxFindingPreviewLength = 120
+
+// maxAuthOutputCapture is the bounded stdout capture used only for auth
+// detection after a reviewer process exits. It prevents auth-error text emitted
+// on stdout from being mistaken for findings without retaining unbounded output.
+const maxAuthOutputCapture = 1 << 20 // 1MB
+
+type cappedOutputCapture struct {
+	buf bytes.Buffer
+	max int
+}
+
+func newCappedOutputCapture(max int) *cappedOutputCapture {
+	return &cappedOutputCapture{max: max}
+}
+
+func (c *cappedOutputCapture) Write(p []byte) (int, error) {
+	remaining := c.max - c.buf.Len()
+	if remaining <= 0 {
+		return len(p), nil
+	}
+	if len(p) > remaining {
+		c.buf.Write(p[:remaining])
+		return len(p), nil
+	}
+	return c.buf.Write(p)
+}
+
+func (c *cappedOutputCapture) String() string {
+	return c.buf.String()
+}
 
 // Config holds the runner configuration.
 type Config struct {
@@ -233,7 +265,8 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	}
 
 	// Configure scanner
-	scanner := bufio.NewScanner(execResult)
+	stdoutCapture := newCappedOutputCapture(maxAuthOutputCapture)
+	scanner := bufio.NewScanner(io.TeeReader(execResult, stdoutCapture))
 	agent.ConfigureScanner(scanner)
 
 	// Parse output
@@ -290,9 +323,13 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	}
 	result.ExitCode = execResult.ExitCode()
 
-	// Detect auth failure from exit code and stderr
+	// Detect auth failure from exit code plus stderr/stdout. Some CLIs emit
+	// authentication failures on stdout, including structured error envelopes.
 	if result.ExitCode != 0 {
-		result.AuthFailed = agent.IsAuthFailure(selectedAgent.Name(), result.ExitCode, execResult.Stderr())
+		result.AuthFailed = agent.IsAuthFailure(selectedAgent.Name(), result.ExitCode, execResult.Stderr(), stdoutCapture.String())
+		if result.AuthFailed {
+			result.Findings = nil
+		}
 	}
 
 	// Record duration after process fully exits

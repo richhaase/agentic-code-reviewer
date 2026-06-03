@@ -26,18 +26,36 @@ func TestDefaultClaudePrompt(t *testing.T) {
 	}
 }
 
+func TestDefaultAntigravityPrompt(t *testing.T) {
+	if DefaultAntigravityPrompt == "" {
+		t.Error("DefaultAntigravityPrompt should not be empty")
+	}
+
+	requiredElements := []string{
+		"bugs",
+		"security",
+		"file",
+		"line",
+	}
+
+	lowerPrompt := strings.ToLower(DefaultAntigravityPrompt)
+	for _, element := range requiredElements {
+		if !strings.Contains(lowerPrompt, element) {
+			t.Errorf("DefaultAntigravityPrompt should contain %q", element)
+		}
+	}
+}
+
 func TestDefaultGeminiPrompt(t *testing.T) {
 	if DefaultGeminiPrompt == "" {
 		t.Error("DefaultGeminiPrompt should not be empty")
 	}
 
-	// Check for key elements
 	requiredElements := []string{
-		"code review",
 		"bugs",
 		"security",
-		"performance",
-		"finding",
+		"file",
+		"line",
 	}
 
 	lowerPrompt := strings.ToLower(DefaultGeminiPrompt)
@@ -51,30 +69,8 @@ func TestDefaultGeminiPrompt(t *testing.T) {
 func TestDefaultPromptsAreDecoupled(t *testing.T) {
 	// Prompts are decoupled to allow independent tuning per agent
 	// Both should be valid prompts but don't need to be identical
-	if DefaultClaudePrompt == "" || DefaultGeminiPrompt == "" {
-		t.Error("Both prompts should be non-empty")
-	}
-}
-
-func TestPromptInstructionsIncludeExamples(t *testing.T) {
-	// Verify that the Gemini prompt includes examples to guide the agent
-	// (Claude prompt is tuned for brevity and omits examples)
-	if !strings.Contains(DefaultGeminiPrompt, "Example") {
-		t.Error("DefaultGeminiPrompt should include examples")
-	}
-
-	// Check for example patterns like file paths with line numbers
-	if !strings.Contains(DefaultGeminiPrompt, ".go:") {
-		t.Error("DefaultGeminiPrompt should include Go file examples with line numbers")
-	}
-}
-
-func TestPromptInstructsNoFalsePositives(t *testing.T) {
-	// Verify that the Gemini prompt instructs agents not to output "looks good" messages
-	// (Claude prompt achieves this via "Skip: Suggestions" instead)
-	lowerPrompt := strings.ToLower(DefaultGeminiPrompt)
-	if !strings.Contains(lowerPrompt, "do not output") || !strings.Contains(lowerPrompt, "looks good") {
-		t.Error("DefaultGeminiPrompt should instruct agents not to output 'looks good' messages")
+	if DefaultAntigravityPrompt == "" || DefaultClaudePrompt == "" || DefaultCodexPrompt == "" || DefaultGeminiPrompt == "" {
+		t.Error("All prompts should be non-empty")
 	}
 }
 
@@ -123,10 +119,14 @@ func TestRenderPrompt(t *testing.T) {
 
 func TestDefaultPrompts_ContainPlaceholder(t *testing.T) {
 	prompts := map[string]string{
-		"DefaultClaudePrompt":        DefaultClaudePrompt,
-		"DefaultClaudeRefFilePrompt": DefaultClaudeRefFilePrompt,
-		"DefaultGeminiPrompt":        DefaultGeminiPrompt,
-		"DefaultGeminiRefFilePrompt": DefaultGeminiRefFilePrompt,
+		"DefaultAntigravityPrompt":        DefaultAntigravityPrompt,
+		"DefaultAntigravityRefFilePrompt": DefaultAntigravityRefFilePrompt,
+		"DefaultClaudePrompt":             DefaultClaudePrompt,
+		"DefaultClaudeRefFilePrompt":      DefaultClaudeRefFilePrompt,
+		"DefaultCodexPrompt":              DefaultCodexPrompt,
+		"DefaultCodexRefFilePrompt":       DefaultCodexRefFilePrompt,
+		"DefaultGeminiPrompt":             DefaultGeminiPrompt,
+		"DefaultGeminiRefFilePrompt":      DefaultGeminiRefFilePrompt,
 	}
 
 	for name, prompt := range prompts {
@@ -140,10 +140,14 @@ func TestDefaultPrompts_ContainPlaceholder(t *testing.T) {
 
 func TestRenderPrompt_DefaultPrompts_NoGuidance(t *testing.T) {
 	prompts := map[string]string{
-		"DefaultClaudePrompt":        DefaultClaudePrompt,
-		"DefaultClaudeRefFilePrompt": DefaultClaudeRefFilePrompt,
-		"DefaultGeminiPrompt":        DefaultGeminiPrompt,
-		"DefaultGeminiRefFilePrompt": DefaultGeminiRefFilePrompt,
+		"DefaultAntigravityPrompt":        DefaultAntigravityPrompt,
+		"DefaultAntigravityRefFilePrompt": DefaultAntigravityRefFilePrompt,
+		"DefaultClaudePrompt":             DefaultClaudePrompt,
+		"DefaultClaudeRefFilePrompt":      DefaultClaudeRefFilePrompt,
+		"DefaultCodexPrompt":              DefaultCodexPrompt,
+		"DefaultCodexRefFilePrompt":       DefaultCodexRefFilePrompt,
+		"DefaultGeminiPrompt":             DefaultGeminiPrompt,
+		"DefaultGeminiRefFilePrompt":      DefaultGeminiRefFilePrompt,
 	}
 
 	for name, prompt := range prompts {

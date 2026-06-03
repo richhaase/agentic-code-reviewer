@@ -10,7 +10,7 @@ Claude produces ~5x more findings than Codex, with many false positives and low-
 
 ## Approach
 
-1. Run ACR against a test branch with each agent (codex, claude, gemini)
+1. Run ACR against a test branch with each agent (agy, codex, claude)
 2. Log results in `docs/prompt-tuning-log.md`
 3. Analyze finding quality: bugs vs style, actionable vs noise
 4. Adjust prompts in `internal/agent/prompts.go`

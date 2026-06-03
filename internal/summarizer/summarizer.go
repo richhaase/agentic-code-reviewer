@@ -4,6 +4,7 @@ package summarizer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"time"
 
@@ -162,6 +163,17 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 	exitCode := execResult.ExitCode()
 	stderr := execResult.Stderr()
 	duration := time.Since(start)
+	rawOut := string(output)
+
+	if exitCode != 0 && agent.IsAuthFailure(agentName, exitCode, stderr, rawOut) {
+		return &Result{
+			Grouped:  domain.GroupedFindings{},
+			ExitCode: exitCode,
+			Stderr:   fmt.Sprintf("%s authentication failed: %s", agentName, agent.AuthHint(agentName)),
+			RawOut:   rawOut,
+			Duration: duration,
+		}, nil
+	}
 
 	if len(output) == 0 {
 		return &Result{
@@ -189,7 +201,7 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 			Grouped:  domain.GroupedFindings{},
 			ExitCode: 1,
 			Stderr:   parseErr,
-			RawOut:   string(output),
+			RawOut:   rawOut,
 			Duration: duration,
 		}, nil
 	}
@@ -198,7 +210,7 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 		Grouped:  *grouped,
 		ExitCode: exitCode,
 		Stderr:   stderr,
-		RawOut:   string(output),
+		RawOut:   rawOut,
 		Duration: duration,
 	}, nil
 }

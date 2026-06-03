@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"syscall"
 )
 
 // maxStderrSize is the maximum bytes captured from agent subprocess stderr.
@@ -54,7 +53,7 @@ func (c *cappedBuffer) String() string {
 
 // executeOptions configures command execution for agent CLI invocations.
 type executeOptions struct {
-	// Command is the CLI executable name (e.g., "codex", "claude", "gemini").
+	// Command is the CLI executable name (e.g., "agy", "codex", "claude", "gemini").
 	Command string
 	// Args are the command-line arguments.
 	Args []string
@@ -76,7 +75,7 @@ type executeOptions struct {
 //   - Starting the command and returning a managed ExecutionResult
 //   - Cleaning up temp files on error or when the result is closed
 func executeCommand(ctx context.Context, opts executeOptions) (*ExecutionResult, error) {
-	// #nosec G204 - Command is always one of the known agent CLIs (codex, claude, gemini)
+	// #nosec G204 - Command is always one of the known agent CLIs (agy, codex, claude, gemini)
 	// passed from trusted code in the agent implementations, not user input.
 	cmd := exec.CommandContext(ctx, opts.Command, opts.Args...)
 
@@ -88,8 +87,10 @@ func executeCommand(ctx context.Context, opts executeOptions) (*ExecutionResult,
 		cmd.Dir = opts.WorkDir
 	}
 
-	// Set process group for proper signal handling
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Set process group so cancellation can terminate the agent CLI and any
+	// helper processes that inherited its stdout/stderr pipes.
+	configureProcessGroup(cmd)
+	cmd.Cancel = func() error { return terminateProcessGroup(cmd) }
 
 	// Capture stderr for error diagnostics (capped to prevent unbounded memory)
 	stderr := newCappedBuffer(maxStderrSize)

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,6 +124,52 @@ EOF
 	}
 	if len(result.Grouped.Findings) > 0 && result.Grouped.Findings[0].Title != "Test Issue" {
 		t.Errorf("expected title 'Test Issue', got %q", result.Grouped.Findings[0].Title)
+	}
+}
+
+func TestSummarize_StdoutAuthFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	mockClaude := filepath.Join(tmpDir, "claude")
+	mockScript := `#!/bin/sh
+cat >/dev/null
+cat << 'EOF'
+{"type":"result","subtype":"success","is_error":true,"api_error_status":401,"duration_ms":2451,"duration_api_ms":0,"num_turns":1,"result":"Failed to authenticate. API Error: 401 Invalid authentication credentials","stop_reason":"stop_sequence","session_id":"test","total_cost_usd":0,"usage":{}}
+EOF
+exit 1
+`
+	if err := os.WriteFile(mockClaude, []byte(mockScript), 0755); err != nil {
+		t.Fatalf("failed to create mock claude: %v", err)
+	}
+
+	origPath := os.Getenv("PATH")
+	t.Setenv("PATH", tmpDir+":"+origPath)
+
+	findings := []domain.AggregatedFinding{
+		{Text: "Test finding", Reviewers: []int{1}},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result, err := Summarize(ctx, "claude", "", findings, false, terminal.NewLogger())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.ExitCode != 1 {
+		t.Errorf("expected exit code 1, got %d", result.ExitCode)
+	}
+	if !strings.Contains(result.Stderr, "claude authentication failed") {
+		t.Fatalf("expected authentication failure stderr, got %q", result.Stderr)
+	}
+	if strings.Contains(result.Stderr, "failed to parse summarizer output") {
+		t.Fatalf("expected auth failure before parse error, got %q", result.Stderr)
+	}
+	if result.RawOut == "" {
+		t.Fatal("expected raw output to be preserved")
 	}
 }
 

@@ -12,7 +12,7 @@ import (
 // temp file instead of passing via stdin. This avoids ARG_MAX limits (~128KB
 // on macOS) and keeps prompts manageable for LLM context windows.
 // 100KB provides headroom below the limit while handling most typical diffs.
-// All supported agents (Claude, Codex, Gemini) have file system access and can
+// All supported agents (Antigravity, Claude, Codex, Gemini) have file system access and can
 // read files from the working directory when instructed via the prompt.
 const RefFileSizeThreshold = 100 * 1024 // 100KB
 
@@ -60,6 +60,7 @@ func WriteDiffToTempFile(workDir, diff string) (string, error) {
 // Returns the absolute path to the temp file.
 // If workDir is empty, uses the current working directory (same as WriteDiffToTempFile).
 // This ensures the file is accessible by sandboxed agent tools (e.g., Claude's Read tool).
+// The suffix is a human-readable label only; a UUID is appended to avoid collisions.
 // The caller is responsible for cleaning up the file (use CleanupTempFile).
 func WriteInputToTempFile(workDir string, input []byte, suffix string) (string, error) {
 	wd, err := GetWorkDir(workDir)

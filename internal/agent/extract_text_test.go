@@ -108,7 +108,7 @@ func TestClaudeSummaryParser_ExtractText(t *testing.T) {
 	}
 }
 
-func TestGeminiSummaryParser_ExtractText(t *testing.T) {
+func TestAntigravitySummaryParser_ExtractText(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   string
@@ -116,19 +116,19 @@ func TestGeminiSummaryParser_ExtractText(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "valid response",
-			input:   `{"response":"{\"evaluations\":[]}"}`,
+			name:    "valid raw JSON",
+			input:   `{"evaluations":[]}`,
 			wantSub: "evaluations",
 		},
 		{
 			name:    "response with code fence",
-			input:   "{\"response\":\"```json\\n{\\\"evaluations\\\":[]}\\n```\"}",
+			input:   "```json\n{\"evaluations\":[]}\n```",
 			wantSub: "evaluations",
 		},
 		{
-			name:    "empty response",
-			input:   `{"response":""}`,
-			wantErr: true,
+			name:    "JSON embedded in prose",
+			input:   "Here is the result:\n{\"evaluations\":[]}",
+			wantSub: "evaluations",
 		},
 		{
 			name:    "invalid JSON",
@@ -137,7 +137,7 @@ func TestGeminiSummaryParser_ExtractText(t *testing.T) {
 		},
 	}
 
-	p := NewGeminiSummaryParser()
+	p := NewAntigravitySummaryParser()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := p.ExtractText([]byte(tt.input))
@@ -184,10 +184,10 @@ func TestClaudeSummaryParser_Parse_StillWorks(t *testing.T) {
 	}
 }
 
-func TestGeminiSummaryParser_Parse_StillWorks(t *testing.T) {
-	input := `{"response":"{\"findings\":[{\"title\":\"test\",\"summary\":\"s\",\"messages\":[\"m\"],\"reviewer_count\":1,\"sources\":[0]}],\"info\":[]}"}`
+func TestAntigravitySummaryParser_Parse_StillWorks(t *testing.T) {
+	input := `{"findings":[{"title":"test","summary":"s","messages":["m"],"reviewer_count":1,"sources":[0]}],"info":[]}`
 
-	p := NewGeminiSummaryParser()
+	p := NewAntigravitySummaryParser()
 	grouped, err := p.Parse([]byte(input))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

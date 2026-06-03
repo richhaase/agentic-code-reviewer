@@ -1,6 +1,9 @@
 package agent
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -61,5 +64,24 @@ func TestCappedBuffer_ZeroLimit(t *testing.T) {
 	}
 	if buf.String() != "" {
 		t.Errorf("String() = %q, want empty", buf.String())
+	}
+}
+
+func TestExecuteCommand_StartFailureCleansTempFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	tempPath := filepath.Join(tmpDir, ".acr-summary-input.json-test")
+	if err := os.WriteFile(tempPath, []byte("payload"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := executeCommand(context.Background(), executeOptions{
+		Command:      "definitely-not-a-real-acr-command",
+		TempFilePath: tempPath,
+	})
+	if err == nil {
+		t.Fatal("expected executeCommand to fail")
+	}
+	if _, statErr := os.Stat(tempPath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected temp file to be removed, stat err: %v", statErr)
 	}
 }

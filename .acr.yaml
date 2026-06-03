@@ -2,7 +2,7 @@
 # See https://github.com/richhaase/agentic-code-reviewer for documentation.
 
 # Number of parallel reviewers to run (default: 5)
-reviewers: 6
+reviewers: 4
 
 # Maximum concurrent reviewers (default: same as reviewers)
 # concurrency: 0
@@ -19,13 +19,14 @@ reviewers: 6
 # Fetch latest base ref from origin before diff (default: true)
 # fetch: true
 
-# Agent(s) for reviews: codex, claude, gemini
+# Agent(s) for reviews: agy, codex, claude, gemini
 reviewer_agents:
+  - agy
   - codex
   - claude
   - gemini
 
-# Agent for summarization: codex, claude, gemini
+# Agent for summarization: agy, codex, claude, gemini
 summarizer_agent: claude
 # Path to file containing review guidance
 # guidance_file: ""
