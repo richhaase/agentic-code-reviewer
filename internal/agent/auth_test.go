@@ -67,7 +67,7 @@ func TestIsAuthFailure_DoesNotMatchFindingsInStdout(t *testing.T) {
 }
 
 func TestAuthHint(t *testing.T) {
-	agents := []string{"agy", "claude", "codex", "unknown"}
+	agents := []string{"agy", "claude", "codex", "gemini", "unknown"}
 	for _, name := range agents {
 		t.Run(name, func(t *testing.T) {
 			hint := AuthHint(name)

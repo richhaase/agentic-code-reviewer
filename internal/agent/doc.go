@@ -1,7 +1,7 @@
 // Package agent provides abstractions for code review backends (agents).
 //
 // The package defines the core interfaces and implementations for
-// different code review backends: Antigravity, Codex, and Claude.
+// different code review backends: Antigravity, Codex, Claude, and Gemini.
 //
 // # Architecture
 //
@@ -66,4 +66,5 @@
 // CodexAgent / CodexOutputParser / CodexSummaryParser: Uses the codex CLI with JSONL output
 // ClaudeAgent / ClaudeOutputParser / ClaudeSummaryParser: Uses the claude CLI with plain text / JSON schema output
 // AntigravityAgent / AntigravityOutputParser / AntigravitySummaryParser: Uses the agy CLI with plain text output
+// GeminiAgent / GeminiOutputParser / GeminiSummaryParser: Uses the gemini CLI with JSON output
 package agent

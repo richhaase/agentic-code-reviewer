@@ -76,7 +76,7 @@ func TestValidateAgentNames(t *testing.T) {
 		},
 		{
 			name:      "valid multiple agents",
-			agents:    []string{"agy", "codex", "claude"},
+			agents:    []string{"agy", "codex", "claude", "gemini"},
 			expectErr: false,
 		},
 		{
@@ -198,6 +198,11 @@ func TestAgentsNeedDiff(t *testing.T) {
 			want:   true,
 		},
 		{
+			name:   "gemini needs precomputed diff",
+			agents: []Agent{&mockAgent{name: "gemini"}},
+			want:   true,
+		},
+		{
 			name: "mixed codex and agy needs precomputed diff",
 			agents: []Agent{
 				&mockAgent{name: "codex"},
@@ -229,6 +234,7 @@ func TestAgentNeedsDiff(t *testing.T) {
 		{name: "codex", want: false},
 		{name: "agy", want: true},
 		{name: "claude", want: true},
+		{name: "gemini", want: true},
 		{name: "future-agent", want: true},
 	}
 

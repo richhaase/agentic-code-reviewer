@@ -53,7 +53,7 @@ func (c *cappedBuffer) String() string {
 
 // executeOptions configures command execution for agent CLI invocations.
 type executeOptions struct {
-	// Command is the CLI executable name (e.g., "agy", "codex", "claude").
+	// Command is the CLI executable name (e.g., "agy", "codex", "claude", "gemini").
 	Command string
 	// Args are the command-line arguments.
 	Args []string
@@ -75,7 +75,7 @@ type executeOptions struct {
 //   - Starting the command and returning a managed ExecutionResult
 //   - Cleaning up temp files on error or when the result is closed
 func executeCommand(ctx context.Context, opts executeOptions) (*ExecutionResult, error) {
-	// #nosec G204 - Command is always one of the known agent CLIs (agy, codex, claude)
+	// #nosec G204 - Command is always one of the known agent CLIs (agy, codex, claude, gemini)
 	// passed from trusted code in the agent implementations, not user input.
 	cmd := exec.CommandContext(ctx, opts.Command, opts.Args...)
 

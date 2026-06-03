@@ -10,7 +10,7 @@ import (
 
 // diffReviewConfig holds the agent-specific parameters for a diff-based review.
 type diffReviewConfig struct {
-	// Command is the CLI command name (e.g., "agy", "claude").
+	// Command is the CLI command name (e.g., "agy", "claude", "gemini").
 	Command string
 	// Args are the CLI arguments (e.g., ["--print", "-"] for claude).
 	Args []string
@@ -21,7 +21,7 @@ type diffReviewConfig struct {
 }
 
 // executeDiffBasedReview is the shared review implementation for agents that receive
-// a git diff (Antigravity, Claude). It handles diff retrieval (using pre-computed or fetching),
+// a git diff (Antigravity, Claude, Gemini). It handles diff retrieval (using pre-computed or fetching),
 // ref-file branching, prompt rendering, and command execution.
 func executeDiffBasedReview(ctx context.Context, config *ReviewConfig, dc diffReviewConfig) (*ExecutionResult, error) {
 	// Use pre-computed diff if available, otherwise fetch it

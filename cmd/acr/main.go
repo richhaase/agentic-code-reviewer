@@ -110,9 +110,9 @@ Exit codes:
 	rootCmd.Flags().BoolVar(&noConfig, "no-config", false,
 		"Skip loading .acr.yaml config file")
 	rootCmd.Flags().StringVarP(&agentName, "reviewer-agent", "a", "codex",
-		"Agent(s) for reviews (comma-separated): agy, codex, claude (env: ACR_REVIEWER_AGENT)")
+		"Agent(s) for reviews (comma-separated): agy, codex, claude, gemini (env: ACR_REVIEWER_AGENT)")
 	rootCmd.Flags().StringVarP(&summarizerAgentName, "summarizer-agent", "s", "codex",
-		"Agent to use for summarization: agy, codex, claude (env: ACR_SUMMARIZER_AGENT)")
+		"Agent to use for summarization: agy, codex, claude, gemini (env: ACR_SUMMARIZER_AGENT)")
 	rootCmd.Flags().StringVar(&reviewerModel, "reviewer-model", "",
 		"LLM model for review agents (env: ACR_REVIEWER_MODEL)")
 	rootCmd.Flags().StringVar(&summarizerModel, "summarizer-model", "",

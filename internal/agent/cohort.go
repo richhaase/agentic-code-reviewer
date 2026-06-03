@@ -103,7 +103,7 @@ func AgentNeedsDiff(name string) bool {
 	switch name {
 	case "codex":
 		return false
-	case "agy", "claude":
+	case "agy", "claude", "gemini":
 		return true
 	default:
 		return true

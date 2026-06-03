@@ -53,6 +53,7 @@ var authHints = map[string]string{
 	"agy":    "Run 'agy' and complete Google sign-in, or check your Antigravity CLI credentials.",
 	"claude": "Run 'claude login' or check your API key configuration.",
 	"codex":  "Set OPENAI_API_KEY or run 'codex auth' to authenticate.",
+	"gemini": "Authenticate Gemini CLI with enterprise credentials, or use 'agy' for non-enterprise Google access.",
 }
 
 // IsAuthFailure returns true if the given exit code and process output indicate

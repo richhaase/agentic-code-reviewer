@@ -5,9 +5,9 @@ import (
 )
 
 // Agent represents a backend that can execute code reviews and summarizations.
-// Implementations include AntigravityAgent, CodexAgent, and ClaudeAgent.
+// Implementations include AntigravityAgent, CodexAgent, ClaudeAgent, and GeminiAgent.
 type Agent interface {
-	// Name returns the agent's identifier (e.g., "agy", "codex", "claude").
+	// Name returns the agent's identifier (e.g., "agy", "codex", "claude", "gemini").
 	Name() string
 
 	// IsAvailable checks if the agent's backend CLI is installed and accessible.
