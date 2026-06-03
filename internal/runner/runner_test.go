@@ -380,6 +380,7 @@ func TestBuildStats_AllFailedIncludesAuthFailures(t *testing.T) {
 type mockAuthFailAgent struct {
 	name      string
 	exitCode  int
+	stdout    string
 	stderr    string
 	callCount atomic.Int32
 }
@@ -389,7 +390,7 @@ func (m *mockAuthFailAgent) IsAvailable() error { return nil }
 
 func (m *mockAuthFailAgent) ExecuteReview(_ context.Context, _ *agent.ReviewConfig) (*agent.ExecutionResult, error) {
 	m.callCount.Add(1)
-	reader := &stringReadCloser{strings.NewReader("")}
+	reader := &stringReadCloser{strings.NewReader(m.stdout)}
 	exitCode := m.exitCode
 	stderr := m.stderr
 	return agent.NewExecutionResult(reader, func() int { return exitCode }, func() string { return stderr }), nil
@@ -419,6 +420,33 @@ func TestRunReviewerWithRetry_SkipsRetryOnAuthFailure(t *testing.T) {
 	}
 	if result.ExitCode != 1 {
 		t.Errorf("expected exit code 1, got %d", result.ExitCode)
+	}
+}
+
+func TestRunReviewerWithRetry_SkipsRetryOnStdoutAuthFailure(t *testing.T) {
+	mock := &mockAuthFailAgent{
+		name:     "claude",
+		exitCode: 1,
+		stdout:   "Failed to authenticate. API Error: 401 Invalid authentication credentials\n",
+	}
+
+	r := &Runner{
+		config:    Config{Reviewers: 1, Retries: 2, Timeout: 10 * time.Second},
+		agents:    []agent.Agent{mock},
+		logger:    terminal.NewLogger(),
+		completed: new(atomic.Int32),
+	}
+
+	result := r.runReviewerWithRetry(context.Background(), 1)
+
+	if mock.callCount.Load() != 1 {
+		t.Errorf("expected 1 call (no retries), got %d", mock.callCount.Load())
+	}
+	if !result.AuthFailed {
+		t.Error("expected AuthFailed to be true")
+	}
+	if len(result.Findings) != 0 {
+		t.Fatalf("expected auth stdout to be discarded, got findings: %v", result.Findings)
 	}
 }
 

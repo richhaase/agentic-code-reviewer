@@ -24,6 +24,7 @@ func TestIsAuthFailure(t *testing.T) {
 		{"stderr not authenticated", "agy", 1, "not authenticated", true},
 		{"stderr not signed in", "agy", 1, "not signed in", true},
 		{"stderr invalid credentials", "codex", 1, "invalid credentials", true},
+		{"stderr 401 invalid authentication credentials", "claude", 1, "Failed to authenticate. API Error: 401 Invalid authentication credentials", true},
 		{"stderr bare credentials is not auth failure", "codex", 1, "credential helper error", false},
 		{"exit 0 ignores auth stderr", "codex", 0, "api_key not set", false},
 		{"case insensitive stderr", "claude", 1, "UNAUTHORIZED access", true},
@@ -37,6 +38,31 @@ func TestIsAuthFailure(t *testing.T) {
 					tt.agent, tt.exitCode, tt.stderr, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestIsAuthFailure_ChecksMultipleOutputStreams(t *testing.T) {
+	if !IsAuthFailure("claude", 1, "", `{"is_error":true,"api_error_status":401,"result":"Failed to authenticate"}`) {
+		t.Fatal("expected auth failure from stdout JSON")
+	}
+}
+
+func TestIsAuthFailure_ChecksDirectStdoutAuthMessage(t *testing.T) {
+	stdout := "Failed to authenticate. API Error: 401 Invalid authentication credentials"
+	if !IsAuthFailure("claude", 1, "", stdout) {
+		t.Fatal("expected auth failure from direct stdout auth message")
+	}
+}
+
+func TestIsAuthFailure_DoesNotMatchFindingsInStdout(t *testing.T) {
+	tests := []string{
+		"api/auth.go:42: returns 401 Unauthorized when the user is not authenticated",
+		"Not authenticated users can access the admin endpoint without a permission check.",
+	}
+	for _, stdout := range tests {
+		if IsAuthFailure("agy", 1, "", stdout) {
+			t.Fatalf("expected finding text in stdout to remain non-auth: %q", stdout)
+		}
 	}
 }
 
