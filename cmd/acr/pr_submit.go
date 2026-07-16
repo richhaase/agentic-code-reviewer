@@ -159,6 +159,10 @@ func handleLGTM(ctx context.Context, opts ReviewOpts, allFindings []domain.Findi
 }
 
 func handleFindings(ctx context.Context, opts ReviewOpts, grouped domain.GroupedFindings, aggregated []domain.AggregatedFinding, stats domain.ReviewStats, logger *terminal.Logger) domain.ExitCode {
+	// May be overwritten by the LGTM records below when the user dismisses
+	// every finding.
+	opts.record(OutcomeFindings)
+
 	selectedFindings := grouped.Findings
 
 	// Interactive selection when in TTY and not auto-submitting (skip in local mode)
@@ -215,8 +219,8 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 		return nil
 	}
 
-	// Determine review type (self-review can only comment)
-	requestChanges := !pr.isSelfReview
+	// Determine review type (self-review and forced-comment policy can only comment)
+	requestChanges := !pr.isSelfReview && !opts.ForcePostComment
 
 	if !opts.AutoYes {
 		// Check if stdin is a TTY before prompting to avoid hanging in CI
@@ -295,28 +299,37 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 		return nil
 	}
 
+	if opts.Outcome != nil {
+		// Keep the rendered body so watch mode can post the approval later
+		// once CI goes green.
+		opts.Outcome.LGTMBody = body
+	}
+
 	available, err := checkPRAvailable(pr, opts, logger)
 	if err != nil {
 		return err
 	}
 	if !available {
+		opts.record(OutcomeLGTMSkipped)
 		return nil
 	}
 
 	action := actionApprove
-	if pr.isSelfReview {
+	if pr.isSelfReview || opts.ForcePostComment {
 		action = actionComment
 	}
 
 	if !opts.AutoYes {
 		if !terminal.IsStdinTTY() {
 			logger.Log("Non-interactive mode without --yes flag; skipping LGTM.", terminal.StyleDim)
+			opts.record(OutcomeLGTMSkipped)
 			return nil
 		}
 
 		action = promptLGTMAction(pr)
 		if action == actionSkip {
 			logger.Log("Skipped posting LGTM.", terminal.StyleDim)
+			opts.record(OutcomeLGTMDeclined)
 			return nil
 		}
 	}
@@ -329,6 +342,7 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 			return err
 		}
 		if action == actionSkip {
+			opts.record(OutcomeLGTMDeclined)
 			return nil
 		}
 	}
@@ -339,7 +353,15 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 		}
 	}
 
-	return executeLGTMAction(ctx, action, pr.number, body, logger)
+	if err := executeLGTMAction(ctx, action, pr.number, body, logger); err != nil {
+		return err
+	}
+	if action == actionApprove {
+		opts.record(OutcomeLGTMApproved)
+	} else {
+		opts.record(OutcomeLGTMComment)
+	}
+	return nil
 }
 
 // promptLGTMAction prompts the user for LGTM action choice.
@@ -412,6 +434,9 @@ func checkCIAndMaybeDowngrade(ctx context.Context, prNum string, action lgtmActi
 
 	if opts.AutoYes {
 		logger.Log("CI not green; posting as comment instead of approval.", terminal.StyleDim)
+		if opts.Outcome != nil {
+			opts.Outcome.CIDowngraded = true
+		}
 		return actionComment, nil
 	}
 

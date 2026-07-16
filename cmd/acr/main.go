@@ -48,6 +48,13 @@ var (
 	fpFilterTimeout     time.Duration
 	noPRFeedback        bool
 	prFeedbackAgent     string
+
+	// watch-only flags
+	watchPostMode     string
+	watchPollInterval time.Duration
+	watchSettleTime   time.Duration
+	watchMaxReviews   int
+	watchMaxDuration  time.Duration
 )
 
 func main() {
@@ -73,66 +80,20 @@ Exit codes:
 
 	rootCmd.SetVersionTemplate("{{.Version}}\n")
 
-	// Configuration flags (defaults are resolved via config.Resolve with precedence: flag > env > config > default)
-	rootCmd.Flags().IntVarP(&reviewers, "reviewers", "r", 0,
-		"Number of parallel reviewers (default: 5, env: ACR_REVIEWERS)")
-	rootCmd.Flags().IntVarP(&concurrency, "concurrency", "c", 0,
-		"Max concurrent reviewers (default: same as --reviewers, env: ACR_CONCURRENCY)")
-	rootCmd.Flags().StringVarP(&baseRef, "base", "b", "",
-		"Base ref for review command (default: main, env: ACR_BASE_REF)")
-	rootCmd.Flags().DurationVarP(&timeout, "timeout", "t", 0,
-		"Timeout per reviewer (default: 10m, env: ACR_TIMEOUT)")
-	rootCmd.Flags().IntVarP(&retries, "retries", "R", 0,
-		"Retry failed reviewers N times (default: 1, env: ACR_RETRIES)")
-	rootCmd.Flags().BoolVar(&fetch, "fetch", true,
-		"Fetch latest base ref from origin before diff (default: true, env: ACR_FETCH)")
-	rootCmd.Flags().BoolVar(&noFetch, "no-fetch", false,
-		"Disable fetching base ref from origin (use local state)")
-	rootCmd.Flags().StringVar(&guidance, "guidance", "",
-		"Steering context appended to the review prompt (env: ACR_GUIDANCE)")
-	rootCmd.Flags().StringVar(&guidanceFile, "guidance-file", "",
-		"Path to file containing review guidance (env: ACR_GUIDANCE_FILE)")
-	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false,
-		"Print agent messages as they arrive")
+	registerSharedReviewFlags(rootCmd)
+
+	// One-shot review flags that are invalid with `acr watch`: watch requires an
+	// explicit --post-mode instead of --yes, always posts (no --local), and
+	// re-fetches the moving PR head each cycle (no --worktree-branch).
+	rootCmd.Flags().BoolVarP(&autoYes, "yes", "y", false,
+		"Automatically submit review without prompting")
 	rootCmd.Flags().BoolVarP(&local, "local", "l", false,
 		"Skip posting findings to a PR")
 	rootCmd.Flags().StringVarP(&worktreeBranch, "worktree-branch", "B", "",
 		"Review a branch in a temporary worktree")
-	rootCmd.Flags().StringVar(&prNumber, "pr", "",
-		"Review a PR by number (fetches into temp worktree)")
-
-	rootCmd.Flags().BoolVarP(&autoYes, "yes", "y", false,
-		"Automatically submit review without prompting")
-
-	// Filtering options
-	rootCmd.Flags().StringArrayVar(&excludePatterns, "exclude-pattern", nil,
-		"Exclude findings matching regex pattern (repeatable)")
-	rootCmd.Flags().BoolVar(&noConfig, "no-config", false,
-		"Skip loading .acr.yaml config file")
-	rootCmd.Flags().StringVarP(&agentName, "reviewer-agent", "a", "codex",
-		"Agent(s) for reviews (comma-separated): agy, codex, claude, gemini (env: ACR_REVIEWER_AGENT)")
-	rootCmd.Flags().StringVarP(&summarizerAgentName, "summarizer-agent", "s", "codex",
-		"Agent to use for summarization: agy, codex, claude, gemini (env: ACR_SUMMARIZER_AGENT)")
-	rootCmd.Flags().StringVar(&reviewerModel, "reviewer-model", "",
-		"LLM model for review agents (env: ACR_REVIEWER_MODEL)")
-	rootCmd.Flags().StringVar(&summarizerModel, "summarizer-model", "",
-		"LLM model for summarizer/FP filter agents (env: ACR_SUMMARIZER_MODEL)")
-	rootCmd.Flags().BoolVar(&refFile, "ref-file", false,
-		"Write diff to a temp file instead of embedding in prompt (auto-enabled for large diffs)")
-	rootCmd.Flags().BoolVar(&noFPFilter, "no-fp-filter", false,
-		"Disable false positive filtering (env: ACR_FP_FILTER=false to disable)")
-	rootCmd.Flags().IntVar(&fpThreshold, "fp-threshold", 75,
-		"False positive confidence threshold 1-100 (default: 75, env: ACR_FP_THRESHOLD)")
-	rootCmd.Flags().DurationVar(&summarizerTimeout, "summarizer-timeout", 0,
-		"Timeout for summarizer phase (default: 5m, env: ACR_SUMMARIZER_TIMEOUT)")
-	rootCmd.Flags().DurationVar(&fpFilterTimeout, "fp-filter-timeout", 0,
-		"Timeout for false positive filter phase (default: 5m, env: ACR_FP_FILTER_TIMEOUT)")
-	rootCmd.Flags().BoolVar(&noPRFeedback, "no-pr-feedback", false,
-		"Disable reading PR comments for feedback context (env: ACR_PR_FEEDBACK=false)")
-	rootCmd.Flags().StringVar(&prFeedbackAgent, "pr-feedback-agent", "",
-		"Agent for PR feedback summarization (default: same as --summarizer-agent, env: ACR_PR_FEEDBACK_AGENT)")
 
 	rootCmd.AddCommand(newConfigCmd())
+	rootCmd.AddCommand(newWatchCmd())
 
 	setGroupedUsage(rootCmd)
 
@@ -146,6 +107,64 @@ Exit codes:
 	}
 
 	return 0
+}
+
+// registerSharedReviewFlags registers the review flags shared by the root
+// review command and the watch subcommand. Flags valid only for one-shot
+// reviews (--yes, --local, --worktree-branch) are registered separately on
+// the root command so `acr watch` rejects them with a usage error.
+func registerSharedReviewFlags(cmd *cobra.Command) {
+	// Configuration flags (defaults are resolved via config.Resolve with precedence: flag > env > config > default)
+	cmd.Flags().IntVarP(&reviewers, "reviewers", "r", 0,
+		"Number of parallel reviewers (default: 5, env: ACR_REVIEWERS)")
+	cmd.Flags().IntVarP(&concurrency, "concurrency", "c", 0,
+		"Max concurrent reviewers (default: same as --reviewers, env: ACR_CONCURRENCY)")
+	cmd.Flags().StringVarP(&baseRef, "base", "b", "",
+		"Base ref for review command (default: main, env: ACR_BASE_REF)")
+	cmd.Flags().DurationVarP(&timeout, "timeout", "t", 0,
+		"Timeout per reviewer (default: 10m, env: ACR_TIMEOUT)")
+	cmd.Flags().IntVarP(&retries, "retries", "R", 0,
+		"Retry failed reviewers N times (default: 1, env: ACR_RETRIES)")
+	cmd.Flags().BoolVar(&fetch, "fetch", true,
+		"Fetch latest base ref from origin before diff (default: true, env: ACR_FETCH)")
+	cmd.Flags().BoolVar(&noFetch, "no-fetch", false,
+		"Disable fetching base ref from origin (use local state)")
+	cmd.Flags().StringVar(&guidance, "guidance", "",
+		"Steering context appended to the review prompt (env: ACR_GUIDANCE)")
+	cmd.Flags().StringVar(&guidanceFile, "guidance-file", "",
+		"Path to file containing review guidance (env: ACR_GUIDANCE_FILE)")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false,
+		"Print agent messages as they arrive")
+	cmd.Flags().StringVar(&prNumber, "pr", "",
+		"Review a PR by number (fetches into temp worktree)")
+
+	// Filtering options
+	cmd.Flags().StringArrayVar(&excludePatterns, "exclude-pattern", nil,
+		"Exclude findings matching regex pattern (repeatable)")
+	cmd.Flags().BoolVar(&noConfig, "no-config", false,
+		"Skip loading .acr.yaml config file")
+	cmd.Flags().StringVarP(&agentName, "reviewer-agent", "a", "codex",
+		"Agent(s) for reviews (comma-separated): agy, codex, claude, gemini (env: ACR_REVIEWER_AGENT)")
+	cmd.Flags().StringVarP(&summarizerAgentName, "summarizer-agent", "s", "codex",
+		"Agent to use for summarization: agy, codex, claude, gemini (env: ACR_SUMMARIZER_AGENT)")
+	cmd.Flags().StringVar(&reviewerModel, "reviewer-model", "",
+		"LLM model for review agents (env: ACR_REVIEWER_MODEL)")
+	cmd.Flags().StringVar(&summarizerModel, "summarizer-model", "",
+		"LLM model for summarizer/FP filter agents (env: ACR_SUMMARIZER_MODEL)")
+	cmd.Flags().BoolVar(&refFile, "ref-file", false,
+		"Write diff to a temp file instead of embedding in prompt (auto-enabled for large diffs)")
+	cmd.Flags().BoolVar(&noFPFilter, "no-fp-filter", false,
+		"Disable false positive filtering (env: ACR_FP_FILTER=false to disable)")
+	cmd.Flags().IntVar(&fpThreshold, "fp-threshold", 75,
+		"False positive confidence threshold 1-100 (default: 75, env: ACR_FP_THRESHOLD)")
+	cmd.Flags().DurationVar(&summarizerTimeout, "summarizer-timeout", 0,
+		"Timeout for summarizer phase (default: 5m, env: ACR_SUMMARIZER_TIMEOUT)")
+	cmd.Flags().DurationVar(&fpFilterTimeout, "fp-filter-timeout", 0,
+		"Timeout for false positive filter phase (default: 5m, env: ACR_FP_FILTER_TIMEOUT)")
+	cmd.Flags().BoolVar(&noPRFeedback, "no-pr-feedback", false,
+		"Disable reading PR comments for feedback context (env: ACR_PR_FEEDBACK=false)")
+	cmd.Flags().StringVar(&prFeedbackAgent, "pr-feedback-agent", "",
+		"Agent for PR feedback summarization (default: same as --summarizer-agent, env: ACR_PR_FEEDBACK_AGENT)")
 }
 
 // worktreeResult holds the outputs from worktree setup.
@@ -360,6 +379,12 @@ func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *termina
 		FPThresholdSet:       cmd.Flags().Changed("fp-threshold"),
 		NoPRFeedbackSet:      cmd.Flags().Changed("no-pr-feedback"),
 		PRFeedbackAgentSet:   cmd.Flags().Changed("pr-feedback-agent"),
+		// Watch flags exist only on the watch subcommand; Changed() on an
+		// unregistered flag is false, so this is safe for the root command.
+		WatchPollIntervalSet: cmd.Flags().Changed("poll-interval"),
+		WatchSettleTimeSet:   cmd.Flags().Changed("settle-time"),
+		WatchMaxReviewsSet:   cmd.Flags().Changed("max-reviews"),
+		WatchMaxDurationSet:  cmd.Flags().Changed("max-duration"),
 	}
 
 	// Load env var state
@@ -398,6 +423,10 @@ func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *termina
 		FPThreshold:       fpThreshold,
 		PRFeedbackEnabled: !noPRFeedback,
 		PRFeedbackAgent:   prFeedbackAgent,
+		WatchPollInterval: watchPollInterval,
+		WatchSettleTime:   watchSettleTime,
+		WatchMaxReviews:   watchMaxReviews,
+		WatchMaxDuration:  watchMaxDuration,
 	}
 
 	// Resolve final configuration (precedence: flags > env vars > config file > defaults)

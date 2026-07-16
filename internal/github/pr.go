@@ -297,6 +297,74 @@ func ParseCIChecks(data []byte) CIStatus {
 	}
 }
 
+// PRWatchState is a point-in-time snapshot of the mutable PR state that
+// watch mode polls: head commit, open/closed/merged state, and pending
+// review requests.
+type PRWatchState struct {
+	HeadSHA        string
+	State          string   // "OPEN", "CLOSED", or "MERGED"
+	ReviewRequests []string // user logins and team slugs with pending review requests
+}
+
+// Closed reports whether the PR is closed without being merged.
+func (s PRWatchState) Closed() bool { return strings.EqualFold(s.State, "CLOSED") }
+
+// Merged reports whether the PR has been merged.
+func (s PRWatchState) Merged() bool { return strings.EqualFold(s.State, "MERGED") }
+
+// ReviewRequestedFrom reports whether login has a pending review request on the PR.
+func (s PRWatchState) ReviewRequestedFrom(login string) bool {
+	if login == "" {
+		return false
+	}
+	for _, r := range s.ReviewRequests {
+		if strings.EqualFold(r, login) {
+			return true
+		}
+	}
+	return false
+}
+
+// GetPRWatchState fetches the current watch-relevant state of a PR.
+func GetPRWatchState(ctx context.Context, prNumber string) (PRWatchState, error) {
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "headRefOid,state,reviewRequests")
+	out, err := cmd.Output()
+	if err != nil {
+		return PRWatchState{}, classifyGHError(err)
+	}
+	return ParsePRWatchState(out)
+}
+
+// ParsePRWatchState parses the gh pr view JSON for watch-relevant fields.
+// Review request entries carry a login for users and a slug for teams.
+func ParsePRWatchState(data []byte) (PRWatchState, error) {
+	var resp struct {
+		HeadRefOid     string `json:"headRefOid"`
+		State          string `json:"state"`
+		ReviewRequests []struct {
+			Login string `json:"login"`
+			Slug  string `json:"slug"`
+		} `json:"reviewRequests"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return PRWatchState{}, fmt.Errorf("failed to parse PR state response: %w", err)
+	}
+
+	state := PRWatchState{
+		HeadSHA: resp.HeadRefOid,
+		State:   resp.State,
+	}
+	for _, r := range resp.ReviewRequests {
+		switch {
+		case r.Login != "":
+			state.ReviewRequests = append(state.ReviewRequests, r.Login)
+		case r.Slug != "":
+			state.ReviewRequests = append(state.ReviewRequests, r.Slug)
+		}
+	}
+	return state, nil
+}
+
 // IsGHAvailable checks if the gh CLI is available.
 func IsGHAvailable() bool {
 	_, err := exec.LookPath("gh")

@@ -61,7 +61,10 @@ internal/
   summarizer/            # LLM-based finding summarization
     summarizer.go        # Orchestrates agent execution and output parsing
   github/                # GitHub PR operations via gh CLI
-    pr.go                # Post comments, approve PRs, check CI status
+    pr.go                # Post comments, approve PRs, check CI status, poll PR state
+  watch/                 # acr watch loop
+    watch.go             # Poll/trigger/bounds state machine with injected effects
+    clock.go             # Clock abstraction (real + test fakes)
   git/                   # Git operations
     worktree.go          # Temporary worktree management
   terminal/              # Terminal UI

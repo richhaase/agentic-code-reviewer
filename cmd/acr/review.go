@@ -102,6 +102,7 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 	// Short-circuit: no changes means nothing to review
 	if diff == "" {
 		logger.Logf(terminal.StyleSuccess, "No changes detected between HEAD and %s. Nothing to review.", resolvedBaseRef)
+		opts.record(OutcomeNoChanges)
 		return domain.ExitNoFindings
 	}
 

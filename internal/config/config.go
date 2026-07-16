@@ -71,6 +71,17 @@ type Config struct {
 	Filters           FilterConfig     `yaml:"filters"`
 	FPFilter          FPFilterConfig   `yaml:"fp_filter"`
 	PRFeedback        PRFeedbackConfig `yaml:"pr_feedback"`
+	Watch             WatchConfig      `yaml:"watch"`
+}
+
+// WatchConfig holds watch-mode pacing and bounds. The post mode is
+// intentionally flag-only: automated posting must be an explicit per-run
+// decision, not something a config file switches on.
+type WatchConfig struct {
+	PollInterval *Duration `yaml:"poll_interval"`
+	SettleTime   *Duration `yaml:"settle_time"`
+	MaxReviews   *int      `yaml:"max_reviews"`
+	MaxDuration  *Duration `yaml:"max_duration"`
 }
 
 type FPFilterConfig struct {
@@ -171,11 +182,13 @@ func (c *Config) validatePatterns() error {
 	return nil
 }
 
-var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "fetch", "reviewer_agent", "reviewer_agents", "summarizer_agent", "reviewer_model", "summarizer_model", "summarizer_timeout", "fp_filter_timeout", "guidance_file", "filters", "fp_filter", "pr_feedback"}
+var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "fetch", "reviewer_agent", "reviewer_agents", "summarizer_agent", "reviewer_model", "summarizer_model", "summarizer_timeout", "fp_filter_timeout", "guidance_file", "filters", "fp_filter", "pr_feedback", "watch"}
 
 var knownFPFilterKeys = []string{"enabled", "threshold"}
 
 var knownPRFeedbackKeys = []string{"enabled", "agent"}
+
+var knownWatchKeys = []string{"poll_interval", "settle_time", "max_reviews", "max_duration"}
 
 // knownFilterKeys are the valid keys under the "filters" section.
 var knownFilterKeys = []string{"exclude_patterns"}
@@ -231,6 +244,18 @@ func checkUnknownKeys(data []byte) []string {
 			if !slices.Contains(knownPRFeedbackKeys, key) {
 				warning := fmt.Sprintf("unknown key %q in pr_feedback section of %s", key, ConfigFileName)
 				if suggestion := findSimilar(key, knownPRFeedbackKeys); suggestion != "" {
+					warning += fmt.Sprintf(" (did you mean %q?)", suggestion)
+				}
+				warnings = append(warnings, warning)
+			}
+		}
+	}
+
+	if watch, ok := raw["watch"].(map[string]any); ok {
+		for key := range watch {
+			if !slices.Contains(knownWatchKeys, key) {
+				warning := fmt.Sprintf("unknown key %q in watch section of %s", key, ConfigFileName)
+				if suggestion := findSimilar(key, knownWatchKeys); suggestion != "" {
 					warning += fmt.Sprintf(" (did you mean %q?)", suggestion)
 				}
 				warnings = append(warnings, warning)
@@ -379,6 +404,18 @@ func (r *ResolvedConfig) ValidateAll() []string {
 	if r.PRFeedbackAgent != "" && !slices.Contains(agent.SupportedAgents, r.PRFeedbackAgent) {
 		errs = append(errs, fmt.Sprintf("pr_feedback.agent must be one of %v, got %q", agent.SupportedAgents, r.PRFeedbackAgent))
 	}
+	if r.WatchPollInterval <= 0 {
+		errs = append(errs, fmt.Sprintf("watch.poll_interval must be > 0, got %s", r.WatchPollInterval))
+	}
+	if r.WatchSettleTime < 0 {
+		errs = append(errs, fmt.Sprintf("watch.settle_time must be >= 0, got %s", r.WatchSettleTime))
+	}
+	if r.WatchMaxReviews < 1 {
+		errs = append(errs, fmt.Sprintf("watch.max_reviews must be >= 1, got %d", r.WatchMaxReviews))
+	}
+	if r.WatchMaxDuration <= 0 {
+		errs = append(errs, fmt.Sprintf("watch.max_duration must be > 0, got %s", r.WatchMaxDuration))
+	}
 	return errs
 }
 
@@ -407,6 +444,10 @@ var Defaults = ResolvedConfig{
 	FPThreshold:       75,
 	PRFeedbackEnabled: true,
 	PRFeedbackAgent:   "", // empty means use summarizer agent
+	WatchPollInterval: time.Minute,
+	WatchSettleTime:   10 * time.Minute,
+	WatchMaxReviews:   10,
+	WatchMaxDuration:  24 * time.Hour,
 }
 
 type ResolvedConfig struct {
@@ -428,6 +469,10 @@ type ResolvedConfig struct {
 	FPThreshold       int
 	PRFeedbackEnabled bool
 	PRFeedbackAgent   string
+	WatchPollInterval time.Duration
+	WatchSettleTime   time.Duration
+	WatchMaxReviews   int
+	WatchMaxDuration  time.Duration
 }
 
 type FlagState struct {
@@ -449,6 +494,11 @@ type FlagState struct {
 	FPThresholdSet       bool
 	NoPRFeedbackSet      bool
 	PRFeedbackAgentSet   bool
+
+	WatchPollIntervalSet bool
+	WatchSettleTimeSet   bool
+	WatchMaxReviewsSet   bool
+	WatchMaxDurationSet  bool
 }
 
 type EnvState struct {
@@ -699,6 +749,18 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 		if cfg.PRFeedback.Agent != nil {
 			result.PRFeedbackAgent = *cfg.PRFeedback.Agent
 		}
+		if cfg.Watch.PollInterval != nil {
+			result.WatchPollInterval = cfg.Watch.PollInterval.AsDuration()
+		}
+		if cfg.Watch.SettleTime != nil {
+			result.WatchSettleTime = cfg.Watch.SettleTime.AsDuration()
+		}
+		if cfg.Watch.MaxReviews != nil {
+			result.WatchMaxReviews = *cfg.Watch.MaxReviews
+		}
+		if cfg.Watch.MaxDuration != nil {
+			result.WatchMaxDuration = cfg.Watch.MaxDuration.AsDuration()
+		}
 	}
 
 	// Apply env var values (if set)
@@ -798,6 +860,18 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	}
 	if flagState.PRFeedbackAgentSet {
 		result.PRFeedbackAgent = flagValues.PRFeedbackAgent
+	}
+	if flagState.WatchPollIntervalSet {
+		result.WatchPollInterval = flagValues.WatchPollInterval
+	}
+	if flagState.WatchSettleTimeSet {
+		result.WatchSettleTime = flagValues.WatchSettleTime
+	}
+	if flagState.WatchMaxReviewsSet {
+		result.WatchMaxReviews = flagValues.WatchMaxReviews
+	}
+	if flagState.WatchMaxDurationSet {
+		result.WatchMaxDuration = flagValues.WatchMaxDuration
 	}
 
 	return result

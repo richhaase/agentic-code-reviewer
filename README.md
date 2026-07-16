@@ -192,6 +192,74 @@ ACR will:
 
 This requires an open PR from the fork to the current repository. The `gh` CLI must be authenticated.
 
+### Watch Mode
+
+`acr watch` reviews one PR, posts the result, then keeps watching the PR and
+re-reviews until a terminal LGTM is posted or a safety bound is reached:
+
+```bash
+# Watch the current branch's PR interactively (default)
+acr watch
+
+# Watch a PR unattended, posting every result as a comment review
+acr watch --pr 123 --post-mode comment
+
+# Watch unattended and approve once the review is clean and CI is green
+acr watch --pr 123 --post-mode approve
+
+# Tune the pacing and bounds
+acr watch --pr 123 --post-mode comment \
+    --poll-interval 2m --settle-time 15m --max-reviews 5 --max-duration 8h
+```
+
+A new review cycle starts when:
+
+- **A re-review is requested** from the authenticated `gh` user on the watched
+  PR — this triggers on the next poll, without waiting for the commit quiet
+  period. Requests aimed at other reviewers are ignored.
+- **New commits are pushed** — a changed head starts the `--settle-time` quiet
+  period (default 10m); each additional commit restarts it. The review runs
+  once the head stops moving.
+
+Every cycle fetches the PR head into a fresh temporary worktree, so local
+branch state never goes stale mid-watch.
+
+Post modes control what gets posted:
+
+| Mode | Behavior |
+| --- | --- |
+| `interactive` | Default. Prompts for every submission decision; requires a TTY. Declining to post an LGTM ends the watch cleanly. |
+| `comment` | Unattended. Every result is posted as a comment review only — it can never request changes or approve. An LGTM is posted as an explicit LGTM comment, then the watch exits. |
+| `approve` | Unattended. Findings follow the automated `--yes` rules; an LGTM approves the PR. If CI is not green, the LGTM is posted as a comment and the watch keeps polling CI, approving once it goes green for the same head. New commits invalidate the pending approval. |
+
+`--yes`, `--local`, and `--worktree-branch` are invalid with `acr watch`:
+unattended posting must be an explicit `--post-mode` decision, and the watch
+always posts to the PR it is following.
+
+The watch stops when the terminal LGTM is posted, the PR is closed or merged,
+`--max-reviews` (default 10) or `--max-duration` (default 24h) is reached, or
+the process is interrupted. Reaching a safety bound without an LGTM exits
+non-zero.
+
+Watch pacing can also be set in `.acr.yaml` (flags win over config):
+
+```yaml
+watch:
+  poll_interval: 1m
+  settle_time: 10m
+  max_reviews: 10
+  max_duration: 24h
+```
+
+The post mode is deliberately flag-only.
+
+> **Cost note:** every review cycle spawns the full reviewer fleet plus the
+> summarizer, false-positive filter, and PR feedback phases — roughly eight
+> agent invocations per cycle at the defaults, so the default bounds allow on
+> the order of 80 invocations per watched PR. If Claude Code is one of your
+> agents, see the Claude billing note under Prerequisites before running
+> unattended watches.
+
 ### Agent Selection
 
 ACR supports multiple AI backends for code review:

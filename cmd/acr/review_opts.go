@@ -21,4 +21,10 @@ type ReviewOpts struct {
 	UseRefFile      bool
 	ExcludePatterns []string
 	WorkDir         string // Worktree path (empty = current directory)
+
+	// Watch-mode policy: post every result as a comment review only, never
+	// request changes or approve (and never run the pre-approval CI check).
+	ForcePostComment bool
+	// Outcome, when non-nil, receives a record of what the cycle posted.
+	Outcome *CycleOutcome
 }

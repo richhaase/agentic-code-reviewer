@@ -1584,3 +1584,108 @@ func TestResolvedConfig_Validate_EmptyReviewerAgents(t *testing.T) {
 		t.Errorf("expected 'reviewer_agents must not be empty' in error, got: %v", err)
 	}
 }
+
+func TestResolve_WatchDefaults(t *testing.T) {
+	resolved := Resolve(nil, EnvState{}, FlagState{}, ResolvedConfig{})
+
+	if resolved.WatchPollInterval != time.Minute {
+		t.Errorf("WatchPollInterval = %s, want 1m", resolved.WatchPollInterval)
+	}
+	if resolved.WatchSettleTime != 10*time.Minute {
+		t.Errorf("WatchSettleTime = %s, want 10m", resolved.WatchSettleTime)
+	}
+	if resolved.WatchMaxReviews != 10 {
+		t.Errorf("WatchMaxReviews = %d, want 10", resolved.WatchMaxReviews)
+	}
+	if resolved.WatchMaxDuration != 24*time.Hour {
+		t.Errorf("WatchMaxDuration = %s, want 24h", resolved.WatchMaxDuration)
+	}
+}
+
+func TestResolve_WatchConfigAndFlagPrecedence(t *testing.T) {
+	pollInterval := Duration(30 * time.Second)
+	maxReviews := 3
+	cfg := &Config{
+		Watch: WatchConfig{
+			PollInterval: &pollInterval,
+			MaxReviews:   &maxReviews,
+		},
+	}
+
+	// Config file values apply over defaults.
+	resolved := Resolve(cfg, EnvState{}, FlagState{}, ResolvedConfig{})
+	if resolved.WatchPollInterval != 30*time.Second {
+		t.Errorf("WatchPollInterval = %s, want 30s from config", resolved.WatchPollInterval)
+	}
+	if resolved.WatchMaxReviews != 3 {
+		t.Errorf("WatchMaxReviews = %d, want 3 from config", resolved.WatchMaxReviews)
+	}
+
+	// Flags win over the config file.
+	resolved = Resolve(cfg, EnvState{},
+		FlagState{WatchPollIntervalSet: true, WatchMaxReviewsSet: true},
+		ResolvedConfig{WatchPollInterval: 2 * time.Minute, WatchMaxReviews: 5})
+	if resolved.WatchPollInterval != 2*time.Minute {
+		t.Errorf("WatchPollInterval = %s, want 2m from flag", resolved.WatchPollInterval)
+	}
+	if resolved.WatchMaxReviews != 5 {
+		t.Errorf("WatchMaxReviews = %d, want 5 from flag", resolved.WatchMaxReviews)
+	}
+}
+
+func TestValidate_WatchBounds(t *testing.T) {
+	resolved := Defaults
+	resolved.WatchPollInterval = 0
+	resolved.WatchMaxReviews = 0
+	resolved.WatchSettleTime = -time.Second
+	resolved.WatchMaxDuration = 0
+
+	errs := resolved.ValidateAll()
+	for _, want := range []string{"watch.poll_interval", "watch.settle_time", "watch.max_reviews", "watch.max_duration"} {
+		found := false
+		for _, e := range errs {
+			if strings.Contains(e, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected validation error mentioning %s, got %v", want, errs)
+		}
+	}
+}
+
+func TestLoadFromPathWithWarnings_WatchSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ConfigFileName)
+	content := `watch:
+  poll_interval: 45s
+  settle_time: 5m
+  max_reviews: 4
+  max_duration: 2h
+  unknown_key: true
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := LoadFromPathWithWarnings(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Config.Watch.PollInterval == nil || result.Config.Watch.PollInterval.AsDuration() != 45*time.Second {
+		t.Errorf("poll_interval not parsed: %+v", result.Config.Watch)
+	}
+	if result.Config.Watch.MaxReviews == nil || *result.Config.Watch.MaxReviews != 4 {
+		t.Errorf("max_reviews not parsed: %+v", result.Config.Watch)
+	}
+	foundWarning := false
+	for _, w := range result.Warnings {
+		if strings.Contains(w, "unknown_key") && strings.Contains(w, "watch section") {
+			foundWarning = true
+		}
+	}
+	if !foundWarning {
+		t.Errorf("expected unknown-key warning for watch section, got %v", result.Warnings)
+	}
+}
