@@ -113,6 +113,7 @@ type loop struct {
 	settleDeadline  time.Time
 	requestArmed    bool
 	pendingApproval string
+	ciErrors        int
 }
 
 func (l *loop) logf(format string, args ...any) {
@@ -292,9 +293,14 @@ func (l *loop) tryApprove(ctx context.Context) (ExitReason, bool) {
 		if ctx.Err() != nil {
 			return ReasonInterrupted, true
 		}
-		l.logf("CI status check failed: %v", err)
+		l.ciErrors++
+		l.logf("CI status check failed (%d/%d): %v", l.ciErrors, maxConsecutivePollErrors, err)
+		if l.ciErrors >= maxConsecutivePollErrors {
+			return ReasonError, true
+		}
 		return 0, false
 	}
+	l.ciErrors = 0
 	if !green {
 		return 0, false
 	}
@@ -341,9 +347,11 @@ func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, boo
 		return ReasonError, true
 	}
 
-	l.lastHead = head
-	if c.HeadSHA != "" {
-		l.lastHead = c.HeadSHA
+	if c.Result != CycleStaleHead {
+		l.lastHead = head
+		if c.HeadSHA != "" {
+			l.lastHead = c.HeadSHA
+		}
 	}
 	l.pendingHead = ""
 	l.pendingApproval = ""

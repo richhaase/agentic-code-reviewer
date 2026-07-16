@@ -602,3 +602,37 @@ func TestStartupStateToleratesTransientErrors(t *testing.T) {
 		t.Errorf("state calls = %d, want 3 (two failures then success)", calls)
 	}
 }
+
+func TestForcePushBackToDiscardedHeadRetriggersReview(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa")}
+	h.cycles = []Cycle{
+		{Result: CycleStaleHead, HeadSHA: "aaa"},
+		{Result: CycleLGTMApproved},
+	}
+
+	reason := Run(context.Background(), defaultConfig(PostModeApprove), h.deps())
+
+	if reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if len(h.triggers) != 2 {
+		t.Errorf("cycles = %d, want 2 (discarded head must not count as reviewed)", len(h.triggers))
+	}
+}
+
+func TestPersistentCIErrorsDuringApprovalWaitAreFatal(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa")}
+	h.cycles = []Cycle{{Result: CycleLGTMCommentCIPending, LGTMBody: "x"}}
+	h.ci = nil
+
+	reason := Run(context.Background(), defaultConfig(PostModeApprove), h.deps())
+
+	if reason != ReasonError {
+		t.Fatalf("reason = %v, want ReasonError after repeated CI-check failures", reason)
+	}
+	if len(h.approvedWith) != 0 {
+		t.Errorf("no approval should post: %v", h.approvedWith)
+	}
+}

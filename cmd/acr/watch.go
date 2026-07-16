@@ -200,7 +200,10 @@ func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode
 
 	reviewedHead := ""
 	if wt.workDir != "" {
-		if sha, err := git.GetHeadSHA(wt.workDir); err == nil {
+		sha, err := git.GetHeadSHA(wt.workDir)
+		if err != nil {
+			logger.Logf(terminal.StyleWarning, "Could not resolve the worktree head (%v); the stale-head posting guard is disabled for this cycle.", err)
+		} else {
 			reviewedHead = sha
 		}
 	}

@@ -274,7 +274,7 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 		return nil
 	}
 
-	if err := retrySubmission(func() error {
+	if err := retrySubmission(ctx, func() error {
 		return github.SubmitPRReview(ctx, pr.number, body, requestChanges)
 	}, opts.Outcome != nil, logger); err != nil {
 		logger.Logf(terminal.StyleError, "Failed: %v", err)
@@ -361,7 +361,7 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 		return nil
 	}
 
-	if err := retrySubmission(func() error {
+	if err := retrySubmission(ctx, func() error {
 		return executeLGTMAction(ctx, action, pr.number, body, logger)
 	}, opts.Outcome != nil, logger); err != nil {
 		return err
@@ -412,14 +412,23 @@ var submissionRetryDelay = 5 * time.Second
 
 const submissionAttempts = 3
 
-func retrySubmission(submit func() error, watchMode bool, logger *terminal.Logger) error {
+func retrySubmission(ctx context.Context, submit func() error, watchMode bool, logger *terminal.Logger) error {
 	err := submit()
 	if err == nil || !watchMode {
 		return err
 	}
 	for attempt := 2; attempt <= submissionAttempts; attempt++ {
+		if ctx.Err() != nil {
+			return err
+		}
 		logger.Logf(terminal.StyleWarning, "Submission failed (%v); retrying (%d/%d)", err, attempt, submissionAttempts)
-		time.Sleep(submissionRetryDelay)
+		timer := time.NewTimer(submissionRetryDelay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return err
+		case <-timer.C:
+		}
 		if err = submit(); err == nil {
 			return nil
 		}
@@ -459,13 +468,27 @@ func checkCIAndMaybeDowngrade(ctx context.Context, prNum string, action lgtmActi
 	ciStatus := github.CheckCIStatus(ctx, prNum)
 
 	if ciStatus.Error != "" {
-		if opts.Outcome != nil && opts.AutoYes {
+		if opts.Outcome == nil {
+			logger.Logf(terminal.StyleError, "Failed to check CI status: %s", ciStatus.Error)
+			return actionSkip, fmt.Errorf("CI check failed: %s", ciStatus.Error)
+		}
+		if opts.AutoYes {
 			logger.Logf(terminal.StyleWarning, "Failed to check CI status (%s); posting as comment and deferring approval.", ciStatus.Error)
 			opts.Outcome.CIDowngraded = true
 			return actionComment, nil
 		}
-		logger.Logf(terminal.StyleError, "Failed to check CI status: %s", ciStatus.Error)
-		return actionSkip, fmt.Errorf("CI check failed: %s", ciStatus.Error)
+		logger.Logf(terminal.StyleWarning, "Failed to check CI status (%s).", ciStatus.Error)
+		if !terminal.IsStdinTTY() {
+			return actionSkip, nil
+		}
+		fmt.Print(formatPrompt("Post as comment instead?", "[C]omment (default) / [S]kip:"))
+		switch readUserInput() {
+		case "", "c", "y", "yes":
+			return actionComment, nil
+		default:
+			logger.Log("Skipped posting LGTM.", terminal.StyleDim)
+			return actionSkip, nil
+		}
 	}
 
 	if ciStatus.AllPassed {
