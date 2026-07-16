@@ -1,8 +1,3 @@
-// Package watch implements the acr watch loop: it runs review cycles against
-// a single PR, re-reviewing on re-review requests or settled commits, until a
-// terminal LGTM is posted or a safety bound is reached. All effects (GitHub
-// state, review cycles, CI checks, time) are injected so the loop is
-// deterministic under test.
 package watch
 
 import (
@@ -11,19 +6,14 @@ import (
 	"time"
 )
 
-// PostMode controls how watch cycles post results.
 type PostMode string
 
 const (
-	// PostModeInteractive preserves the human-in-the-loop submission flow.
 	PostModeInteractive PostMode = "interactive"
-	// PostModeComment posts every result as a comment review only.
-	PostModeComment PostMode = "comment"
-	// PostModeApprove runs unattended with the automated approval flow.
-	PostModeApprove PostMode = "approve"
+	PostModeComment     PostMode = "comment"
+	PostModeApprove     PostMode = "approve"
 )
 
-// ParsePostMode validates a --post-mode flag value.
 func ParsePostMode(s string) (PostMode, error) {
 	switch PostMode(s) {
 	case PostModeInteractive, PostModeComment, PostModeApprove:
@@ -32,67 +22,42 @@ func ParsePostMode(s string) (PostMode, error) {
 	return "", fmt.Errorf("invalid post mode %q: must be interactive, comment, or approve", s)
 }
 
-// PRState is a snapshot of the watched PR.
 type PRState struct {
 	HeadSHA         string
-	Closed          bool // closed without merging
+	Closed          bool
 	Merged          bool
-	ReviewRequested bool // pending re-review request for the authenticated user
+	ReviewRequested bool
 }
 
-// CycleResult classifies what a review cycle produced and posted.
 type CycleResult int
 
 const (
-	// CycleError means the cycle failed.
 	CycleError CycleResult = iota
-	// CycleNoChanges means the diff was empty; nothing was reviewed.
 	CycleNoChanges
-	// CycleFindings means findings were posted or handled; keep watching.
 	CycleFindings
-	// CycleLGTMApproved means an approval was posted.
 	CycleLGTMApproved
-	// CycleLGTMComment means an LGTM comment was posted (not a CI downgrade).
 	CycleLGTMComment
-	// CycleLGTMCommentCIPending means an intended approval was posted as a
-	// comment because CI was not green; the approval is still wanted.
 	CycleLGTMCommentCIPending
-	// CycleLGTMDeclined means the user chose not to post an LGTM result.
 	CycleLGTMDeclined
-	// CycleLGTMSkipped means an LGTM result could not be posted at all.
 	CycleLGTMSkipped
-	// CycleStaleHead means nothing was posted because the PR head moved while
-	// the review ran; the new head re-enters normal watching.
 	CycleStaleHead
 )
 
-// Cycle is the outcome of one review cycle.
 type Cycle struct {
 	Result   CycleResult
-	LGTMBody string // rendered LGTM body, for a deferred approval
-	// HeadSHA is the commit the cycle actually reviewed (the worktree HEAD),
-	// which can be newer than the SHA observed at poll time if commits landed
-	// in between. Empty means unknown; the loop falls back to the polled SHA.
-	HeadSHA string
+	LGTMBody string
+	HeadSHA  string
 }
 
-// Deps are the injected effects the watch loop drives.
 type Deps struct {
-	// State fetches the current PR state.
-	State func(ctx context.Context) (PRState, error)
-	// RunCycle runs one full review cycle (worktree, review, post) and
-	// reports what it did.
+	State    func(ctx context.Context) (PRState, error)
 	RunCycle func(ctx context.Context, reviewNum int, trigger string) (Cycle, error)
-	// CIGreen reports whether all CI checks on the PR pass.
-	CIGreen func(ctx context.Context) (bool, error)
-	// Approve posts an approval with the given body.
-	Approve func(ctx context.Context, body string) error
-	Clock   Clock
-	// Logf emits a status transition; may be nil.
-	Logf func(format string, args ...any)
+	CIGreen  func(ctx context.Context) (bool, error)
+	Approve  func(ctx context.Context, body string) error
+	Clock    Clock
+	Logf     func(format string, args ...any)
 }
 
-// Config bounds and paces the watch loop.
 type Config struct {
 	Mode         PostMode
 	PollInterval time.Duration
@@ -101,25 +66,16 @@ type Config struct {
 	MaxDuration  time.Duration
 }
 
-// ExitReason says why the watch loop stopped.
 type ExitReason int
 
 const (
-	// ReasonLGTM means the terminal LGTM for the post mode was posted.
 	ReasonLGTM ExitReason = iota
-	// ReasonDeclined means the user declined to post an LGTM (interactive).
 	ReasonDeclined
-	// ReasonMerged means the PR was merged.
 	ReasonMerged
-	// ReasonClosed means the PR was closed without merging.
 	ReasonClosed
-	// ReasonMaxReviews means the review-count bound was reached.
 	ReasonMaxReviews
-	// ReasonMaxDuration means the wall-clock bound was reached.
 	ReasonMaxDuration
-	// ReasonInterrupted means the process was signaled or canceled.
 	ReasonInterrupted
-	// ReasonError means a cycle or GitHub operation failed.
 	ReasonError
 )
 
@@ -144,21 +100,19 @@ func (r ExitReason) String() string {
 	}
 }
 
-// maxConsecutivePollErrors bounds transient PR-state fetch failures before
-// the loop gives up.
 const maxConsecutivePollErrors = 5
 
 type loop struct {
 	cfg  Config
 	deps Deps
 
-	deadline        time.Time // wall-clock bound from MaxDuration
+	deadline        time.Time
 	reviews         int
-	lastHead        string    // head SHA covered by the last review
-	pendingHead     string    // head SHA waiting out the settle period
-	settleDeadline  time.Time // when pendingHead is considered settled
-	requestArmed    bool      // rising-edge detector for re-review requests
-	pendingApproval string    // LGTM body awaiting green CI (approve mode)
+	lastHead        string
+	pendingHead     string
+	settleDeadline  time.Time
+	requestArmed    bool
+	pendingApproval string
 }
 
 func (l *loop) logf(format string, args ...any) {
@@ -174,7 +128,6 @@ func shortSHA(sha string) string {
 	return sha
 }
 
-// Run drives the watch loop until a terminal state and returns why it stopped.
 func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 	l := &loop{cfg: cfg, deps: deps, requestArmed: true}
 	clock := deps.Clock
@@ -193,7 +146,6 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		return reason
 	}
 
-	// A review request pending at startup is consumed by the initial review.
 	l.requestArmed = !st.ReviewRequested
 
 	if reason, done := l.cycle(ctx, st.HeadSHA, "initial review"); done {
@@ -240,8 +192,6 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 			return reason
 		}
 
-		// Rising-edge detection: a serviced request must clear (GitHub clears
-		// it when the review posts) before a request can trigger again.
 		if !st.ReviewRequested {
 			l.requestArmed = true
 		}
@@ -259,8 +209,6 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 				}
 				continue
 			}
-			// New commits invalidate the pending approval; fall through to
-			// normal settle tracking for the new head.
 			l.logf("New commit %s invalidates the pending approval.", shortSHA(st.HeadSHA))
 			l.pendingApproval = ""
 			if reason, done := l.checkMaxReviews(); done {
@@ -271,7 +219,7 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		if trigger == "" {
 			switch {
 			case st.HeadSHA == l.lastHead:
-				l.pendingHead = "" // head is back to the reviewed state
+				l.pendingHead = ""
 			case st.HeadSHA != l.pendingHead:
 				l.pendingHead = st.HeadSHA
 				l.settleDeadline = clock.Now().Add(cfg.SettleTime)
@@ -286,9 +234,6 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		}
 
 		if l.reviews >= cfg.MaxReviews {
-			// With an approval pending on CI, dropping the wait because a
-			// trigger arrived would make the trigger strictly worse than
-			// doing nothing; ignore it and keep waiting.
 			if l.pendingApproval != "" {
 				l.logf("Review budget exhausted; ignoring trigger (%s) and continuing to wait for CI.", trigger)
 				continue
@@ -305,8 +250,6 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 	}
 }
 
-// fetchInitialState fetches the PR state at startup with the same
-// transient-error tolerance as the poll loop.
 func (l *loop) fetchInitialState(ctx context.Context) (PRState, error) {
 	for attempt := 1; ; attempt++ {
 		st, err := l.deps.State(ctx)
@@ -323,7 +266,6 @@ func (l *loop) fetchInitialState(ctx context.Context) (PRState, error) {
 	}
 }
 
-// checkOpen maps a merged or closed PR to its exit reason.
 func (l *loop) checkOpen(st PRState) (ExitReason, bool) {
 	if st.Merged {
 		l.logf("PR merged; stopping watch.")
@@ -336,8 +278,6 @@ func (l *loop) checkOpen(st PRState) (ExitReason, bool) {
 	return 0, false
 }
 
-// checkMaxReviews stops the loop once the review budget is spent, unless an
-// approval is still pending on CI (the CI wait consumes no review runs).
 func (l *loop) checkMaxReviews() (ExitReason, bool) {
 	if l.reviews >= l.cfg.MaxReviews && l.pendingApproval == "" {
 		l.logf("Reached maximum of %d reviews without a terminal LGTM; stopping.", l.cfg.MaxReviews)
@@ -346,7 +286,6 @@ func (l *loop) checkMaxReviews() (ExitReason, bool) {
 	return 0, false
 }
 
-// tryApprove checks CI and posts the pending approval when green.
 func (l *loop) tryApprove(ctx context.Context) (ExitReason, bool) {
 	green, err := l.deps.CIGreen(ctx)
 	if err != nil {
@@ -359,9 +298,6 @@ func (l *loop) tryApprove(ctx context.Context) (ExitReason, bool) {
 	if !green {
 		return 0, false
 	}
-	// Re-check the head immediately before approving: a commit landing after
-	// the poll must not receive an approval it was never reviewed for. On a
-	// mismatch the next poll invalidates the pending approval.
 	st, err := l.deps.State(ctx)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -385,15 +321,10 @@ func (l *loop) tryApprove(ctx context.Context) (ExitReason, bool) {
 	return ReasonLGTM, true
 }
 
-// cycle runs one review cycle and maps its outcome. The bool reports whether
-// the loop should stop with the returned reason.
 func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, bool) {
 	l.reviews++
 	l.logf("Review #%d/%d starting (%s)", l.reviews, l.cfg.MaxReviews, trigger)
 
-	// Bound the cycle by the remaining max-duration budget so a hung reviewer
-	// cannot exceed the advertised wall-clock bound. The timeout is relative
-	// (not a deadline) so it composes with an injected test clock.
 	cycleCtx, cancel := context.WithTimeout(ctx, l.deadline.Sub(l.deps.Clock.Now()))
 	defer cancel()
 
@@ -402,8 +333,6 @@ func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, boo
 		return ReasonInterrupted, true
 	}
 	if err != nil {
-		// The deadline only wins when the cycle actually failed: a result
-		// posted just before the deadline is still a result.
 		if cycleCtx.Err() == context.DeadlineExceeded {
 			l.logf("Reached maximum duration (%s) during review #%d; stopping.", l.cfg.MaxDuration, l.reviews)
 			return ReasonMaxDuration, true
@@ -412,8 +341,6 @@ func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, boo
 		return ReasonError, true
 	}
 
-	// Prefer the head the cycle actually reviewed (commits may have landed
-	// between the poll and the worktree fetch).
 	l.lastHead = head
 	if c.HeadSHA != "" {
 		l.lastHead = c.HeadSHA
@@ -426,8 +353,6 @@ func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, boo
 		l.logf("Approval posted; watch complete.")
 		return ReasonLGTM, true
 	case CycleLGTMComment:
-		// Terminal in comment and interactive modes; in approve mode this
-		// only happens when approval is impossible (self-review).
 		l.logf("LGTM comment posted; watch complete.")
 		return ReasonLGTM, true
 	case CycleLGTMCommentCIPending:
@@ -436,7 +361,6 @@ func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, boo
 			l.logf("LGTM comment posted; waiting for CI to go green before approving.")
 			return 0, false
 		}
-		// Interactive: the user chose the comment downgrade — a posted LGTM.
 		l.logf("LGTM comment posted; watch complete.")
 		return ReasonLGTM, true
 	case CycleLGTMDeclined:

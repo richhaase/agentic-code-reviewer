@@ -74,9 +74,6 @@ type Config struct {
 	Watch             WatchConfig      `yaml:"watch"`
 }
 
-// WatchConfig holds watch-mode pacing and bounds. The post mode is
-// intentionally flag-only: automated posting must be an explicit per-run
-// decision, not something a config file switches on.
 type WatchConfig struct {
 	PollInterval *Duration `yaml:"poll_interval"`
 	SettleTime   *Duration `yaml:"settle_time"`

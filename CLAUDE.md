@@ -91,6 +91,16 @@ internal/
 
 6. **Terminal Detection**: Colors auto-disabled when stdout is not a TTY.
 
+## Code Comments — Absolute Rule
+
+Code comments of any kind are never acceptable in this codebase — no doc
+comments, no inline comments, no section markers, no exceptions. Adding a
+comment is the number one bug and a major flaw in review. Comments age poorly
+and do not age uniformly with the code, so nothing that can be read in the
+code may ever be documented separately. Maintain only user-facing
+documentation (README, CLI help text, config samples) that makes someone's
+life easier, and only as much of it as is absolutely necessary.
+
 ## Code Patterns
 
 - **Error handling**: Return errors up the call stack. Log at the top level in main.go.

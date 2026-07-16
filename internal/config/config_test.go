@@ -1612,7 +1612,6 @@ func TestResolve_WatchConfigAndFlagPrecedence(t *testing.T) {
 		},
 	}
 
-	// Config file values apply over defaults.
 	resolved := Resolve(cfg, EnvState{}, FlagState{}, ResolvedConfig{})
 	if resolved.WatchPollInterval != 30*time.Second {
 		t.Errorf("WatchPollInterval = %s, want 30s from config", resolved.WatchPollInterval)
@@ -1621,7 +1620,6 @@ func TestResolve_WatchConfigAndFlagPrecedence(t *testing.T) {
 		t.Errorf("WatchMaxReviews = %d, want 3 from config", resolved.WatchMaxReviews)
 	}
 
-	// Flags win over the config file.
 	resolved = Resolve(cfg, EnvState{},
 		FlagState{WatchPollIntervalSet: true, WatchMaxReviewsSet: true},
 		ResolvedConfig{WatchPollInterval: 2 * time.Minute, WatchMaxReviews: 5})

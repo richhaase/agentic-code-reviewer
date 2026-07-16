@@ -45,7 +45,6 @@ Exit codes:
 
 	registerSharedReviewFlags(cmd)
 
-	// Watch pacing defaults are resolved via config.Resolve (flag > config > default).
 	cmd.Flags().StringVar(&watchPostMode, "post-mode", "interactive",
 		"How results are posted: interactive, comment, or approve")
 	cmd.Flags().DurationVar(&watchPollInterval, "poll-interval", 0,
@@ -83,7 +82,6 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 		return exitCode(domain.ExitError)
 	}
 
-	// Prune stale ACR worktrees from previous runs (only review-* dirs older than 2h)
 	if err := git.PruneStaleWorktrees(); err != nil && verbose {
 		logger.Logf(terminal.StyleDim, "Worktree prune: %v", err)
 	}
@@ -100,7 +98,6 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 		cancel()
 	}()
 
-	// Resolve the watched PR: explicit --pr, or the current branch's PR.
 	watchPR := prNumber
 	if watchPR == "" {
 		detected, err := github.GetCurrentPRNumber(ctx, "")
@@ -123,11 +120,8 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 		return exitCode(domain.ExitError)
 	}
 
-	// Every cycle reviews the PR in a fresh worktree fetched from its current
-	// head, so local branch state never goes stale mid-watch.
 	prNumber = watchPR
 
-	// Resolve watch pacing once at startup from the repo-root config + flags.
 	cfgResult, err := loadAndResolveConfig(cmd, worktreeResult{}, logger)
 	if err != nil {
 		return err
@@ -140,7 +134,6 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 		MaxDuration:  cfgResult.resolved.WatchMaxDuration,
 	}
 
-	// Re-review requests only trigger for the authenticated gh user.
 	currentUser := github.GetCurrentUser(ctx)
 	if currentUser == "" {
 		logger.Log("Could not determine the authenticated gh user; re-review request triggers are disabled.", terminal.StyleWarning)
@@ -191,14 +184,11 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 		return exitCode(domain.ExitInterrupted)
 	case watch.ReasonError:
 		return exitCode(domain.ExitError)
-	default: // ReasonClosed, ReasonMaxReviews, ReasonMaxDuration
+	default:
 		return exitCode(domain.ExitFindings)
 	}
 }
 
-// runWatchCycle runs one full review cycle: fresh worktree at the PR's
-// current head, config resolution from that worktree, review, and posting
-// per the watch post mode.
 func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode watch.PostMode, logger *terminal.Logger) (watch.Cycle, error) {
 	wt, err := setupWorktree(ctx, cmd, logger)
 	if err != nil {
@@ -208,8 +198,6 @@ func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode
 		defer wt.cleanup()
 	}
 
-	// Record the head the cycle actually reviews; commits can land between
-	// the watch loop's poll and the worktree fetch.
 	reviewedHead := ""
 	if wt.workDir != "" {
 		if sha, err := git.GetHeadSHA(wt.workDir); err == nil {
@@ -217,10 +205,6 @@ func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode
 		}
 	}
 
-	// Load config from the base repo, never from the PR-head worktree: the
-	// worktree's .acr.yaml is PR-author-controlled, and in unattended modes
-	// honoring its filters/guidance/thresholds would let a hostile PR excuse
-	// its own findings (an approval bypass under --post-mode approve).
 	cfgSource := wt
 	cfgSource.workDir = ""
 	cfgResult, err := loadAndResolveConfig(cmd, cfgSource, logger)
@@ -254,8 +238,6 @@ func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode
 	return watch.Cycle{Result: mapCycleOutcome(outcome), LGTMBody: outcome.LGTMBody, HeadSHA: reviewedHead}, nil
 }
 
-// mapCycleOutcome translates the submission layer's record into the watch
-// loop's cycle result.
 func mapCycleOutcome(o *CycleOutcome) watch.CycleResult {
 	switch o.Kind {
 	case OutcomeNoChanges:

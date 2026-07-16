@@ -297,25 +297,17 @@ func ParseCIChecks(data []byte) CIStatus {
 	}
 }
 
-// PRWatchState is a point-in-time snapshot of the mutable PR state that
-// watch mode polls: head commit, open/closed/merged state, and pending
-// review requests.
 type PRWatchState struct {
 	HeadSHA        string
-	State          string   // "OPEN", "CLOSED", or "MERGED"
-	ReviewRequests []string // user logins with pending review requests
-	TeamRequests   []string // team slugs with pending review requests
+	State          string
+	ReviewRequests []string
+	TeamRequests   []string
 }
 
-// Closed reports whether the PR is closed without being merged.
 func (s PRWatchState) Closed() bool { return strings.EqualFold(s.State, "CLOSED") }
 
-// Merged reports whether the PR has been merged.
 func (s PRWatchState) Merged() bool { return strings.EqualFold(s.State, "MERGED") }
 
-// ReviewRequestedFrom reports whether the user login has a pending review
-// request on the PR. Team requests never match: a team slug that collides
-// with a login must not trigger, and team-routed requests are out of scope.
 func (s PRWatchState) ReviewRequestedFrom(login string) bool {
 	if login == "" {
 		return false
@@ -328,7 +320,6 @@ func (s PRWatchState) ReviewRequestedFrom(login string) bool {
 	return false
 }
 
-// GetPRWatchState fetches the current watch-relevant state of a PR.
 func GetPRWatchState(ctx context.Context, prNumber string) (PRWatchState, error) {
 	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "headRefOid,state,reviewRequests")
 	out, err := cmd.Output()
@@ -338,8 +329,6 @@ func GetPRWatchState(ctx context.Context, prNumber string) (PRWatchState, error)
 	return ParsePRWatchState(out)
 }
 
-// ParsePRWatchState parses the gh pr view JSON for watch-relevant fields.
-// Review request entries carry a login for users and a slug for teams.
 func ParsePRWatchState(data []byte) (PRWatchState, error) {
 	var resp struct {
 		HeadRefOid     string `json:"headRefOid"`

@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// fakeClock advances instantly on Sleep so loop tests are deterministic.
 type fakeClock struct {
 	now time.Time
 }
@@ -22,21 +21,20 @@ func (c *fakeClock) Sleep(ctx context.Context, d time.Duration) error {
 	return nil
 }
 
-// harness scripts the injected effects and records what the loop did.
 type harness struct {
 	t     *testing.T
 	clock *fakeClock
 
-	states []PRState // consumed per State call; last entry repeats
+	states []PRState
 	stateI int
 
-	cycles []Cycle // consumed per RunCycle call; must not run dry
+	cycles []Cycle
 	cycleI int
 
-	ci  []bool // consumed per CIGreen call; last entry repeats
+	ci  []bool
 	ciI int
 
-	cancelAfterCycle int // cancel ctx after this many cycles (0 = never)
+	cancelAfterCycle int
 	cancel           context.CancelFunc
 
 	triggers     []string
@@ -138,9 +136,9 @@ func TestInteractiveDeclinedLGTMEndsWatch(t *testing.T) {
 func TestReReviewRequestTriggersWithoutSettleWait(t *testing.T) {
 	h := newHarness(t)
 	h.states = []PRState{
-		open("aaa"),      // startup
-		open("aaa"),      // first poll: quiet
-		requested("aaa"), // second poll: re-review requested (same head)
+		open("aaa"),
+		open("aaa"),
+		requested("aaa"),
 	}
 	h.cycles = []Cycle{
 		{Result: CycleFindings},
@@ -156,7 +154,6 @@ func TestReReviewRequestTriggersWithoutSettleWait(t *testing.T) {
 	if len(h.triggers) != 2 || h.triggers[1] != "re-review requested" {
 		t.Fatalf("triggers = %v", h.triggers)
 	}
-	// Two polls at 1m each: the request must not wait out the 10m settle time.
 	if elapsed := h.clock.now.Sub(start); elapsed > 5*time.Minute {
 		t.Errorf("request trigger waited %s; settle time must not apply", elapsed)
 	}
@@ -164,8 +161,6 @@ func TestReReviewRequestTriggersWithoutSettleWait(t *testing.T) {
 
 func TestPersistentRequestIsConsumedOnce(t *testing.T) {
 	h := newHarness(t)
-	// The request never clears (e.g. posting failed to consume it); the loop
-	// must not re-trigger for the same request every poll.
 	h.states = []PRState{
 		open("aaa"),
 		requested("aaa"),
@@ -189,7 +184,7 @@ func TestPersistentRequestIsConsumedOnce(t *testing.T) {
 
 func TestRequestPendingAtStartupIsConsumedByInitialReview(t *testing.T) {
 	h := newHarness(t)
-	h.states = []PRState{requested("aaa")} // request visible before and after the initial review
+	h.states = []PRState{requested("aaa")}
 	h.cycles = []Cycle{{Result: CycleFindings}}
 	cfg := defaultConfig(PostModeComment)
 	cfg.MaxDuration = 30 * time.Minute
@@ -208,9 +203,9 @@ func TestRequestClearsAndReturnsRetriggering(t *testing.T) {
 	h := newHarness(t)
 	h.states = []PRState{
 		open("aaa"),
-		requested("aaa"), // poll 1: triggers review #2
-		open("aaa"),      // poll 2: cleared, re-arms
-		requested("aaa"), // poll 3: triggers review #3
+		requested("aaa"),
+		open("aaa"),
+		requested("aaa"),
 	}
 	h.cycles = []Cycle{
 		{Result: CycleFindings},
@@ -230,7 +225,7 @@ func TestNewCommitsWaitOutSettleTime(t *testing.T) {
 	h := newHarness(t)
 	h.states = []PRState{
 		open("aaa"),
-		open("bbb"), // new head appears and stays
+		open("bbb"),
 	}
 	h.cycles = []Cycle{
 		{Result: CycleFindings},
@@ -246,7 +241,6 @@ func TestNewCommitsWaitOutSettleTime(t *testing.T) {
 	if len(h.triggers) != 2 || h.triggers[1] != "commits settled" {
 		t.Fatalf("triggers = %v", h.triggers)
 	}
-	// The second review must not start before the settle period elapsed.
 	if elapsed := h.clock.now.Sub(start); elapsed < 10*time.Minute {
 		t.Errorf("second review after %s, want >= settle time (10m)", elapsed)
 	}
@@ -255,7 +249,6 @@ func TestNewCommitsWaitOutSettleTime(t *testing.T) {
 func TestAdditionalCommitRestartsSettleTimer(t *testing.T) {
 	h := newHarness(t)
 	states := []PRState{open("aaa")}
-	// Head bbb for 5 polls (less than the 10m settle), then ccc appears.
 	for range 5 {
 		states = append(states, open("bbb"))
 	}
@@ -272,7 +265,6 @@ func TestAdditionalCommitRestartsSettleTimer(t *testing.T) {
 	if reason != ReasonLGTM {
 		t.Fatalf("reason = %v, want ReasonLGTM", reason)
 	}
-	// bbb seen at minute 1, ccc at minute 6, settled at minute 16.
 	if elapsed := h.clock.now.Sub(start); elapsed < 16*time.Minute {
 		t.Errorf("second review after %s, want >= 16m (timer restarted by ccc)", elapsed)
 	}
@@ -371,8 +363,8 @@ func TestNewCommitInvalidatesPendingApproval(t *testing.T) {
 	h := newHarness(t)
 	h.states = []PRState{
 		open("aaa"),
-		open("aaa"), // CI not green yet
-		open("bbb"), // new commit invalidates pending approval
+		open("aaa"),
+		open("bbb"),
 	}
 	h.cycles = []Cycle{
 		{Result: CycleLGTMCommentCIPending, LGTMBody: "stale"},
@@ -407,8 +399,6 @@ func TestInterruptDuringWatch(t *testing.T) {
 }
 
 func TestCommentModeCIPendingIsTerminal(t *testing.T) {
-	// Interactive mode: the user accepted the comment downgrade after the CI
-	// prompt; that is a posted LGTM and must be terminal.
 	h := newHarness(t)
 	h.states = []PRState{open("aaa")}
 	h.cycles = []Cycle{{Result: CycleLGTMCommentCIPending, LGTMBody: "x"}}
@@ -460,7 +450,7 @@ func TestExhaustedBudgetTriggerDoesNotAbandonPendingApproval(t *testing.T) {
 	h := newHarness(t)
 	h.states = []PRState{
 		open("aaa"),
-		requested("aaa"), // trigger arrives after the budget is spent
+		requested("aaa"),
 	}
 	h.cycles = []Cycle{{Result: CycleLGTMCommentCIPending, LGTMBody: "promised"}}
 	h.ci = []bool{false, true}
@@ -504,8 +494,6 @@ func TestCycleContextCarriesMaxDurationBound(t *testing.T) {
 
 func TestReviewedHeadPreferredOverPolledHead(t *testing.T) {
 	h := newHarness(t)
-	// Commits land between the poll (aaa) and the worktree fetch (bbb); the
-	// cycle reports it reviewed bbb, so bbb must not re-trigger a review.
 	h.states = []PRState{
 		open("aaa"),
 		open("bbb"),
@@ -526,8 +514,6 @@ func TestReviewedHeadPreferredOverPolledHead(t *testing.T) {
 
 func TestStaleHeadCycleResumesWatching(t *testing.T) {
 	h := newHarness(t)
-	// Cycle 1 discards its result because the head moved during the review;
-	// the new head must re-enter normal watching and get reviewed.
 	h.states = []PRState{
 		open("aaa"),
 		open("bbb"),
@@ -549,13 +535,11 @@ func TestStaleHeadCycleResumesWatching(t *testing.T) {
 
 func TestDeferredApprovalRechecksHeadBeforePosting(t *testing.T) {
 	h := newHarness(t)
-	// CI goes green, but a commit lands between the poll and the approval:
-	// the stale approval must not post; the new head gets re-reviewed.
 	h.states = []PRState{
-		open("aaa"), // startup
-		open("aaa"), // poll: enters CI wait
-		open("bbb"), // tryApprove head recheck: head moved
-		open("bbb"), // subsequent polls
+		open("aaa"),
+		open("aaa"),
+		open("bbb"),
+		open("bbb"),
 	}
 	h.cycles = []Cycle{
 		{Result: CycleLGTMCommentCIPending, LGTMBody: "stale"},
@@ -586,7 +570,7 @@ func TestTerminalResultWinsOverExpiredDeadline(t *testing.T) {
 	deps := h.deps()
 	inner := deps.RunCycle
 	deps.RunCycle = func(ctx context.Context, n int, trigger string) (Cycle, error) {
-		h.clock.now = h.clock.now.Add(time.Hour) // review outlives the deadline
+		h.clock.now = h.clock.now.Add(time.Hour)
 		return inner(ctx, n, trigger)
 	}
 

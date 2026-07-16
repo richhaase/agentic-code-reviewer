@@ -76,7 +76,6 @@ func TestRetrySubmission(t *testing.T) {
 	defer func() { submissionRetryDelay = oldDelay }()
 	logger := terminal.NewLogger()
 
-	// Watch mode: transient failures are retried until success.
 	calls := 0
 	err := retrySubmission(func() error {
 		calls++
@@ -89,14 +88,12 @@ func TestRetrySubmission(t *testing.T) {
 		t.Errorf("watch mode: err = %v, calls = %d; want success on attempt 3", err, calls)
 	}
 
-	// Watch mode: persistent failure surfaces after the attempt budget.
 	calls = 0
 	err = retrySubmission(func() error { calls++; return errTransient }, true, logger)
 	if err == nil || calls != submissionAttempts {
 		t.Errorf("watch mode persistent: err = %v, calls = %d; want error after %d attempts", err, calls, submissionAttempts)
 	}
 
-	// One-shot mode: the first error returns unchanged, no retries.
 	calls = 0
 	err = retrySubmission(func() error { calls++; return errTransient }, false, logger)
 	if err == nil || calls != 1 {

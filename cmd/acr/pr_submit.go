@@ -160,8 +160,6 @@ func handleLGTM(ctx context.Context, opts ReviewOpts, allFindings []domain.Findi
 }
 
 func handleFindings(ctx context.Context, opts ReviewOpts, grouped domain.GroupedFindings, aggregated []domain.AggregatedFinding, stats domain.ReviewStats, logger *terminal.Logger) domain.ExitCode {
-	// May be overwritten by the LGTM records below when the user dismisses
-	// every finding.
 	opts.record(OutcomeFindings)
 
 	selectedFindings := grouped.Findings
@@ -220,7 +218,6 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 		return nil
 	}
 
-	// Determine review type (self-review and forced-comment policy can only comment)
 	requestChanges := !pr.isSelfReview && !opts.ForcePostComment
 
 	if !opts.AutoYes {
@@ -308,8 +305,6 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 	}
 
 	if opts.Outcome != nil {
-		// Keep the rendered body so watch mode can post the approval later
-		// once CI goes green.
 		opts.Outcome.LGTMBody = body
 	}
 
@@ -413,16 +408,10 @@ func promptLGTMAction(pr prContext) lgtmAction {
 	}
 }
 
-// submissionRetryDelay is a variable so tests can zero it.
 var submissionRetryDelay = 5 * time.Second
 
 const submissionAttempts = 3
 
-// retrySubmission runs submit, retrying transient failures in watch mode.
-// One-shot runs (watchMode=false) return the first error unchanged. A retry
-// can double-post if gh errored after the review actually landed; a
-// duplicate comment or approval is benign next to discarding a finished
-// watch cycle.
 func retrySubmission(submit func() error, watchMode bool, logger *terminal.Logger) error {
 	err := submit()
 	if err == nil || !watchMode {
@@ -438,10 +427,6 @@ func retrySubmission(submit func() error, watchMode bool, logger *terminal.Logge
 	return err
 }
 
-// headMovedSinceReview reports whether the PR head no longer matches the
-// commit the review ran against (watch mode only; no-op when ExpectedHeadSHA
-// is unset). A failed state fetch resolves to false so a transient gh error
-// cannot block a submission.
 func headMovedSinceReview(ctx context.Context, opts ReviewOpts, prNumber string, logger *terminal.Logger) bool {
 	if opts.ExpectedHeadSHA == "" {
 		return false
@@ -474,10 +459,6 @@ func checkCIAndMaybeDowngrade(ctx context.Context, prNum string, action lgtmActi
 	ciStatus := github.CheckCIStatus(ctx, prNum)
 
 	if ciStatus.Error != "" {
-		// Watch mode: a transient CI-status failure must not abort the watch
-		// at its most expensive moment (a clean review in hand). Post the
-		// comment downgrade and let the watch loop's CI wait retry the
-		// approval. One-shot --yes behavior is unchanged.
 		if opts.Outcome != nil && opts.AutoYes {
 			logger.Logf(terminal.StyleWarning, "Failed to check CI status (%s); posting as comment and deferring approval.", ciStatus.Error)
 			opts.Outcome.CIDowngraded = true

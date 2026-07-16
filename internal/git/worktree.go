@@ -41,7 +41,6 @@ func GetRoot() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// GetHeadSHA returns the commit SHA of HEAD in the given directory.
 func GetHeadSHA(dir string) (string, error) {
 	cmd := exec.Command("git", "rev-parse", "HEAD")
 	cmd.Dir = dir

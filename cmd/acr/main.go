@@ -49,7 +49,6 @@ var (
 	noPRFeedback        bool
 	prFeedbackAgent     string
 
-	// watch-only flags
 	watchPostMode     string
 	watchPollInterval time.Duration
 	watchSettleTime   time.Duration
@@ -82,9 +81,6 @@ Exit codes:
 
 	registerSharedReviewFlags(rootCmd)
 
-	// One-shot review flags that are invalid with `acr watch`: watch requires an
-	// explicit --post-mode instead of --yes, always posts (no --local), and
-	// re-fetches the moving PR head each cycle (no --worktree-branch).
 	rootCmd.Flags().BoolVarP(&autoYes, "yes", "y", false,
 		"Automatically submit review without prompting")
 	rootCmd.Flags().BoolVarP(&local, "local", "l", false,
@@ -98,7 +94,6 @@ Exit codes:
 	setGroupedUsage(rootCmd)
 
 	if err := rootCmd.Execute(); err != nil {
-		// Check if this is an exit code wrapper (not a real error)
 		if exitErr, ok := err.(exitCodeError); ok {
 			return exitErr.code.Int()
 		}
@@ -109,12 +104,7 @@ Exit codes:
 	return 0
 }
 
-// registerSharedReviewFlags registers the review flags shared by the root
-// review command and the watch subcommand. Flags valid only for one-shot
-// reviews (--yes, --local, --worktree-branch) are registered separately on
-// the root command so `acr watch` rejects them with a usage error.
 func registerSharedReviewFlags(cmd *cobra.Command) {
-	// Configuration flags (defaults are resolved via config.Resolve with precedence: flag > env > config > default)
 	cmd.Flags().IntVarP(&reviewers, "reviewers", "r", 0,
 		"Number of parallel reviewers (default: 5, env: ACR_REVIEWERS)")
 	cmd.Flags().IntVarP(&concurrency, "concurrency", "c", 0,
@@ -138,7 +128,6 @@ func registerSharedReviewFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&prNumber, "pr", "",
 		"Review a PR by number (fetches into temp worktree)")
 
-	// Filtering options
 	cmd.Flags().StringArrayVar(&excludePatterns, "exclude-pattern", nil,
 		"Exclude findings matching regex pattern (repeatable)")
 	cmd.Flags().BoolVar(&noConfig, "no-config", false,
@@ -379,8 +368,6 @@ func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *termina
 		FPThresholdSet:       cmd.Flags().Changed("fp-threshold"),
 		NoPRFeedbackSet:      cmd.Flags().Changed("no-pr-feedback"),
 		PRFeedbackAgentSet:   cmd.Flags().Changed("pr-feedback-agent"),
-		// Watch flags exist only on the watch subcommand; Changed() on an
-		// unregistered flag is false, so this is safe for the root command.
 		WatchPollIntervalSet: cmd.Flags().Changed("poll-interval"),
 		WatchSettleTimeSet:   cmd.Flags().Changed("settle-time"),
 		WatchMaxReviewsSet:   cmd.Flags().Changed("max-reviews"),
