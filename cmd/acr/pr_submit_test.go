@@ -1,10 +1,14 @@
 package main
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/github"
+	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
+
+var errTransient = errors.New("transient gh failure")
 
 func TestPrContext_Defaults(t *testing.T) {
 	pc := prContext{}
@@ -63,5 +67,39 @@ func TestLgtmAction_Constants(t *testing.T) {
 	}
 	if actionComment == actionSkip {
 		t.Error("actionComment should not equal actionSkip")
+	}
+}
+
+func TestRetrySubmission(t *testing.T) {
+	oldDelay := submissionRetryDelay
+	submissionRetryDelay = 0
+	defer func() { submissionRetryDelay = oldDelay }()
+	logger := terminal.NewLogger()
+
+	// Watch mode: transient failures are retried until success.
+	calls := 0
+	err := retrySubmission(func() error {
+		calls++
+		if calls < 3 {
+			return errTransient
+		}
+		return nil
+	}, true, logger)
+	if err != nil || calls != 3 {
+		t.Errorf("watch mode: err = %v, calls = %d; want success on attempt 3", err, calls)
+	}
+
+	// Watch mode: persistent failure surfaces after the attempt budget.
+	calls = 0
+	err = retrySubmission(func() error { calls++; return errTransient }, true, logger)
+	if err == nil || calls != submissionAttempts {
+		t.Errorf("watch mode persistent: err = %v, calls = %d; want error after %d attempts", err, calls, submissionAttempts)
+	}
+
+	// One-shot mode: the first error returns unchanged, no retries.
+	calls = 0
+	err = retrySubmission(func() error { calls++; return errTransient }, false, logger)
+	if err == nil || calls != 1 {
+		t.Errorf("one-shot: err = %v, calls = %d; want single attempt", err, calls)
 	}
 }

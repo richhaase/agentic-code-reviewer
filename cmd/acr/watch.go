@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -103,8 +104,15 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 	watchPR := prNumber
 	if watchPR == "" {
 		detected, err := github.GetCurrentPRNumber(ctx, "")
-		if err != nil || detected == "" {
+		switch {
+		case errors.Is(err, github.ErrAuthFailed):
+			logger.Log("GitHub authentication failed. Run 'gh auth login' to authenticate.", terminal.StyleError)
+			return exitCode(domain.ExitError)
+		case errors.Is(err, github.ErrNoPRFound), err == nil && detected == "":
 			logger.Log("No open PR found for the current branch; use --pr to select one.", terminal.StyleError)
+			return exitCode(domain.ExitError)
+		case err != nil:
+			logger.Logf(terminal.StyleError, "Failed to detect PR for current branch: %v", err)
 			return exitCode(domain.ExitError)
 		}
 		watchPR = detected

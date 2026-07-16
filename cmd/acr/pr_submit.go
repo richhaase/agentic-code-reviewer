@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/github"
@@ -276,7 +277,9 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 		return nil
 	}
 
-	if err := github.SubmitPRReview(ctx, pr.number, body, requestChanges); err != nil {
+	if err := retrySubmission(func() error {
+		return github.SubmitPRReview(ctx, pr.number, body, requestChanges)
+	}, opts.Outcome != nil, logger); err != nil {
 		logger.Logf(terminal.StyleError, "Failed: %v", err)
 		return err
 	}
@@ -363,7 +366,9 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 		return nil
 	}
 
-	if err := executeLGTMAction(ctx, action, pr.number, body, logger); err != nil {
+	if err := retrySubmission(func() error {
+		return executeLGTMAction(ctx, action, pr.number, body, logger)
+	}, opts.Outcome != nil, logger); err != nil {
 		return err
 	}
 	if action == actionApprove {
@@ -406,6 +411,31 @@ func promptLGTMAction(pr prContext) lgtmAction {
 	default:
 		return actionApprove
 	}
+}
+
+// submissionRetryDelay is a variable so tests can zero it.
+var submissionRetryDelay = 5 * time.Second
+
+const submissionAttempts = 3
+
+// retrySubmission runs submit, retrying transient failures in watch mode.
+// One-shot runs (watchMode=false) return the first error unchanged. A retry
+// can double-post if gh errored after the review actually landed; a
+// duplicate comment or approval is benign next to discarding a finished
+// watch cycle.
+func retrySubmission(submit func() error, watchMode bool, logger *terminal.Logger) error {
+	err := submit()
+	if err == nil || !watchMode {
+		return err
+	}
+	for attempt := 2; attempt <= submissionAttempts; attempt++ {
+		logger.Logf(terminal.StyleWarning, "Submission failed (%v); retrying (%d/%d)", err, attempt, submissionAttempts)
+		time.Sleep(submissionRetryDelay)
+		if err = submit(); err == nil {
+			return nil
+		}
+	}
+	return err
 }
 
 // headMovedSinceReview reports whether the PR head no longer matches the

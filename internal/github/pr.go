@@ -303,7 +303,8 @@ func ParseCIChecks(data []byte) CIStatus {
 type PRWatchState struct {
 	HeadSHA        string
 	State          string   // "OPEN", "CLOSED", or "MERGED"
-	ReviewRequests []string // user logins and team slugs with pending review requests
+	ReviewRequests []string // user logins with pending review requests
+	TeamRequests   []string // team slugs with pending review requests
 }
 
 // Closed reports whether the PR is closed without being merged.
@@ -312,7 +313,9 @@ func (s PRWatchState) Closed() bool { return strings.EqualFold(s.State, "CLOSED"
 // Merged reports whether the PR has been merged.
 func (s PRWatchState) Merged() bool { return strings.EqualFold(s.State, "MERGED") }
 
-// ReviewRequestedFrom reports whether login has a pending review request on the PR.
+// ReviewRequestedFrom reports whether the user login has a pending review
+// request on the PR. Team requests never match: a team slug that collides
+// with a login must not trigger, and team-routed requests are out of scope.
 func (s PRWatchState) ReviewRequestedFrom(login string) bool {
 	if login == "" {
 		return false
@@ -359,7 +362,7 @@ func ParsePRWatchState(data []byte) (PRWatchState, error) {
 		case r.Login != "":
 			state.ReviewRequests = append(state.ReviewRequests, r.Login)
 		case r.Slug != "":
-			state.ReviewRequests = append(state.ReviewRequests, r.Slug)
+			state.TeamRequests = append(state.TeamRequests, r.Slug)
 		}
 	}
 	return state, nil

@@ -181,7 +181,7 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 	l.deadline = clock.Now().Add(cfg.MaxDuration)
 	deadline := l.deadline
 
-	st, err := deps.State(ctx)
+	st, err := l.fetchInitialState(ctx)
 	if err != nil {
 		if ctx.Err() != nil {
 			return ReasonInterrupted
@@ -301,6 +301,24 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		}
 		if reason, done := l.checkMaxReviews(); done {
 			return reason
+		}
+	}
+}
+
+// fetchInitialState fetches the PR state at startup with the same
+// transient-error tolerance as the poll loop.
+func (l *loop) fetchInitialState(ctx context.Context) (PRState, error) {
+	for attempt := 1; ; attempt++ {
+		st, err := l.deps.State(ctx)
+		if err == nil {
+			return st, nil
+		}
+		if ctx.Err() != nil || attempt >= maxConsecutivePollErrors {
+			return PRState{}, err
+		}
+		l.logf("Failed to fetch PR state (%d/%d): %v", attempt, maxConsecutivePollErrors, err)
+		if err := l.deps.Clock.Sleep(ctx, l.cfg.PollInterval); err != nil {
+			return PRState{}, err
 		}
 	}
 }

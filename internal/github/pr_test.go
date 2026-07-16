@@ -618,14 +618,17 @@ func TestParsePRWatchState(t *testing.T) {
 	if state.Closed() || state.Merged() {
 		t.Errorf("expected open state, got %q", state.State)
 	}
-	if len(state.ReviewRequests) != 2 {
-		t.Fatalf("ReviewRequests = %v, want 2 entries", state.ReviewRequests)
+	if len(state.ReviewRequests) != 1 {
+		t.Fatalf("ReviewRequests = %v, want 1 user entry", state.ReviewRequests)
+	}
+	if len(state.TeamRequests) != 1 || state.TeamRequests[0] != "core-team" {
+		t.Fatalf("TeamRequests = %v, want [core-team]", state.TeamRequests)
 	}
 	if !state.ReviewRequestedFrom("OctoCat") {
 		t.Error("expected case-insensitive match for user login")
 	}
-	if !state.ReviewRequestedFrom("core-team") {
-		t.Error("expected match for team slug")
+	if state.ReviewRequestedFrom("core-team") {
+		t.Error("team slug must not match as a user login (slug/login collision)")
 	}
 	if state.ReviewRequestedFrom("someone-else") {
 		t.Error("unexpected match for absent reviewer")

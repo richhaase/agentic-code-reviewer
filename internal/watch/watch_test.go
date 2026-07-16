@@ -594,3 +594,27 @@ func TestTerminalResultWinsOverExpiredDeadline(t *testing.T) {
 		t.Fatalf("reason = %v, want ReasonLGTM (a posted result beats an expired deadline)", reason)
 	}
 }
+
+func TestStartupStateToleratesTransientErrors(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa")}
+	h.cycles = []Cycle{{Result: CycleLGTMApproved}}
+
+	deps := h.deps()
+	inner := deps.State
+	calls := 0
+	deps.State = func(ctx context.Context) (PRState, error) {
+		calls++
+		if calls <= 2 {
+			return PRState{}, errors.New("transient gh failure")
+		}
+		return inner(ctx)
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM after transient startup failures", reason)
+	}
+	if calls != 3 {
+		t.Errorf("state calls = %d, want 3 (two failures then success)", calls)
+	}
+}
