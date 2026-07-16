@@ -36,6 +36,7 @@ Exit codes:
   1 - Safety bound reached or PR closed without an LGTM
   2 - Error
   130 - Interrupted`,
+		Args:          cobra.NoArgs,
 		RunE:          runWatch,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -199,7 +200,22 @@ func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode
 		defer wt.cleanup()
 	}
 
-	cfgResult, err := loadAndResolveConfig(cmd, wt, logger)
+	// Record the head the cycle actually reviews; commits can land between
+	// the watch loop's poll and the worktree fetch.
+	reviewedHead := ""
+	if wt.workDir != "" {
+		if sha, err := git.GetHeadSHA(wt.workDir); err == nil {
+			reviewedHead = sha
+		}
+	}
+
+	// Load config from the base repo, never from the PR-head worktree: the
+	// worktree's .acr.yaml is PR-author-controlled, and in unattended modes
+	// honoring its filters/guidance/thresholds would let a hostile PR excuse
+	// its own findings (an approval bypass under --post-mode approve).
+	cfgSource := wt
+	cfgSource.workDir = ""
+	cfgResult, err := loadAndResolveConfig(cmd, cfgSource, logger)
 	if err != nil {
 		return watch.Cycle{Result: watch.CycleError}, err
 	}
@@ -226,7 +242,7 @@ func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode
 		return watch.Cycle{Result: watch.CycleError}, fmt.Errorf("review cycle failed")
 	}
 
-	return watch.Cycle{Result: mapCycleOutcome(outcome), LGTMBody: outcome.LGTMBody}, nil
+	return watch.Cycle{Result: mapCycleOutcome(outcome), LGTMBody: outcome.LGTMBody, HeadSHA: reviewedHead}, nil
 }
 
 // mapCycleOutcome translates the submission layer's record into the watch

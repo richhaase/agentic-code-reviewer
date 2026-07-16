@@ -455,3 +455,71 @@ func TestParsePostMode(t *testing.T) {
 		}
 	}
 }
+
+func TestExhaustedBudgetTriggerDoesNotAbandonPendingApproval(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{
+		open("aaa"),
+		requested("aaa"), // trigger arrives after the budget is spent
+	}
+	h.cycles = []Cycle{{Result: CycleLGTMCommentCIPending, LGTMBody: "promised"}}
+	h.ci = []bool{false, true}
+	cfg := defaultConfig(PostModeApprove)
+	cfg.MaxReviews = 1
+
+	reason := Run(context.Background(), cfg, h.deps())
+
+	if reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM (trigger must not abandon the CI wait)", reason)
+	}
+	if len(h.approvedWith) != 1 || h.approvedWith[0] != "promised" {
+		t.Errorf("approvals = %v, want the promised body", h.approvedWith)
+	}
+	if len(h.triggers) != 1 {
+		t.Errorf("cycles = %d, want 1 (no budget for the trigger)", len(h.triggers))
+	}
+}
+
+func TestCycleContextCarriesMaxDurationBound(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa")}
+	h.cycles = []Cycle{{Result: CycleLGTMApproved}}
+	cfg := defaultConfig(PostModeApprove)
+
+	deps := h.deps()
+	inner := deps.RunCycle
+	var sawDeadline bool
+	deps.RunCycle = func(ctx context.Context, n int, trigger string) (Cycle, error) {
+		_, sawDeadline = ctx.Deadline()
+		return inner(ctx, n, trigger)
+	}
+
+	if reason := Run(context.Background(), cfg, deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if !sawDeadline {
+		t.Error("cycle context must carry a deadline bounding it by --max-duration")
+	}
+}
+
+func TestReviewedHeadPreferredOverPolledHead(t *testing.T) {
+	h := newHarness(t)
+	// Commits land between the poll (aaa) and the worktree fetch (bbb); the
+	// cycle reports it reviewed bbb, so bbb must not re-trigger a review.
+	h.states = []PRState{
+		open("aaa"),
+		open("bbb"),
+	}
+	h.cycles = []Cycle{{Result: CycleFindings, HeadSHA: "bbb"}}
+	cfg := defaultConfig(PostModeComment)
+	cfg.MaxDuration = time.Hour
+
+	reason := Run(context.Background(), cfg, h.deps())
+
+	if reason != ReasonMaxDuration {
+		t.Fatalf("reason = %v, want ReasonMaxDuration", reason)
+	}
+	if len(h.triggers) != 1 {
+		t.Errorf("cycles = %d, want 1 (bbb was already reviewed)", len(h.triggers))
+	}
+}

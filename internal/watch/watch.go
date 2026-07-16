@@ -67,6 +67,10 @@ const (
 type Cycle struct {
 	Result   CycleResult
 	LGTMBody string // rendered LGTM body, for a deferred approval
+	// HeadSHA is the commit the cycle actually reviewed (the worktree HEAD),
+	// which can be newer than the SHA observed at poll time if commits landed
+	// in between. Empty means unknown; the loop falls back to the polled SHA.
+	HeadSHA string
 }
 
 // Deps are the injected effects the watch loop drives.
@@ -145,6 +149,7 @@ type loop struct {
 	cfg  Config
 	deps Deps
 
+	deadline        time.Time // wall-clock bound from MaxDuration
 	reviews         int
 	lastHead        string    // head SHA covered by the last review
 	pendingHead     string    // head SHA waiting out the settle period
@@ -170,7 +175,8 @@ func shortSHA(sha string) string {
 func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 	l := &loop{cfg: cfg, deps: deps, requestArmed: true}
 	clock := deps.Clock
-	deadline := clock.Now().Add(cfg.MaxDuration)
+	l.deadline = clock.Now().Add(cfg.MaxDuration)
+	deadline := l.deadline
 
 	st, err := deps.State(ctx)
 	if err != nil {
@@ -277,6 +283,13 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		}
 
 		if l.reviews >= cfg.MaxReviews {
+			// With an approval pending on CI, dropping the wait because a
+			// trigger arrived would make the trigger strictly worse than
+			// doing nothing; ignore it and keep waiting.
+			if l.pendingApproval != "" {
+				l.logf("Review budget exhausted; ignoring trigger (%s) and continuing to wait for CI.", trigger)
+				continue
+			}
 			l.logf("Reached maximum of %d reviews without a terminal LGTM; stopping.", cfg.MaxReviews)
 			return ReasonMaxReviews
 		}
@@ -342,16 +355,31 @@ func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, boo
 	l.reviews++
 	l.logf("Review #%d/%d starting (%s)", l.reviews, l.cfg.MaxReviews, trigger)
 
-	c, err := l.deps.RunCycle(ctx, l.reviews, trigger)
+	// Bound the cycle by the remaining max-duration budget so a hung reviewer
+	// cannot exceed the advertised wall-clock bound. The timeout is relative
+	// (not a deadline) so it composes with an injected test clock.
+	cycleCtx, cancel := context.WithTimeout(ctx, l.deadline.Sub(l.deps.Clock.Now()))
+	defer cancel()
+
+	c, err := l.deps.RunCycle(cycleCtx, l.reviews, trigger)
 	if ctx.Err() != nil {
 		return ReasonInterrupted, true
+	}
+	if cycleCtx.Err() == context.DeadlineExceeded {
+		l.logf("Reached maximum duration (%s) during review #%d; stopping.", l.cfg.MaxDuration, l.reviews)
+		return ReasonMaxDuration, true
 	}
 	if err != nil {
 		l.logf("Review #%d failed: %v", l.reviews, err)
 		return ReasonError, true
 	}
 
+	// Prefer the head the cycle actually reviewed (commits may have landed
+	// between the poll and the worktree fetch).
 	l.lastHead = head
+	if c.HeadSHA != "" {
+		l.lastHead = c.HeadSHA
+	}
 	l.pendingHead = ""
 	l.pendingApproval = ""
 

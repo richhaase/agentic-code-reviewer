@@ -60,3 +60,10 @@ func TestMapCycleOutcome(t *testing.T) {
 		}
 	}
 }
+
+func TestWatchRejectsPositionalArgs(t *testing.T) {
+	cmd := newWatchCmd()
+	if err := cmd.ValidateArgs([]string{"123"}); err == nil {
+		t.Error("watch must reject positional args; a bare PR number would be silently ignored")
+	}
+}
