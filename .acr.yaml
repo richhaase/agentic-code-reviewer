@@ -45,3 +45,10 @@ summarizer_agent: claude
 # pr_feedback:
 #   enabled: true
 #   agent: ""
+
+# Watch mode pacing and bounds (post mode is flag-only)
+# watch:
+#   poll_interval: 1m
+#   settle_time: 10m
+#   max_reviews: 10
+#   max_duration: 24h

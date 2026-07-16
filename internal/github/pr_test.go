@@ -597,3 +597,64 @@ func TestUrlMatches_SameURL(t *testing.T) {
 		}
 	}
 }
+
+func TestParsePRWatchState(t *testing.T) {
+	data := []byte(`{
+		"headRefOid": "abc123def456",
+		"state": "OPEN",
+		"reviewRequests": [
+			{"__typename": "User", "login": "octocat"},
+			{"__typename": "Team", "name": "Core", "slug": "core-team"}
+		]
+	}`)
+
+	state, err := ParsePRWatchState(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if state.HeadSHA != "abc123def456" {
+		t.Errorf("HeadSHA = %q, want %q", state.HeadSHA, "abc123def456")
+	}
+	if state.Closed() || state.Merged() {
+		t.Errorf("expected open state, got %q", state.State)
+	}
+	if len(state.ReviewRequests) != 1 {
+		t.Fatalf("ReviewRequests = %v, want 1 user entry", state.ReviewRequests)
+	}
+	if len(state.TeamRequests) != 1 || state.TeamRequests[0] != "core-team" {
+		t.Fatalf("TeamRequests = %v, want [core-team]", state.TeamRequests)
+	}
+	if !state.ReviewRequestedFrom("OctoCat") {
+		t.Error("expected case-insensitive match for user login")
+	}
+	if state.ReviewRequestedFrom("core-team") {
+		t.Error("team slug must not match as a user login (slug/login collision)")
+	}
+	if state.ReviewRequestedFrom("someone-else") {
+		t.Error("unexpected match for absent reviewer")
+	}
+	if state.ReviewRequestedFrom("") {
+		t.Error("empty login must never match")
+	}
+}
+
+func TestParsePRWatchState_MergedNoRequests(t *testing.T) {
+	data := []byte(`{"headRefOid": "abc", "state": "MERGED", "reviewRequests": []}`)
+
+	state, err := ParsePRWatchState(data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !state.Merged() {
+		t.Errorf("expected merged, got %q", state.State)
+	}
+	if len(state.ReviewRequests) != 0 {
+		t.Errorf("expected no review requests, got %v", state.ReviewRequests)
+	}
+}
+
+func TestParsePRWatchState_InvalidJSON(t *testing.T) {
+	if _, err := ParsePRWatchState([]byte("not json")); err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}

@@ -21,4 +21,8 @@ type ReviewOpts struct {
 	UseRefFile      bool
 	ExcludePatterns []string
 	WorkDir         string // Worktree path (empty = current directory)
+
+	ForcePostComment bool
+	ExpectedHeadSHA  string
+	Outcome          *CycleOutcome
 }

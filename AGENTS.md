@@ -61,7 +61,10 @@ internal/
   summarizer/            # LLM-based finding summarization
     summarizer.go        # Orchestrates agent execution and output parsing
   github/                # GitHub PR operations via gh CLI
-    pr.go                # Post comments, approve PRs, check CI status
+    pr.go                # Post comments, approve PRs, check CI status, poll PR state
+  watch/                 # acr watch loop
+    watch.go             # Poll/trigger/bounds state machine with injected effects
+    clock.go             # Clock abstraction (real + test fakes)
   git/                   # Git operations
     worktree.go          # Temporary worktree management
   terminal/              # Terminal UI
@@ -87,6 +90,16 @@ internal/
 5. **Exit Codes**: Semantic exit codes (0=clean, 1=findings, 2=error, 130=interrupted) for CI integration.
 
 6. **Terminal Detection**: Colors auto-disabled when stdout is not a TTY.
+
+## Code Comments — Absolute Rule
+
+Code comments of any kind are never acceptable in this codebase — no doc
+comments, no inline comments, no section markers, no exceptions. Adding a
+comment is the number one bug and a major flaw in review. Comments age poorly
+and do not age uniformly with the code, so nothing that can be read in the
+code may ever be documented separately. Maintain only user-facing
+documentation (README, CLI help text, config samples) that makes someone's
+life easier, and only as much of it as is absolutely necessary.
 
 ## Code Patterns
 

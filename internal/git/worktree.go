@@ -41,6 +41,16 @@ func GetRoot() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+func GetHeadSHA(dir string) (string, error) {
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve HEAD in %s: %w", dir, err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // GetCommonDir returns the git common directory (shared across worktrees).
 func GetCommonDir() (string, error) {
 	cmd := exec.Command("git", "rev-parse", "--git-common-dir")

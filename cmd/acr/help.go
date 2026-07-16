@@ -38,6 +38,10 @@ var flagGroups = []flagGroup{
 		flags: []string{"guidance", "guidance-file", "ref-file"},
 	},
 	{
+		title: "Watch",
+		flags: []string{"post-mode", "poll-interval", "settle-time", "max-reviews", "max-duration"},
+	},
+	{
 		title: "Advanced",
 		flags: []string{"fetch", "no-fetch", "no-config"},
 	},

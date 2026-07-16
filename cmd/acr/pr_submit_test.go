@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/github"
+	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
+
+var errTransient = errors.New("transient gh failure")
 
 func TestPrContext_Defaults(t *testing.T) {
 	pc := prContext{}
@@ -63,5 +68,52 @@ func TestLgtmAction_Constants(t *testing.T) {
 	}
 	if actionComment == actionSkip {
 		t.Error("actionComment should not equal actionSkip")
+	}
+}
+
+func TestRetrySubmission(t *testing.T) {
+	oldDelay := submissionRetryDelay
+	submissionRetryDelay = 0
+	defer func() { submissionRetryDelay = oldDelay }()
+	logger := terminal.NewLogger()
+
+	calls := 0
+	err := retrySubmission(context.Background(), func() error {
+		calls++
+		if calls < 3 {
+			return errTransient
+		}
+		return nil
+	}, true, logger)
+	if err != nil || calls != 3 {
+		t.Errorf("watch mode: err = %v, calls = %d; want success on attempt 3", err, calls)
+	}
+
+	calls = 0
+	err = retrySubmission(context.Background(), func() error { calls++; return errTransient }, true, logger)
+	if err == nil || calls != submissionAttempts {
+		t.Errorf("watch mode persistent: err = %v, calls = %d; want error after %d attempts", err, calls, submissionAttempts)
+	}
+
+	calls = 0
+	err = retrySubmission(context.Background(), func() error { calls++; return errTransient }, false, logger)
+	if err == nil || calls != 1 {
+		t.Errorf("one-shot: err = %v, calls = %d; want single attempt", err, calls)
+	}
+}
+
+func TestRetrySubmissionStopsOnCanceledContext(t *testing.T) {
+	oldDelay := submissionRetryDelay
+	submissionRetryDelay = 0
+	defer func() { submissionRetryDelay = oldDelay }()
+	logger := terminal.NewLogger()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	calls := 0
+	err := retrySubmission(ctx, func() error { calls++; return errTransient }, true, logger)
+	if err == nil || calls != 1 {
+		t.Errorf("err = %v, calls = %d; want the first error with no retries after cancellation", err, calls)
 	}
 }

@@ -297,6 +297,66 @@ func ParseCIChecks(data []byte) CIStatus {
 	}
 }
 
+type PRWatchState struct {
+	HeadSHA        string
+	State          string
+	ReviewRequests []string
+	TeamRequests   []string
+}
+
+func (s PRWatchState) Closed() bool { return strings.EqualFold(s.State, "CLOSED") }
+
+func (s PRWatchState) Merged() bool { return strings.EqualFold(s.State, "MERGED") }
+
+func (s PRWatchState) ReviewRequestedFrom(login string) bool {
+	if login == "" {
+		return false
+	}
+	for _, r := range s.ReviewRequests {
+		if strings.EqualFold(r, login) {
+			return true
+		}
+	}
+	return false
+}
+
+func GetPRWatchState(ctx context.Context, prNumber string) (PRWatchState, error) {
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "headRefOid,state,reviewRequests")
+	out, err := cmd.Output()
+	if err != nil {
+		return PRWatchState{}, classifyGHError(err)
+	}
+	return ParsePRWatchState(out)
+}
+
+func ParsePRWatchState(data []byte) (PRWatchState, error) {
+	var resp struct {
+		HeadRefOid     string `json:"headRefOid"`
+		State          string `json:"state"`
+		ReviewRequests []struct {
+			Login string `json:"login"`
+			Slug  string `json:"slug"`
+		} `json:"reviewRequests"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return PRWatchState{}, fmt.Errorf("failed to parse PR state response: %w", err)
+	}
+
+	state := PRWatchState{
+		HeadSHA: resp.HeadRefOid,
+		State:   resp.State,
+	}
+	for _, r := range resp.ReviewRequests {
+		switch {
+		case r.Login != "":
+			state.ReviewRequests = append(state.ReviewRequests, r.Login)
+		case r.Slug != "":
+			state.TeamRequests = append(state.TeamRequests, r.Slug)
+		}
+	}
+	return state, nil
+}
+
 // IsGHAvailable checks if the gh CLI is available.
 func IsGHAvailable() bool {
 	_, err := exec.LookPath("gh")

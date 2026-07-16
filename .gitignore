@@ -40,3 +40,4 @@ bin/acr-test
 
 # Local agent caches
 cache/
+/acr
