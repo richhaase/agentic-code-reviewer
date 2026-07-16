@@ -41,23 +41,22 @@ You need **at least one** of the following LLM CLIs installed and authenticated:
 | Claude Code | [github.com/anthropics/claude-code](https://github.com/anthropics/claude-code) |
 | Gemini CLI | Enterprise Gemini CLI installation only; deprecated for consumer use |
 
-> **Claude Code billing warning:** We recommend against using Claude Code as an
-> ACR agent unless you explicitly accept Anthropic's non-interactive
-> `claude -p`/Agent SDK billing model. When `claude` is selected, ACR invokes
-> Claude Code in non-interactive mode (`claude -p`; ACR uses the equivalent
-> `--print` flag internally) for each Claude reviewer and for Claude-powered
-> summarization, false-positive filtering, and PR feedback, so one ACR run can
-> start several non-interactive Claude sessions. Anthropic says that starting
-> June 15, 2026,
-> subscription-authenticated `claude -p` and Agent SDK usage will draw from a
-> separate monthly Agent SDK credit instead of normal interactive Claude Code
-> subscription limits. After that credit is exhausted, usage moves to extra usage
-> at standard API rates only if extra usage is enabled; otherwise requests stop
-> until the credit refreshes. API-key authentication with `ANTHROPIC_API_KEY`
-> continues to use pay-as-you-go API billing and does not receive the Agent SDK
-> credit. Prefer `agy` or `codex` for ACR runs if you want to avoid this
-> Claude billing path. See Anthropic's [Agent SDK plan billing](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)
-> and [`claude -p` documentation](https://code.claude.com/docs/en/headless).
+> **Claude Code billing note:** Anthropic announced, then paused, a billing
+> change for non-interactive Claude usage. The plan would have moved
+> subscription-authenticated `claude -p`/Agent SDK usage to a separate monthly
+> Agent SDK credit starting June 15, 2026, but Anthropic paused it that same
+> day: "For now, nothing has changed: Claude Agent SDK, `claude -p`, and
+> third-party app usage still draw from your subscription's usage limits."
+> When `claude` is selected, ACR invokes Claude Code in non-interactive mode
+> (`claude -p`; ACR uses the equivalent `--print` flag internally) for each
+> Claude reviewer and for Claude-powered summarization, false-positive
+> filtering, and PR feedback, so one ACR run starts several non-interactive
+> Claude sessions and can consume subscription limits quickly. Anthropic
+> describes the change as paused, not cancelled, and says it will give notice
+> before anything takes effect — check [Agent SDK plan billing](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan)
+> for current status before building Claude-based ACR usage into automation.
+> API-key authentication with `ANTHROPIC_API_KEY` uses pay-as-you-go API
+> billing as always. See also the [`claude -p` documentation](https://code.claude.com/docs/en/headless).
 
 Optional:
 
@@ -232,7 +231,7 @@ Antigravity CLI (`agy`) manages model selection in its own configuration; ACR do
 Gemini CLI (`gemini`) remains supported for enterprise users, but Google recommends the Antigravity CLI transition for individual users.
 
 Different agents may find different issues. When multiple agents are specified (comma-separated), reviewers are assigned to agents in round-robin order. The appropriate CLI must be installed and authenticated for all selected agents.
-Avoid selecting `claude` for ACR unless you intentionally want ACR's non-interactive `claude -p` usage under Anthropic's current billing model.
+If you select `claude`, ACR's non-interactive `claude -p` usage currently draws from your Claude subscription limits; Anthropic has paused (not cancelled) a plan to bill it separately. See the billing note under Prerequisites.
 
 ### Review Guidance
 
