@@ -523,3 +523,74 @@ func TestReviewedHeadPreferredOverPolledHead(t *testing.T) {
 		t.Errorf("cycles = %d, want 1 (bbb was already reviewed)", len(h.triggers))
 	}
 }
+
+func TestStaleHeadCycleResumesWatching(t *testing.T) {
+	h := newHarness(t)
+	// Cycle 1 discards its result because the head moved during the review;
+	// the new head must re-enter normal watching and get reviewed.
+	h.states = []PRState{
+		open("aaa"),
+		open("bbb"),
+	}
+	h.cycles = []Cycle{
+		{Result: CycleStaleHead, HeadSHA: "aaa"},
+		{Result: CycleLGTMApproved},
+	}
+
+	reason := Run(context.Background(), defaultConfig(PostModeApprove), h.deps())
+
+	if reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if len(h.triggers) != 2 || h.triggers[1] != "commits settled" {
+		t.Fatalf("triggers = %v, want stale cycle followed by a settled re-review", h.triggers)
+	}
+}
+
+func TestDeferredApprovalRechecksHeadBeforePosting(t *testing.T) {
+	h := newHarness(t)
+	// CI goes green, but a commit lands between the poll and the approval:
+	// the stale approval must not post; the new head gets re-reviewed.
+	h.states = []PRState{
+		open("aaa"), // startup
+		open("aaa"), // poll: enters CI wait
+		open("bbb"), // tryApprove head recheck: head moved
+		open("bbb"), // subsequent polls
+	}
+	h.cycles = []Cycle{
+		{Result: CycleLGTMCommentCIPending, LGTMBody: "stale"},
+		{Result: CycleLGTMApproved},
+	}
+	h.ci = []bool{true}
+
+	reason := Run(context.Background(), defaultConfig(PostModeApprove), h.deps())
+
+	if reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if len(h.approvedWith) != 0 {
+		t.Errorf("stale approval posted for an unreviewed head: %v", h.approvedWith)
+	}
+	if len(h.triggers) != 2 {
+		t.Errorf("cycles = %d, want 2 (new head re-reviewed)", len(h.triggers))
+	}
+}
+
+func TestTerminalResultWinsOverExpiredDeadline(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa")}
+	h.cycles = []Cycle{{Result: CycleLGTMApproved}}
+	cfg := defaultConfig(PostModeApprove)
+	cfg.MaxDuration = 30 * time.Minute
+
+	deps := h.deps()
+	inner := deps.RunCycle
+	deps.RunCycle = func(ctx context.Context, n int, trigger string) (Cycle, error) {
+		h.clock.now = h.clock.now.Add(time.Hour) // review outlives the deadline
+		return inner(ctx, n, trigger)
+	}
+
+	if reason := Run(context.Background(), cfg, deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM (a posted result beats an expired deadline)", reason)
+	}
+}

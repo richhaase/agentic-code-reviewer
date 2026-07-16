@@ -222,7 +222,11 @@ A new review cycle starts when:
   once the head stops moving.
 
 Every cycle fetches the PR head into a fresh temporary worktree, so local
-branch state never goes stale mid-watch.
+branch state never goes stale mid-watch. Configuration (`.acr.yaml`) is read
+from the checkout the watch is launched from — never from the PR head — so
+run unattended watches from a trusted base-branch checkout. If the PR head
+moves while a review is running, the result is discarded instead of posted,
+and the new head is re-reviewed after the settle period.
 
 Post modes control what gets posted:
 

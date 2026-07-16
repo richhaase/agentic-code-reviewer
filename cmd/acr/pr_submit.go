@@ -271,6 +271,11 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 		}
 	}
 
+	if headMovedSinceReview(ctx, opts, pr.number, logger) {
+		opts.record(OutcomeStaleHead)
+		return nil
+	}
+
 	if err := github.SubmitPRReview(ctx, pr.number, body, requestChanges); err != nil {
 		logger.Logf(terminal.StyleError, "Failed: %v", err)
 		return err
@@ -353,6 +358,11 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 		}
 	}
 
+	if headMovedSinceReview(ctx, opts, pr.number, logger) {
+		opts.record(OutcomeStaleHead)
+		return nil
+	}
+
 	if err := executeLGTMAction(ctx, action, pr.number, body, logger); err != nil {
 		return err
 	}
@@ -398,6 +408,25 @@ func promptLGTMAction(pr prContext) lgtmAction {
 	}
 }
 
+// headMovedSinceReview reports whether the PR head no longer matches the
+// commit the review ran against (watch mode only; no-op when ExpectedHeadSHA
+// is unset). A failed state fetch resolves to false so a transient gh error
+// cannot block a submission.
+func headMovedSinceReview(ctx context.Context, opts ReviewOpts, prNumber string, logger *terminal.Logger) bool {
+	if opts.ExpectedHeadSHA == "" {
+		return false
+	}
+	st, err := github.GetPRWatchState(ctx, prNumber)
+	if err != nil || st.HeadSHA == "" {
+		return false
+	}
+	if strings.EqualFold(st.HeadSHA, opts.ExpectedHeadSHA) {
+		return false
+	}
+	logger.Logf(terminal.StyleWarning, "PR head moved since the review; skipping post (the new head will be re-reviewed).")
+	return true
+}
+
 // logCIChecks logs a list of CI checks with truncation.
 func logCIChecks(logger *terminal.Logger, checks []string) {
 	for i, check := range checks {
@@ -415,6 +444,15 @@ func checkCIAndMaybeDowngrade(ctx context.Context, prNum string, action lgtmActi
 	ciStatus := github.CheckCIStatus(ctx, prNum)
 
 	if ciStatus.Error != "" {
+		// Watch mode: a transient CI-status failure must not abort the watch
+		// at its most expensive moment (a clean review in hand). Post the
+		// comment downgrade and let the watch loop's CI wait retry the
+		// approval. One-shot --yes behavior is unchanged.
+		if opts.Outcome != nil && opts.AutoYes {
+			logger.Logf(terminal.StyleWarning, "Failed to check CI status (%s); posting as comment and deferring approval.", ciStatus.Error)
+			opts.Outcome.CIDowngraded = true
+			return actionComment, nil
+		}
 		logger.Logf(terminal.StyleError, "Failed to check CI status: %s", ciStatus.Error)
 		return actionSkip, fmt.Errorf("CI check failed: %s", ciStatus.Error)
 	}

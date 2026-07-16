@@ -61,6 +61,9 @@ const (
 	CycleLGTMDeclined
 	// CycleLGTMSkipped means an LGTM result could not be posted at all.
 	CycleLGTMSkipped
+	// CycleStaleHead means nothing was posted because the PR head moved while
+	// the review ran; the new head re-enters normal watching.
+	CycleStaleHead
 )
 
 // Cycle is the outcome of one review cycle.
@@ -338,6 +341,21 @@ func (l *loop) tryApprove(ctx context.Context) (ExitReason, bool) {
 	if !green {
 		return 0, false
 	}
+	// Re-check the head immediately before approving: a commit landing after
+	// the poll must not receive an approval it was never reviewed for. On a
+	// mismatch the next poll invalidates the pending approval.
+	st, err := l.deps.State(ctx)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ReasonInterrupted, true
+		}
+		l.logf("PR state check before approval failed: %v", err)
+		return 0, false
+	}
+	if st.HeadSHA != l.lastHead {
+		l.logf("New commit %s arrived before the approval could post; deferring.", shortSHA(st.HeadSHA))
+		return 0, false
+	}
 	if err := l.deps.Approve(ctx, l.pendingApproval); err != nil {
 		if ctx.Err() != nil {
 			return ReasonInterrupted, true
@@ -365,11 +383,13 @@ func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, boo
 	if ctx.Err() != nil {
 		return ReasonInterrupted, true
 	}
-	if cycleCtx.Err() == context.DeadlineExceeded {
-		l.logf("Reached maximum duration (%s) during review #%d; stopping.", l.cfg.MaxDuration, l.reviews)
-		return ReasonMaxDuration, true
-	}
 	if err != nil {
+		// The deadline only wins when the cycle actually failed: a result
+		// posted just before the deadline is still a result.
+		if cycleCtx.Err() == context.DeadlineExceeded {
+			l.logf("Reached maximum duration (%s) during review #%d; stopping.", l.cfg.MaxDuration, l.reviews)
+			return ReasonMaxDuration, true
+		}
 		l.logf("Review #%d failed: %v", l.reviews, err)
 		return ReasonError, true
 	}
@@ -407,6 +427,9 @@ func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, boo
 	case CycleLGTMSkipped:
 		l.logf("Review #%d produced an LGTM that could not be posted; stopping.", l.reviews)
 		return ReasonError, true
+	case CycleStaleHead:
+		l.logf("Review #%d discarded: PR head moved during the review; resuming watch.", l.reviews)
+		return 0, false
 	case CycleNoChanges:
 		l.logf("Review #%d: no changes to review; resuming watch.", l.reviews)
 		return 0, false

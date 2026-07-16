@@ -231,6 +231,7 @@ func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode
 		ExcludePatterns:  cfgResult.excludePatterns,
 		WorkDir:          wt.workDir,
 		ForcePostComment: mode == watch.PostModeComment,
+		ExpectedHeadSHA:  reviewedHead,
 		Outcome:          outcome,
 	}
 
@@ -264,6 +265,8 @@ func mapCycleOutcome(o *CycleOutcome) watch.CycleResult {
 		return watch.CycleLGTMDeclined
 	case OutcomeLGTMSkipped:
 		return watch.CycleLGTMSkipped
+	case OutcomeStaleHead:
+		return watch.CycleStaleHead
 	default:
 		return watch.CycleError
 	}

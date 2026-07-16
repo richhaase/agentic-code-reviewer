@@ -52,6 +52,7 @@ func TestMapCycleOutcome(t *testing.T) {
 		{"comment via CI downgrade", CycleOutcome{Kind: OutcomeLGTMComment, CIDowngraded: true}, watch.CycleLGTMCommentCIPending},
 		{"declined", CycleOutcome{Kind: OutcomeLGTMDeclined}, watch.CycleLGTMDeclined},
 		{"skipped", CycleOutcome{Kind: OutcomeLGTMSkipped}, watch.CycleLGTMSkipped},
+		{"stale head", CycleOutcome{Kind: OutcomeStaleHead}, watch.CycleStaleHead},
 		{"unrecorded is an error", CycleOutcome{}, watch.CycleError},
 	}
 	for _, tt := range tests {

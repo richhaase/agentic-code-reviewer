@@ -21,6 +21,9 @@ const (
 	OutcomeLGTMDeclined
 	// OutcomeLGTMSkipped means an LGTM result could not be posted (e.g. no PR).
 	OutcomeLGTMSkipped
+	// OutcomeStaleHead means nothing was posted because the PR head moved
+	// while the review ran; the result no longer describes the PR.
+	OutcomeStaleHead
 )
 
 // CycleOutcome records what a single review cycle did, for the watch loop.

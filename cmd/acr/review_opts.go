@@ -25,6 +25,9 @@ type ReviewOpts struct {
 	// Watch-mode policy: post every result as a comment review only, never
 	// request changes or approve (and never run the pre-approval CI check).
 	ForcePostComment bool
+	// ExpectedHeadSHA, when set, makes submission verify the PR head still
+	// matches the commit that was reviewed and skip posting if it moved.
+	ExpectedHeadSHA string
 	// Outcome, when non-nil, receives a record of what the cycle posted.
 	Outcome *CycleOutcome
 }
