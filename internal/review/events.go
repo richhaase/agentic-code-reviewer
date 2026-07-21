@@ -52,6 +52,7 @@ type eventEmitter struct {
 	runID    string
 	sequence uint64
 	closed   bool
+	open     []domain.ReviewPhase
 }
 
 func newEventEmitter(sink EventSink, now func() time.Time, runID string) *eventEmitter {
@@ -67,11 +68,46 @@ func (e *eventEmitter) emit(event Event) {
 	if e.closed {
 		return
 	}
+	if event.Kind == EventRunCompleted {
+		for len(e.open) > 0 {
+			e.emitLocked(Event{Kind: EventPhaseCompleted, Phase: e.open[0]})
+		}
+	}
+	e.emitLocked(event)
+}
+
+func (e *eventEmitter) emitLocked(event Event) {
+	if event.Kind == EventPhaseStarted {
+		if !e.phaseOpen(event.Phase) {
+			e.open = append(e.open, event.Phase)
+		}
+	}
+	if event.Kind == EventPhaseCompleted {
+		e.closePhase(event.Phase)
+	}
 	e.sequence++
 	event.Sequence = e.sequence
 	event.At = e.now()
 	event.RunID = e.runID
 	e.sink.HandleReviewEvent(event)
+}
+
+func (e *eventEmitter) phaseOpen(phase domain.ReviewPhase) bool {
+	for _, candidate := range e.open {
+		if candidate == phase {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *eventEmitter) closePhase(phase domain.ReviewPhase) {
+	for i, candidate := range e.open {
+		if candidate == phase {
+			e.open = append(e.open[:i], e.open[i+1:]...)
+			return
+		}
+	}
 }
 
 func (e *eventEmitter) close() {

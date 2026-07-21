@@ -19,16 +19,26 @@ type PullRequestKey struct {
 	Number     int
 }
 
+var pullRequestHostPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?$`)
+
+var pullRequestPathComponentPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
+
 func (k PullRequestKey) Validate() error {
 	var invalid []string
 	if strings.TrimSpace(k.Host) == "" {
 		invalid = append(invalid, "host is required")
+	} else if strings.TrimSpace(k.Host) != k.Host || !pullRequestHostPattern.MatchString(k.Host) {
+		invalid = append(invalid, "host contains invalid characters")
 	}
 	if strings.TrimSpace(k.Owner) == "" {
 		invalid = append(invalid, "owner is required")
+	} else if !validPullRequestPathComponent(k.Owner) {
+		invalid = append(invalid, "owner contains invalid characters")
 	}
 	if strings.TrimSpace(k.Repository) == "" {
 		invalid = append(invalid, "repository is required")
+	} else if !validPullRequestPathComponent(k.Repository) {
+		invalid = append(invalid, "repository contains invalid characters")
 	}
 	if k.Number < 1 {
 		invalid = append(invalid, "pull request number must be positive")
@@ -37,6 +47,10 @@ func (k PullRequestKey) Validate() error {
 		return fmt.Errorf("invalid pull request key: %s", strings.Join(invalid, "; "))
 	}
 	return nil
+}
+
+func validPullRequestPathComponent(value string) bool {
+	return strings.TrimSpace(value) == value && value != "." && value != ".." && pullRequestPathComponentPattern.MatchString(value)
 }
 
 func (k PullRequestKey) String() string {

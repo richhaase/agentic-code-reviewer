@@ -128,12 +128,14 @@ func (r *Runner) Run(ctx context.Context) ([]domain.ReviewerResult, time.Duratio
 
 	for i := 1; i <= r.config.Reviewers; i++ {
 		go func(id int) {
+			agentName := r.reviewerAgentName(id)
 
 			select {
 			case sem <- struct{}{}:
 			case <-ctx.Done():
 				result := domain.ReviewerResult{
 					ReviewerID: id,
+					AgentName:  agentName,
 					ExitCode:   -1,
 					Failure: &domain.ReviewerFailure{
 						Kind:    domain.ReviewerFailureInterrupted,
@@ -189,12 +191,14 @@ func finishRun(ctx context.Context, results []domain.ReviewerResult, startedAt t
 func (r *Runner) runReviewerWithRetry(ctx context.Context, reviewerID int) domain.ReviewerResult {
 	var result domain.ReviewerResult
 	var warnings []domain.ReviewerWarning
+	agentName := r.reviewerAgentName(reviewerID)
 
 	for attempt := 0; attempt <= r.config.Retries; attempt++ {
 		select {
 		case <-ctx.Done():
 			return domain.ReviewerResult{
 				ReviewerID: reviewerID,
+				AgentName:  agentName,
 				ExitCode:   -1,
 				Attempts:   attempt,
 				Failure: &domain.ReviewerFailure{
@@ -394,6 +398,10 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) (result domain
 	result.ExitCode = execResult.ExitCode()
 	result.Duration = time.Since(start)
 
+	if result.ExitCode == 0 {
+		return result
+	}
+
 	if ctx.Err() != nil {
 		result.TimedOut = false
 		result.AuthFailed = false
@@ -421,6 +429,14 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) (result domain
 	}
 
 	return result
+}
+
+func (r *Runner) reviewerAgentName(reviewerID int) string {
+	selectedAgent := agent.AgentForReviewer(r.agents, reviewerID)
+	if selectedAgent == nil {
+		return ""
+	}
+	return selectedAgent.Name()
 }
 
 func (r *Runner) verbose() bool {

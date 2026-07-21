@@ -275,6 +275,32 @@ func TestServiceRunsMockAgentsHeadlessly(t *testing.T) {
 	}
 }
 
+func TestServicePinsEveryReviewerToCapturedRevisionAndDiff(t *testing.T) {
+	configs := make(chan agent.ReviewConfig, 2)
+	reviewAgent := &mockReviewAgent{
+		name: "codex",
+		review: func(_ context.Context, config *agent.ReviewConfig) (string, int, string, error) {
+			configs <- *config
+			return codexReviewOutput("src/service.go:10: missing validation"), 0, "", nil
+		},
+	}
+	service := serviceForTest(t, reviewAgent, "captured diff")
+
+	run, err := service.Run(context.Background(), validRequest(t, t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != domain.ReviewStatusCompleted {
+		t.Fatalf("run status = %q", run.Status)
+	}
+	for range 2 {
+		config := <-configs
+		if config.BaseRef != "base-object" || !config.DiffPrecomputed || config.Diff != "captured diff" {
+			t.Fatalf("reviewer received mutable review input: %#v", config)
+		}
+	}
+}
+
 func TestServiceEmitsReviewerCleanupWarningsHeadlessly(t *testing.T) {
 	reviewAgent := &mockReviewAgent{name: "codex", reviewClose: errors.New("temporary file cleanup failed")}
 	service := serviceForTest(t, reviewAgent, "diff --git a/file b/file")
@@ -667,6 +693,8 @@ func TestServiceCancelsAndJoinsPriorFeedbackOnEarlyFailure(t *testing.T) {
 	}
 	request.Configuration = configuration
 	request.Target.PullRequest = &domain.PullRequestKey{Host: "github.com", Owner: "owner", Repository: "repo", Number: 42}
+	var events []Event
+	request.Events = EventSinkFunc(func(event Event) { events = append(events, event) })
 	service := serviceForTest(t, reviewAgent, "diff", WithPriorFeedbackProvider(feedbackProvider))
 
 	run, err := service.Run(context.Background(), request)
@@ -678,6 +706,23 @@ func TestServiceCancelsAndJoinsPriorFeedbackOnEarlyFailure(t *testing.T) {
 	}
 	if !feedbackStopped.Load() {
 		t.Fatal("prior-feedback worker remained active after service return")
+	}
+	feedbackStarted := -1
+	feedbackCompleted := -1
+	runCompleted := -1
+	for i, event := range events {
+		if event.Kind == EventPhaseStarted && event.Phase == domain.ReviewPhaseFeedback {
+			feedbackStarted = i
+		}
+		if event.Kind == EventPhaseCompleted && event.Phase == domain.ReviewPhaseFeedback {
+			feedbackCompleted = i
+		}
+		if event.Kind == EventRunCompleted {
+			runCompleted = i
+		}
+	}
+	if feedbackStarted < 0 || feedbackCompleted <= feedbackStarted || runCompleted <= feedbackCompleted {
+		t.Fatalf("feedback phase lifecycle is unbalanced: %#v", events)
 	}
 }
 
@@ -881,6 +926,42 @@ func TestServiceRecordsFalsePositiveDisposition(t *testing.T) {
 	removed := run.FalsePositiveFilter.Removed[0]
 	if removed.ID != "finding-001" || removed.Disposition.FPScore != 95 || removed.Disposition.Reasoning != "not actionable" {
 		t.Fatalf("false-positive disposition incomplete: %#v", removed)
+	}
+}
+
+func TestServiceTracksDuplicateFindingGroupsByFilterIdentity(t *testing.T) {
+	duplicate := `{"title":"Duplicate","summary":"Same.","messages":["src/service.go:10: issue"],"reviewer_count":2,"sources":[0]}`
+	reviewAgent := &mockReviewAgent{
+		name: "codex",
+		summary: func(_ context.Context, call int64, _ string, _ []byte) (string, int, string, error) {
+			if call == 1 {
+				return codexSummaryOutput(`{"findings":[` + duplicate + `,` + duplicate + `],"info":[]}`), 0, "", nil
+			}
+			return codexSummaryOutput(`{"evaluations":[{"id":0,"fp_score":95,"reasoning":"first removed"},{"id":1,"fp_score":0,"reasoning":"second kept"}]}`), 0, "", nil
+		},
+	}
+	request := validRequest(t, t.TempDir())
+	values := request.Configuration.Values()
+	values.FPFilterEnabled = true
+	configuration, err := domain.NewReviewConfiguration(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Configuration = configuration
+	service := serviceForTest(t, reviewAgent, "diff")
+
+	run, err := service.Run(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(run.Findings) != 1 || run.Findings[0].ID != "finding-002" {
+		t.Fatalf("surviving duplicate identity = %#v", run.Findings)
+	}
+	if len(run.FalsePositiveFilter.Removed) != 1 || run.FalsePositiveFilter.Removed[0].ID != "finding-001" {
+		t.Fatalf("removed duplicate identity = %#v", run.FalsePositiveFilter.Removed)
+	}
+	if run.Stats.FPFilteredCount != 1 {
+		t.Fatalf("FP filtered count = %d", run.Stats.FPFilteredCount)
 	}
 }
 

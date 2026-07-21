@@ -214,14 +214,14 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	reviewRunner, err := runner.NewHeadless(runner.Config{
 		Reviewers:       values.Reviewers,
 		Concurrency:     values.Concurrency,
-		BaseRef:         run.Target.Revision.ResolvedBaseRef,
+		BaseRef:         run.Target.Revision.BaseObjectID,
 		Timeout:         values.Timeout,
 		Retries:         values.Retries,
 		WorkDir:         run.Target.WorktreeRoot,
 		Guidance:        values.Guidance,
 		UseRefFile:      values.UseRefFile,
 		Diff:            diff,
-		DiffPrecomputed: agent.AgentsNeedDiff(reviewAgents),
+		DiffPrecomputed: true,
 		Events:          reviewerEvents,
 	}, reviewAgents)
 	if err != nil {
@@ -291,7 +291,7 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	}
 	finalGrouped := cloneGroupedFindings(run.PreFilterSummary)
 	var fpRemoved []domain.FPRemovedInfo
-	var fpRemovedGroups []domain.FindingGroup
+	fpRemovedByIndex := make(map[int]domain.FPRemovedInfo)
 	run.FalsePositiveFilter.Enabled = values.FPFilterEnabled
 	if values.FPFilterEnabled && len(finalGrouped.Findings) > 0 {
 		emitter.emit(Event{Kind: EventPhaseStarted, Phase: domain.ReviewPhaseFalsePositiveFilter})
@@ -308,13 +308,14 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 			run.Stats.FPFilterDuration = fpResult.Duration
 			run.Stats.FPFilteredCount = fpResult.RemovedCount
 			for _, removed := range fpResult.Removed {
-				fpRemovedGroups = append(fpRemovedGroups, cloneFindingGroup(removed.Finding))
-				fpRemoved = append(fpRemoved, domain.FPRemovedInfo{
+				info := domain.FPRemovedInfo{
 					Sources:   slices.Clone(removed.Finding.Sources),
 					FPScore:   removed.FPScore,
 					Reasoning: removed.Reasoning,
 					Title:     removed.Finding.Title,
-				})
+				}
+				fpRemovedByIndex[removed.Index] = info
+				fpRemoved = append(fpRemoved, info)
 			}
 			if fpResult.Skipped {
 				emitter.emit(Event{Kind: EventWarning, Phase: domain.ReviewPhaseFalsePositiveFilter, Message: "false-positive filter skipped: " + fpResult.SkipReason})
@@ -329,7 +330,7 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 				nil,
 				finalGrouped.Findings,
 			)
-			populateRunFindings(run, finalGrouped, fpRemovedGroups, nil, fpRemoved)
+			populateRunFindings(run, finalGrouped, fpRemovedByIndex, nil)
 			return s.interrupt(run, domain.ReviewPhaseFalsePositiveFilter, err, emitter), nil
 		}
 	}
@@ -354,7 +355,7 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 				excludeRemoved,
 				finalGrouped.Findings,
 			)
-			populateRunFindings(run, finalGrouped, fpRemovedGroups, excludeRemoved, fpRemoved)
+			populateRunFindings(run, finalGrouped, fpRemovedByIndex, excludeRemoved)
 			return s.interrupt(run, domain.ReviewPhaseExcludeFilter, err, emitter), nil
 		}
 	}
@@ -366,7 +367,7 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 		excludeRemoved,
 		finalGrouped.Findings,
 	)
-	populateRunFindings(run, finalGrouped, fpRemovedGroups, excludeRemoved, fpRemoved)
+	populateRunFindings(run, finalGrouped, fpRemovedByIndex, excludeRemoved)
 	if err := ctx.Err(); err != nil {
 		return s.interrupt(run, domain.ReviewPhaseComplete, err, emitter), nil
 	}
@@ -579,7 +580,7 @@ func resolveRevisions(ctx context.Context, target domain.ReviewTarget) (domain.R
 }
 
 func loadDiff(ctx context.Context, target domain.ReviewTarget) (string, error) {
-	return git.GetDiff(ctx, target.Revision.ResolvedBaseRef, target.WorktreeRoot)
+	return git.GetDiff(ctx, target.Revision.BaseObjectID, target.WorktreeRoot)
 }
 
 func summarizePriorFeedback(ctx context.Context, target domain.ReviewTarget, agentName, model string) (string, error) {
@@ -627,7 +628,7 @@ func boundedSummaryEvidence(output string) string {
 	return diagnostic
 }
 
-func populateRunFindings(run *domain.ReviewRun, final domain.GroupedFindings, fpRemovedGroups, excludeRemoved []domain.FindingGroup, fpRemoved []domain.FPRemovedInfo) {
+func populateRunFindings(run *domain.ReviewRun, final domain.GroupedFindings, fpRemovedByIndex map[int]domain.FPRemovedInfo, excludeRemoved []domain.FindingGroup) {
 	if len(run.FindingRecords) == 0 && run.PreFilterSummary.TotalGroups() > 0 {
 		initializeRunFindingRecords(run)
 	}
@@ -635,10 +636,14 @@ func populateRunFindings(run *domain.ReviewRun, final domain.GroupedFindings, fp
 	run.Info = nil
 	run.FalsePositiveFilter.Removed = nil
 	run.ExcludeFilter.Removed = nil
+	finalRemaining := cloneFindingGroups(final.Findings)
+	excludeRemaining := cloneFindingGroups(excludeRemoved)
+	actionableIndex := 0
 	for i, finding := range run.FindingRecords {
 		if finding.Kind == domain.ReviewFindingActionable {
-			finding.Disposition = dispositionForGroup(finding.Group, final.Findings, fpRemovedGroups, excludeRemoved, fpRemoved)
+			finding.Disposition = dispositionForFinding(actionableIndex, finding.Group, &finalRemaining, fpRemovedByIndex, &excludeRemaining)
 			run.FindingRecords[i] = finding
+			actionableIndex++
 		}
 		switch finding.Disposition.Kind {
 		case domain.DispositionSurvived:
@@ -679,34 +684,35 @@ func initializeRunFindingRecords(run *domain.ReviewRun) {
 	run.FindingRecords = records
 }
 
-func dispositionForGroup(group domain.FindingGroup, final, fpRemoved, excludeRemoved []domain.FindingGroup, fpInfo []domain.FPRemovedInfo) domain.Disposition {
-	if containsFindingGroup(final, group) {
+func dispositionForFinding(index int, group domain.FindingGroup, final *[]domain.FindingGroup, fpRemoved map[int]domain.FPRemovedInfo, excludeRemoved *[]domain.FindingGroup) domain.Disposition {
+	if info, ok := fpRemoved[index]; ok {
+		return domain.Disposition{Kind: domain.DispositionFilteredFP, GroupTitle: group.Title, FPScore: info.FPScore, Reasoning: info.Reasoning}
+	}
+	if consumeFindingGroup(final, group) {
 		return domain.Disposition{Kind: domain.DispositionSurvived, GroupTitle: group.Title}
 	}
-	if containsFindingGroup(fpRemoved, group) {
-		disposition := domain.Disposition{Kind: domain.DispositionFilteredFP, GroupTitle: group.Title}
-		for _, info := range fpInfo {
-			if info.Title == group.Title && slices.Equal(info.Sources, group.Sources) {
-				disposition.FPScore = info.FPScore
-				disposition.Reasoning = info.Reasoning
-				break
-			}
-		}
-		return disposition
-	}
-	if containsFindingGroup(excludeRemoved, group) {
+	if consumeFindingGroup(excludeRemoved, group) {
 		return domain.Disposition{Kind: domain.DispositionFilteredExclude, GroupTitle: group.Title}
 	}
 	return domain.Disposition{GroupTitle: group.Title}
 }
 
-func containsFindingGroup(groups []domain.FindingGroup, candidate domain.FindingGroup) bool {
-	for _, group := range groups {
+func consumeFindingGroup(groups *[]domain.FindingGroup, candidate domain.FindingGroup) bool {
+	for i, group := range *groups {
 		if sameFindingGroup(group, candidate) {
+			*groups = append((*groups)[:i], (*groups)[i+1:]...)
 			return true
 		}
 	}
 	return false
+}
+
+func cloneFindingGroups(groups []domain.FindingGroup) []domain.FindingGroup {
+	cloned := make([]domain.FindingGroup, len(groups))
+	for i, group := range groups {
+		cloned[i] = cloneFindingGroup(group)
+	}
+	return cloned
 }
 
 func diffFindingGroups(before, after []domain.FindingGroup) []domain.FindingGroup {

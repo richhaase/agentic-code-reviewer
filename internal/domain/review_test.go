@@ -28,12 +28,17 @@ func validReviewConfigurationValues() ReviewConfigurationValues {
 }
 
 func TestPullRequestKeyValidate(t *testing.T) {
-	valid := PullRequestKey{Host: "github.com", Owner: "owner", Repository: "repo", Number: 42}
-	if err := valid.Validate(); err != nil {
-		t.Fatalf("valid key rejected: %v", err)
+	valid := []PullRequestKey{
+		{Host: "github.com", Owner: "owner", Repository: "repo", Number: 42},
+		{Host: "github.example.com:8443", Owner: "owner-name", Repository: ".github", Number: 1},
 	}
-	if valid.String() != "github.com/owner/repo#42" {
-		t.Fatalf("unexpected key string %q", valid.String())
+	for _, key := range valid {
+		if err := key.Validate(); err != nil {
+			t.Fatalf("valid key rejected: %v", err)
+		}
+	}
+	if valid[0].String() != "github.com/owner/repo#42" {
+		t.Fatalf("unexpected key string %q", valid[0].String())
 	}
 
 	invalid := PullRequestKey{}
@@ -44,6 +49,23 @@ func TestPullRequestKeyValidate(t *testing.T) {
 	for _, part := range []string{"host", "owner", "repository", "number"} {
 		if !strings.Contains(err.Error(), part) {
 			t.Errorf("validation error %q does not mention %q", err, part)
+		}
+	}
+}
+
+func TestPullRequestKeyRejectsUnsafeComponents(t *testing.T) {
+	tests := []PullRequestKey{
+		{Host: "https://github.com", Owner: "owner", Repository: "repo", Number: 1},
+		{Host: "github.com/other", Owner: "owner", Repository: "repo", Number: 1},
+		{Host: "github.com", Owner: "..", Repository: "repo", Number: 1},
+		{Host: "github.com", Owner: "owner/replacement", Repository: "repo", Number: 1},
+		{Host: "github.com", Owner: "owner", Repository: "..", Number: 1},
+		{Host: "github.com", Owner: "owner", Repository: "repo/name", Number: 1},
+		{Host: "github.com", Owner: "owner", Repository: "%2F", Number: 1},
+	}
+	for _, key := range tests {
+		if err := key.Validate(); err == nil {
+			t.Errorf("unsafe key accepted: %#v", key)
 		}
 	}
 }

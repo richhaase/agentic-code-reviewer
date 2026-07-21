@@ -221,6 +221,29 @@ func TestCodexAgent_ExecuteReview_ArgsWithGuidance(t *testing.T) {
 	if !strings.Contains(outputStr, "Focus on security issues") {
 		t.Errorf("expected guidance in stdin prompt, got:\n%s", outputStr)
 	}
+
+	pinnedConfig := &ReviewConfig{
+		BaseRef:         "base-object-id",
+		WorkDir:         tmpDir,
+		Diff:            "pinned diff content",
+		DiffPrecomputed: true,
+	}
+	pinnedResult, err := agent.ExecuteReview(ctx, pinnedConfig)
+	if err != nil {
+		t.Fatalf("ExecuteReview() with pinned diff error: %v", err)
+	}
+	defer pinnedResult.Close()
+	pinnedOutput, err := io.ReadAll(pinnedResult)
+	if err != nil {
+		t.Fatalf("read pinned review output: %v", err)
+	}
+	pinnedOutputText := string(pinnedOutput)
+	if strings.Contains(pinnedOutputText, "ARG:review") || strings.Contains(pinnedOutputText, "ARG:--base") {
+		t.Fatalf("pinned review used mutable native review mode:\n%s", pinnedOutputText)
+	}
+	if !strings.Contains(pinnedOutputText, "pinned diff content") {
+		t.Fatalf("pinned review omitted captured diff:\n%s", pinnedOutputText)
+	}
 }
 
 func TestCodexAgent_ExecuteSummary_Args(t *testing.T) {

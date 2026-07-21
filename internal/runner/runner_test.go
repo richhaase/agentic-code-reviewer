@@ -25,10 +25,14 @@ func (s *stringReadCloser) Close() error {
 
 type errorReadCloser struct {
 	*strings.Reader
-	err error
+	err     error
+	onClose func()
 }
 
 func (r *errorReadCloser) Close() error {
+	if r.onClose != nil {
+		r.onClose()
+	}
 	return r.err
 }
 
@@ -299,6 +303,7 @@ type cleanupWarningAgent struct {
 	name     string
 	output   string
 	closeErr error
+	onClose  func()
 }
 
 func (a *cleanupWarningAgent) Name() string {
@@ -310,7 +315,7 @@ func (a *cleanupWarningAgent) IsAvailable() error {
 }
 
 func (a *cleanupWarningAgent) ExecuteReview(context.Context, *agent.ReviewConfig) (*agent.ExecutionResult, error) {
-	reader := &errorReadCloser{Reader: strings.NewReader(a.output), err: a.closeErr}
+	reader := &errorReadCloser{Reader: strings.NewReader(a.output), err: a.closeErr, onClose: a.onClose}
 	return agent.NewExecutionResult(reader, func() int { return 0 }, func() string { return "" }), nil
 }
 
@@ -504,6 +509,54 @@ func TestRunReviewerParentCancellationTakesPriority(t *testing.T) {
 	}
 	if result.TimedOut || result.AuthFailed || result.ExitCode != -1 {
 		t.Fatalf("reviewer cancellation was misclassified: %#v", result)
+	}
+}
+
+func TestRunReviewerKeepsSuccessfulResultWhenCancellationArrivesAfterCompletion(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	mock := &cleanupWarningAgent{
+		name:    "codex",
+		output:  `{"item":{"type":"agent_message","text":"finding"}}`,
+		onClose: cancel,
+	}
+	r := &Runner{
+		config:    Config{Reviewers: 1, Timeout: time.Minute},
+		agents:    []agent.Agent{mock},
+		completed: new(atomic.Int32),
+	}
+
+	result := r.runReviewer(ctx, 1)
+
+	if result.ExitCode != 0 || result.Failure != nil || len(result.Findings) != 1 {
+		t.Fatalf("completed reviewer was reclassified after cancellation: %#v", result)
+	}
+}
+
+func TestCanceledReviewersRetainAssignedAgentNames(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r, err := NewHeadless(Config{Reviewers: 2, Concurrency: 1, Timeout: time.Minute}, []agent.Agent{
+		&mockStreamingAgent{name: "codex"},
+		&mockStreamingAgent{name: "claude"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	results, _, runErr := r.Run(ctx)
+	if !errors.Is(runErr, context.Canceled) {
+		t.Fatalf("Run() error = %v", runErr)
+	}
+	byID := make(map[int]domain.ReviewerResult)
+	for _, result := range results {
+		byID[result.ReviewerID] = result
+	}
+	if byID[1].AgentName != "codex" || byID[2].AgentName != "claude" {
+		t.Fatalf("canceled reviewer identities = %#v", byID)
+	}
+	stats := BuildStats(results, 2, 0)
+	if stats.ReviewerAgentNames[1] != "codex" || stats.ReviewerAgentNames[2] != "claude" {
+		t.Fatalf("canceled reviewer stats identities = %#v", stats.ReviewerAgentNames)
 	}
 }
 

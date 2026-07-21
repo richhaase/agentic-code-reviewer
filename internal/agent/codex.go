@@ -36,7 +36,7 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (*
 		return nil, err
 	}
 
-	if config.Guidance != "" {
+	if config.Guidance != "" || config.DiffPrecomputed {
 		args := []string{"exec", "--json", "--color", "never", "-"}
 		if c.model != "" {
 			args = append([]string{"--model", c.model}, args...)

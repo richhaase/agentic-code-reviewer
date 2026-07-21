@@ -14,6 +14,7 @@ import (
 const DefaultThreshold = 75
 
 type EvaluatedFinding struct {
+	Index     int
 	Finding   domain.FindingGroup
 	FPScore   int
 	Reasoning string
@@ -207,6 +208,7 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 
 		if adjusted >= f.threshold {
 			removed = append(removed, EvaluatedFinding{
+				Index:     i,
 				Finding:   finding,
 				FPScore:   adjusted,
 				Reasoning: eval.Reasoning,
