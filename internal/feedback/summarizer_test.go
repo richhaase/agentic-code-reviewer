@@ -133,7 +133,6 @@ func TestBuildInput_FullContext(t *testing.T) {
 
 	result := s.buildInput(prCtx)
 
-	// Check all sections present
 	if !strings.Contains(result, "## PR Description") {
 		t.Error("should contain PR Description header")
 	}

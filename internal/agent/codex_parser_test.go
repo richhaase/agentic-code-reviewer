@@ -11,7 +11,7 @@ func TestCodexOutputParser_ReadFinding(t *testing.T) {
 		name       string
 		input      string
 		reviewerID int
-		want       []string // Expected finding texts in order
+		want       []string
 	}{
 		{
 			name:       "single valid finding",
@@ -101,7 +101,7 @@ func TestCodexOutputParser_ReadFinding(t *testing.T) {
 				finding, err := parser.ReadFinding(scanner)
 				if err != nil {
 					if IsRecoverable(err) {
-						// Recoverable error - continue parsing
+
 						continue
 					}
 					t.Fatalf("ReadFinding() error = %v", err)
@@ -183,7 +183,7 @@ also invalid
 				finding, err := parser.ReadFinding(scanner)
 				if err != nil {
 					if IsRecoverable(err) {
-						// Recoverable error - continue parsing
+
 						continue
 					}
 					t.Fatalf("ReadFinding() error = %v", err)
@@ -233,8 +233,7 @@ func TestConfigureScanner(t *testing.T) {
 	scanner := bufio.NewScanner(strings.NewReader("test"))
 	ConfigureScanner(scanner)
 
-	// Test that scanner can handle a large line
-	largeInput := strings.Repeat("x", 1024*1024) // 1MB line
+	largeInput := strings.Repeat("x", 1024*1024)
 	scanner = bufio.NewScanner(strings.NewReader(largeInput))
 	ConfigureScanner(scanner)
 

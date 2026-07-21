@@ -10,22 +10,13 @@ A CLI tool that runs parallel AI-powered code reviews using LLM agents ([Antigra
 > `agy` is the recommended Google agent for new and non-enterprise usage. See Google's
 > [Gemini CLI to Antigravity CLI transition announcement](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/).
 
-<!-- Uncomment after recording the demo:
-<p align="center">
-  <img src="docs/assets/demo.svg" alt="ACR demo" width="800">
-</p>
--->
-
 ## Quick Start
 
 ```bash
-# Install ACR
 brew install richhaase/tap/acr
 
-# Install at least one LLM CLI (Codex shown here)
 brew install codex
 
-# Run a review in your repo
 cd your-repo
 acr
 ```
@@ -106,28 +97,20 @@ go install github.com/richhaase/agentic-code-reviewer/cmd/acr@latest
 ## Usage
 
 ```bash
-# Review current branch against main with 5 parallel reviewers
 acr
 
-# Review with custom settings
 acr --reviewers 10 --base develop --timeout 10m
 
-# Review a PR by number
 acr --pr 123
 
-# Review a specific branch in a temporary worktree
 acr --worktree-branch feature/my-branch
 
-# Review a PR from a forked repository
 acr --worktree-branch username:feature-branch
 
-# Local mode (don't post to PR)
 acr --local
 
-# Auto-approve without prompting
 acr --yes
 
-# Verbose mode (show reviewer messages as they arrive)
 acr --verbose
 ```
 
@@ -165,10 +148,8 @@ acr --verbose
 The `--concurrency` flag limits how many reviewers run simultaneously, independent of the total reviewer count. This helps avoid API rate limits when running many reviewers or using high retry counts.
 
 ```bash
-# Run 15 total reviewers, but only 5 at a time
 acr -r 15 -c 5
 
-# With retries, -c prevents retry storms from overwhelming the API
 acr -r 10 -R 3 -c 3
 ```
 
@@ -179,7 +160,6 @@ By default, concurrency equals the reviewer count (all run in parallel).
 Review pull requests from forked repositories using GitHub's `username:branch` notation:
 
 ```bash
-# Review a PR from user "contributor" on branch "fix-bug"
 acr --worktree-branch contributor:fix-bug
 ```
 
@@ -198,16 +178,12 @@ This requires an open PR from the fork to the current repository. The `gh` CLI m
 re-reviews until a terminal LGTM is posted or a safety bound is reached:
 
 ```bash
-# Watch the current branch's PR interactively (default)
 acr watch
 
-# Watch a PR unattended, posting every result as a comment review
 acr watch --pr 123 --post-mode comment
 
-# Watch unattended and approve once the review is clean and CI is green
 acr watch --pr 123 --post-mode approve
 
-# Tune the pacing and bounds
 acr watch --pr 123 --post-mode comment \
     --poll-interval 2m --settle-time 15m --max-reviews 5 --max-duration 8h
 ```
@@ -276,25 +252,18 @@ ACR supports multiple AI backends for code review:
 | `gemini` | Gemini CLI | Deprecated for consumer use; available for enterprise Gemini CLI users |
 
 ```bash
-# Use Claude instead of Codex for reviews
 acr --reviewer-agent claude
 
-# Use Antigravity CLI for reviews
 acr -a agy
 
-# Use Gemini CLI only if you have enterprise Gemini CLI access
 acr -a gemini
 
-# Use different agents for review and summarization
 acr --reviewer-agent agy --summarizer-agent claude
 
-# Use multiple agents in round-robin (reviewers alternate between agents)
 acr -r 8 --reviewer-agent agy,codex,claude
 
-# Override the model used by review agents
 acr --reviewer-agent claude --reviewer-model sonnet-4
 
-# Use different models for review and summarization
 acr --reviewer-agent claude --reviewer-model opus-4 \
     --summarizer-agent claude --summarizer-model haiku-4
 ```
@@ -310,10 +279,8 @@ If you select `claude`, ACR's non-interactive `claude -p` usage currently draws 
 Steer reviews with additional context without replacing the built-in prompts:
 
 ```bash
-# Inline guidance
 acr --guidance "Focus on security vulnerabilities and auth issues"
 
-# Guidance from file
 acr --guidance-file .acr-guidance.md
 ```
 
@@ -332,10 +299,8 @@ The summarizer fetches:
 This context is passed to the false positive filter, which can then recognize findings that were previously acknowledged as intentional or already addressed.
 
 ```bash
-# Disable PR feedback summarization
 acr --no-pr-feedback
 
-# Use a specific agent for feedback summarization
 acr --pr-feedback-agent claude
 ```
 
@@ -369,42 +334,29 @@ PR feedback summarization runs in parallel with the reviewers and is enabled by 
 Create `.acr.yaml` in your repository root to configure persistent settings:
 
 ```yaml
-# All fields are optional - defaults shown in comments
-reviewers: 5              # Number of parallel reviewers
-concurrency: 5            # Max concurrent reviewers (defaults to reviewers)
-base: main                # Base ref for diff comparison
-timeout: 10m              # Timeout per reviewer (supports "5m", "300s", or 300)
-retries: 1                # Retry failed reviewers N times
-fetch: true               # Fetch base ref from origin before diff
+reviewers: 5
+concurrency: 5
+base: main
+timeout: 10m
+retries: 1
+fetch: true
 
-# Agent selection
-# reviewer_agent: codex   # Single agent for reviews (agy, codex, claude, gemini)
-# reviewer_agents:        # Multiple agents for round-robin assignment
-#   - agy
-#   - codex
-#   - claude
-# summarizer_agent: codex # Agent for summarization (agy, codex, claude, gemini)
-# reviewer_model: ""      # LLM model override for review agents
-# summarizer_model: ""    # LLM model override for summarizer/FP filter agents
-summarizer_timeout: 5m    # Timeout for summarizer phase
-fp_filter_timeout: 5m     # Timeout for false positive filter phase
+summarizer_timeout: 5m
+fp_filter_timeout: 5m
 
-# Review guidance (appended to built-in prompts)
-# guidance_file: .acr-guidance.md
 
 filters:
-  exclude_patterns:       # Regex patterns to exclude from findings
+  exclude_patterns:
     - "Next\\.js forbids"
     - "deprecated API"
     - "consider using"
 
 fp_filter:
-  enabled: true           # Enable LLM-based false positive filtering
-  threshold: 75           # Confidence threshold 1-100 (100 = definitely false positive)
+  enabled: true
+  threshold: 75
 
 pr_feedback:
-  enabled: true           # Summarize prior PR comments to improve FP filtering
-  # agent: claude         # Agent for summarization (defaults to summarizer_agent)
+  enabled: true
 ```
 
 ### Precedence
@@ -470,28 +422,20 @@ Requires the `gh` CLI to be authenticated.
 ## Development
 
 ```bash
-# List available targets
 make help
 
-# Build with version info (outputs to bin/)
 make build
 
-# Run all quality checks (format, lint, vet, staticcheck, tests)
 make check
 
-# Run tests
 make test
 
-# Run linter
 make lint
 
-# Run staticcheck
 make staticcheck
 
-# Format code
 make fmt
 
-# Clean build artifacts
 make clean
 ```
 

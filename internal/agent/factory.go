@@ -5,15 +5,12 @@ import (
 	"slices"
 )
 
-// agentRegistry holds the factory functions for a single agent.
 type agentRegistry struct {
 	newAgent         func(model string) Agent
 	newReviewParser  func(reviewerID int) ReviewParser
 	newSummaryParser func() SummaryParser
 }
 
-// registry maps agent names to their factory functions.
-// To add a new agent, add an entry here - no other changes needed.
 var registry = map[string]agentRegistry{
 	"agy": {
 		newAgent:         func(model string) Agent { return NewAntigravityAgent(model) },
@@ -37,8 +34,6 @@ var registry = map[string]agentRegistry{
 	},
 }
 
-// SupportedAgents lists all valid agent names.
-// Derived from the registry to stay in sync automatically.
 var SupportedAgents = func() []string {
 	names := make([]string, 0, len(registry))
 	for name := range registry {
@@ -48,20 +43,14 @@ var SupportedAgents = func() []string {
 	return names
 }()
 
-// DefaultAgent is the default agent used for reviews when none is specified.
 const DefaultAgent = "codex"
 
-// DefaultSummarizerAgent is the default agent used for summarization when none is specified.
 const DefaultSummarizerAgent = "codex"
 
-// NewAgent creates an Agent by name with the default model.
-// Supported agents: agy, codex, claude, gemini
 func NewAgent(name string) (Agent, error) {
 	return NewAgentWithModel(name, "")
 }
 
-// NewAgentWithModel creates an Agent by name with an optional model override.
-// If model is empty, the agent uses its default model.
 func NewAgentWithModel(name, model string) (Agent, error) {
 	reg, ok := registry[name]
 	if !ok {
@@ -70,8 +59,6 @@ func NewAgentWithModel(name, model string) (Agent, error) {
 	return reg.newAgent(model), nil
 }
 
-// NewReviewParser creates a ReviewParser for the given agent name.
-// The parser matches the output format of the corresponding agent.
 func NewReviewParser(agentName string, reviewerID int) (ReviewParser, error) {
 	reg, ok := registry[agentName]
 	if !ok {
@@ -80,8 +67,6 @@ func NewReviewParser(agentName string, reviewerID int) (ReviewParser, error) {
 	return reg.newReviewParser(reviewerID), nil
 }
 
-// NewSummaryParser creates a SummaryParser for the given agent name.
-// The parser matches the summary output format of the corresponding agent.
 func NewSummaryParser(agentName string) (SummaryParser, error) {
 	reg, ok := registry[agentName]
 	if !ok {

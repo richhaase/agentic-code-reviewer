@@ -84,8 +84,6 @@ Change the Test Plan section from:
 ```markdown
 ## Test Plan
 
-<!-- How were these changes tested? -->
-
 - [ ] `make check` passes
 - [ ] New tests added (if applicable)
 - [ ] Manual testing performed (describe below)
@@ -95,8 +93,6 @@ To:
 
 ```markdown
 ## Test Plan
-
-<!-- How were these changes tested? -->
 
 - [ ] `make check` passes
 - [ ] ACR run completed (see CONTRIBUTING.md for requirements)
@@ -130,20 +126,11 @@ This script is what the maintainer runs inside `asciinema rec` to produce a clea
 
 ```bash
 #!/usr/bin/env bash
-# Demo recording script for ACR README.
-# Usage:
-#   1. Have a repo with an open PR that will produce findings
-#   2. asciinema rec demo.cast --cols 100 --rows 30
-#   3. Run this script (or type the commands manually)
-#   4. Convert: svg-term --in demo.cast --out docs/assets/demo.svg --window
 
-# Set a clean prompt for the recording
 export PS1="$ "
 
-# Review a PR
 acr --pr <PR_NUMBER>
 
-# When prompted, choose to post the review
 ```
 
 **Step 3: Create a .gitkeep for the SVG location**
@@ -151,7 +138,6 @@ acr --pr <PR_NUMBER>
 The actual `demo.svg` will be added after the maintainer records the demo. Add a note:
 
 ```bash
-# docs/assets/README (not a .md — just a note)
 ```
 
 No README needed — the script is self-documenting.
@@ -185,11 +171,7 @@ After line 3 (the description paragraph), add:
 Note: This will show a broken image until the recording is created. Alternatively, wrap it in a comment until the SVG exists:
 
 ```markdown
-<!-- Uncomment after recording the demo:
-<p align="center">
-  <img src="docs/assets/demo.svg" alt="ACR demo" width="800">
-</p>
--->
+
 ```
 
 **Step 2: Add CONTRIBUTING link in Development section**

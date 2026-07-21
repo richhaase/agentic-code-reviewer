@@ -12,14 +12,12 @@ const spinnerInterval = 200 * time.Millisecond
 
 var spinnerFrames = []rune("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 
-// Spinner displays an animated spinner with progress information.
 type Spinner struct {
 	isTTY     bool
 	completed *atomic.Int32
 	total     int
 }
 
-// NewSpinner creates a new spinner.
 func NewSpinner(total int) *Spinner {
 	return &Spinner{
 		isTTY:     IsStderrTTY(),
@@ -28,12 +26,10 @@ func NewSpinner(total int) *Spinner {
 	}
 }
 
-// Completed returns a pointer to the atomic counter for completed items.
 func (s *Spinner) Completed() *atomic.Int32 {
 	return s.completed
 }
 
-// Run runs the spinner until the context is canceled.
 func (s *Spinner) Run(ctx context.Context) {
 	if !s.isTTY {
 		<-ctx.Done()
@@ -48,7 +44,7 @@ func (s *Spinner) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			// Final state
+
 			elapsed := FormatDuration(time.Since(start))
 			progress := fmt.Sprintf("%d/%d", s.completed.Load(), s.total)
 			tag := fmt.Sprintf("%s[%s%s✓%s%s]%s",
@@ -72,13 +68,11 @@ func (s *Spinner) Run(ctx context.Context) {
 	}
 }
 
-// PhaseSpinner displays a simple spinner for a single phase.
 type PhaseSpinner struct {
 	isTTY bool
 	label string
 }
 
-// NewPhaseSpinner creates a new phase spinner.
 func NewPhaseSpinner(label string) *PhaseSpinner {
 	return &PhaseSpinner{
 		isTTY: IsStderrTTY(),
@@ -86,7 +80,6 @@ func NewPhaseSpinner(label string) *PhaseSpinner {
 	}
 }
 
-// Run runs the phase spinner until the context is canceled.
 func (s *PhaseSpinner) Run(ctx context.Context) {
 	if !s.isTTY {
 		<-ctx.Done()
@@ -101,7 +94,7 @@ func (s *PhaseSpinner) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			// Final state
+
 			elapsed := FormatDuration(time.Since(start))
 			tag := fmt.Sprintf("%s[%s%s✓%s%s]%s",
 				Color(Dim), Color(Reset), Color(Green), Color(Reset), Color(Dim), Color(Reset))

@@ -51,7 +51,6 @@ func TestFilterFindingsByIndices_OutOfBoundsIgnored(t *testing.T) {
 		{Title: "Finding 1"},
 	}
 
-	// Index 5 is out of bounds, should be ignored
 	result := filterFindingsByIndices(findings, []int{0, 5, 1})
 
 	if len(result) != 2 {
@@ -66,13 +65,12 @@ func TestFilterFindingsByIndices_PreservesOrder(t *testing.T) {
 		{Title: "C"},
 	}
 
-	// Indices in reverse order - result should follow findings order, not indices order
 	result := filterFindingsByIndices(findings, []int{2, 0})
 
 	if len(result) != 2 {
 		t.Fatalf("expected 2 findings, got %d", len(result))
 	}
-	// Should be in findings order: A (index 0), then C (index 2)
+
 	if result[0].Title != "A" {
 		t.Errorf("expected 'A' first, got %q", result[0].Title)
 	}

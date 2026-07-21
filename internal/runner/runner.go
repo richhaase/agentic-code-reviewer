@@ -1,4 +1,3 @@
-// Package runner provides the review execution engine.
 package runner
 
 import (
@@ -17,15 +16,9 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
-// maxFindingPreviewLength is the maximum characters shown for a finding in
-// verbose output. Longer findings are truncated with "..." to prevent
-// excessive terminal output while preserving enough context for debugging.
 const maxFindingPreviewLength = 120
 
-// maxAuthOutputCapture is the bounded stdout capture used only for auth
-// detection after a reviewer process exits. It prevents auth-error text emitted
-// on stdout from being mistaken for findings without retaining unbounded output.
-const maxAuthOutputCapture = 1 << 20 // 1MB
+const maxAuthOutputCapture = 1 << 20
 
 type cappedOutputCapture struct {
 	buf bytes.Buffer
@@ -52,7 +45,6 @@ func (c *cappedOutputCapture) String() string {
 	return c.buf.String()
 }
 
-// Config holds the runner configuration.
 type Config struct {
 	Reviewers       int
 	Concurrency     int
@@ -63,11 +55,10 @@ type Config struct {
 	WorkDir         string
 	Guidance        string
 	UseRefFile      bool
-	Diff            string // Pre-computed git diff (generated once, shared across reviewers)
-	DiffPrecomputed bool   // Whether Diff was pre-computed (true even if Diff is empty)
+	Diff            string
+	DiffPrecomputed bool
 }
 
-// Runner executes parallel code reviews.
 type Runner struct {
 	config    Config
 	agents    []agent.Agent
@@ -75,8 +66,6 @@ type Runner struct {
 	completed *atomic.Int32
 }
 
-// New creates a new runner with one or more agents for round-robin assignment.
-// Returns an error if agents slice is empty.
 func New(config Config, agents []agent.Agent, logger *terminal.Logger) (*Runner, error) {
 	if len(agents) == 0 {
 		return nil, fmt.Errorf("at least one agent is required")
@@ -89,7 +78,6 @@ func New(config Config, agents []agent.Agent, logger *terminal.Logger) (*Runner,
 	}, nil
 }
 
-// Run executes the review process and returns the results.
 func (r *Runner) Run(ctx context.Context) ([]domain.ReviewerResult, time.Duration, error) {
 	spinner := terminal.NewSpinner(r.config.Reviewers)
 	r.completed = spinner.Completed()
@@ -103,22 +91,18 @@ func (r *Runner) Run(ctx context.Context) ([]domain.ReviewerResult, time.Duratio
 
 	start := time.Now()
 
-	// Create result channel
 	resultCh := make(chan domain.ReviewerResult, r.config.Reviewers)
 
-	// Determine concurrency limit (default to reviewers if not set)
 	concurrency := r.config.Concurrency
 	if concurrency <= 0 {
 		concurrency = r.config.Reviewers
 	}
 
-	// Create semaphore to limit concurrent reviewers
 	sem := make(chan struct{}, concurrency)
 
-	// Launch reviewers
 	for i := 1; i <= r.config.Reviewers; i++ {
 		go func(id int) {
-			// Acquire semaphore
+
 			select {
 			case sem <- struct{}{}:
 			case <-ctx.Done():
@@ -131,7 +115,6 @@ func (r *Runner) Run(ctx context.Context) ([]domain.ReviewerResult, time.Duratio
 
 			result := r.runReviewerWithRetry(ctx, id)
 
-			// Release semaphore
 			<-sem
 
 			r.completed.Add(1)
@@ -139,7 +122,6 @@ func (r *Runner) Run(ctx context.Context) ([]domain.ReviewerResult, time.Duratio
 		}(i)
 	}
 
-	// Collect results
 	results := make([]domain.ReviewerResult, 0, r.config.Reviewers)
 	for i := 0; i < r.config.Reviewers; i++ {
 		select {
@@ -177,7 +159,6 @@ func (r *Runner) runReviewerWithRetry(ctx context.Context, reviewerID int) domai
 			return result
 		}
 
-		// Skip retries for auth failures — retrying won't help
 		if result.AuthFailed {
 			r.logger.Logf(terminal.StyleError, "Reviewer #%d (%s) authentication failed: %s",
 				reviewerID, result.AgentName, agent.AuthHint(result.AgentName))
@@ -209,11 +190,9 @@ func (r *Runner) runReviewerWithRetry(ctx context.Context, reviewerID int) domai
 func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.ReviewerResult {
 	start := time.Now()
 
-	// Select agent via round-robin
 	selectedAgent := agent.AgentForReviewer(r.agents, reviewerID)
 	if selectedAgent == nil {
-		// Should never happen: New() validates non-empty agents, IDs start at 1
-		// Defensive check prevents panic if invariants change
+
 		return domain.ReviewerResult{
 			ReviewerID: reviewerID,
 			ExitCode:   -1,
@@ -229,7 +208,6 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	timeoutCtx, cancel := context.WithTimeout(ctx, r.config.Timeout)
 	defer cancel()
 
-	// Create review configuration
 	reviewConfig := &agent.ReviewConfig{
 		BaseRef:         r.config.BaseRef,
 		Timeout:         r.config.Timeout,
@@ -242,21 +220,19 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		DiffPrecomputed: r.config.DiffPrecomputed,
 	}
 
-	// Execute the review
 	execResult, err := selectedAgent.ExecuteReview(timeoutCtx, reviewConfig)
 	if err != nil {
 		result.ExitCode = -1
 		result.Duration = time.Since(start)
 		return result
 	}
-	// Ensure cleanup on all exit paths
+
 	defer func() {
 		if closeErr := execResult.Close(); closeErr != nil && r.verbose() {
 			r.logger.Logf(terminal.StyleWarning, "Reviewer #%d: close error (non-fatal): %v", reviewerID, closeErr)
 		}
 	}()
 
-	// Create parser for this agent's output
 	parser, err := agent.NewReviewParser(selectedAgent.Name(), reviewerID)
 	if err != nil {
 		result.ExitCode = -1
@@ -264,14 +240,12 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		return result
 	}
 
-	// Configure scanner
 	stdoutCapture := newCappedOutputCapture(maxAuthOutputCapture)
 	scanner := bufio.NewScanner(io.TeeReader(execResult, stdoutCapture))
 	agent.ConfigureScanner(scanner)
 
-	// Parse output
 	for {
-		// Check for timeout
+
 		if timeoutCtx.Err() == context.DeadlineExceeded {
 			result.ParseErrors += parser.ParseErrors()
 			result.TimedOut = true
@@ -283,20 +257,19 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		finding, err := parser.ReadFinding(scanner)
 		if err != nil {
 			if agent.IsRecoverable(err) {
-				// Recoverable error - log and continue parsing
-				// Parse error count tracked by parser.ParseErrors()
+
 				if r.verbose() {
 					r.logger.Logf(terminal.StyleWarning, "Reviewer #%d: %v", reviewerID, err)
 				}
 				continue
 			}
-			// Fatal error - break to avoid infinite loop
+
 			result.ParseErrors++
 			break
 		}
 
 		if finding == nil {
-			// End of stream
+
 			break
 		}
 
@@ -313,18 +286,13 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		}
 	}
 
-	// Capture parse errors tracked by the parser
 	result.ParseErrors += parser.ParseErrors()
 
-	// Close to wait for process and get exit code
-	// (defer will be a no-op due to sync.Once in ExecutionResult)
 	if closeErr := execResult.Close(); closeErr != nil && r.verbose() {
 		r.logger.Logf(terminal.StyleWarning, "Reviewer #%d: close error (non-fatal): %v", reviewerID, closeErr)
 	}
 	result.ExitCode = execResult.ExitCode()
 
-	// Detect auth failure from exit code plus stderr/stdout. Some CLIs emit
-	// authentication failures on stdout, including structured error envelopes.
 	if result.ExitCode != 0 {
 		result.AuthFailed = agent.IsAuthFailure(selectedAgent.Name(), result.ExitCode, execResult.Stderr(), stdoutCapture.String())
 		if result.AuthFailed {
@@ -332,10 +300,8 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		}
 	}
 
-	// Record duration after process fully exits
 	result.Duration = time.Since(start)
 
-	// Check for timeout after parsing — timeout takes precedence over auth failure
 	if timeoutCtx.Err() == context.DeadlineExceeded {
 		result.TimedOut = true
 		result.AuthFailed = false
@@ -350,7 +316,6 @@ func (r *Runner) verbose() bool {
 	return r.config.Verbose
 }
 
-// BuildStats builds review statistics from results.
 func BuildStats(results []domain.ReviewerResult, totalReviewers int, wallClock time.Duration) domain.ReviewStats {
 	stats := domain.ReviewStats{
 		TotalReviewers:     totalReviewers,
@@ -378,7 +343,6 @@ func BuildStats(results []domain.ReviewerResult, totalReviewers int, wallClock t
 	return stats
 }
 
-// CollectFindings collects all findings from results.
 func CollectFindings(results []domain.ReviewerResult) []domain.Finding {
 	var findings []domain.Finding
 	for _, r := range results {

@@ -10,7 +10,6 @@ func TestDefaultClaudePrompt(t *testing.T) {
 		t.Error("DefaultClaudePrompt should not be empty")
 	}
 
-	// Check for key elements in the tuned Claude prompt
 	requiredElements := []string{
 		"bugs",
 		"security",
@@ -67,8 +66,7 @@ func TestDefaultGeminiPrompt(t *testing.T) {
 }
 
 func TestDefaultPromptsAreDecoupled(t *testing.T) {
-	// Prompts are decoupled to allow independent tuning per agent
-	// Both should be valid prompts but don't need to be identical
+
 	if DefaultAntigravityPrompt == "" || DefaultClaudePrompt == "" || DefaultCodexPrompt == "" || DefaultGeminiPrompt == "" {
 		t.Error("All prompts should be non-empty")
 	}

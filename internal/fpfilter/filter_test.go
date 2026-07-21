@@ -144,7 +144,6 @@ func TestBuildPromptWithStructuredFeedback(t *testing.T) {
 
 	prompt := buildPromptWithFeedback(fpEvaluationPrompt, feedback)
 
-	// Structured content preserved
 	if !strings.Contains(prompt, "DISMISSED") {
 		t.Error("prompt should contain DISMISSED status")
 	}
@@ -152,7 +151,6 @@ func TestBuildPromptWithStructuredFeedback(t *testing.T) {
 		t.Error("prompt should preserve specific finding description")
 	}
 
-	// Matching instructions present
 	if !strings.Contains(prompt, "semantic match") {
 		t.Error("prompt should contain semantic matching guidance")
 	}
@@ -357,14 +355,13 @@ func TestAgreementBonus(t *testing.T) {
 		totalReviewers int
 		wantBonus      int
 	}{
-		// < 20% agreement — strong penalty (+15)
+
 		{"1 of 6 reviewers (17%)", 1, 6, 15},
 		{"1 of 8 reviewers (13%)", 1, 8, 15},
 		{"1 of 10 reviewers (10%)", 1, 10, 15},
 		{"2 of 12 reviewers (17%)", 2, 12, 15},
 		{"1 of 20 reviewers (5%)", 1, 20, 15},
 
-		// 20-39% agreement — moderate penalty (+10)
 		{"1 of 5 reviewers (20%)", 1, 5, 10},
 		{"1 of 3 reviewers (33%)", 1, 3, 10},
 		{"1 of 4 reviewers (25%)", 1, 4, 10},
@@ -372,7 +369,6 @@ func TestAgreementBonus(t *testing.T) {
 		{"3 of 10 reviewers (30%)", 3, 10, 10},
 		{"2 of 8 reviewers (25%)", 2, 8, 10},
 
-		// >= 40% agreement — no penalty
 		{"2 of 5 reviewers (40%)", 2, 5, 0},
 		{"2 of 4 reviewers (50%)", 2, 4, 0},
 		{"3 of 6 reviewers (50%)", 3, 6, 0},
@@ -383,7 +379,6 @@ func TestAgreementBonus(t *testing.T) {
 		{"2 of 3 reviewers (67%)", 2, 3, 0},
 		{"2 of 2 reviewers (100%)", 2, 2, 0},
 
-		// Edge cases — no penalty
 		{"1 of 1 reviewer", 1, 1, 0},
 		{"0 totalReviewers", 1, 0, 0},
 		{"0 reviewerCount", 0, 6, 0},
@@ -405,11 +400,11 @@ func TestFilteringLogic_WithAgreementBonus(t *testing.T) {
 	totalReviewers := 6
 
 	findings := []domain.FindingGroup{
-		{Title: "Finding 0", Summary: "1 of 6, fp=65", ReviewerCount: 1}, // 17% → +15 = 80 → removed
-		{Title: "Finding 1", Summary: "5 of 6, fp=65", ReviewerCount: 5}, // 83% → +0  = 65 → kept
-		{Title: "Finding 2", Summary: "2 of 6, fp=68", ReviewerCount: 2}, // 33% → +10 = 78 → removed
-		{Title: "Finding 3", Summary: "3 of 6, fp=85", ReviewerCount: 3}, // 50% → +0  = 85 → removed
-		{Title: "Finding 4", Summary: "2 of 6, fp=60", ReviewerCount: 2}, // 33% → +10 = 70 → kept
+		{Title: "Finding 0", Summary: "1 of 6, fp=65", ReviewerCount: 1},
+		{Title: "Finding 1", Summary: "5 of 6, fp=65", ReviewerCount: 5},
+		{Title: "Finding 2", Summary: "2 of 6, fp=68", ReviewerCount: 2},
+		{Title: "Finding 3", Summary: "3 of 6, fp=85", ReviewerCount: 3},
+		{Title: "Finding 4", Summary: "2 of 6, fp=60", ReviewerCount: 2},
 	}
 
 	response := evaluationResponse{
@@ -485,9 +480,9 @@ func TestFilteringLogic_WithAgreementBonus_SmallTeam(t *testing.T) {
 	totalReviewers := 2
 
 	findings := []domain.FindingGroup{
-		{Title: "Finding 0", Summary: "1 of 2, fp=65", ReviewerCount: 1}, // 50% → +0 = 65 → kept
-		{Title: "Finding 1", Summary: "1 of 2, fp=80", ReviewerCount: 1}, // 50% → +0 = 80 → removed
-		{Title: "Finding 2", Summary: "2 of 2, fp=65", ReviewerCount: 2}, // 100% → +0 = 65 → kept
+		{Title: "Finding 0", Summary: "1 of 2, fp=65", ReviewerCount: 1},
+		{Title: "Finding 1", Summary: "1 of 2, fp=80", ReviewerCount: 1},
+		{Title: "Finding 2", Summary: "2 of 2, fp=65", ReviewerCount: 2},
 	}
 
 	response := evaluationResponse{
@@ -551,10 +546,10 @@ func TestFilteringLogic_WithAgreementBonus_LargeTeam(t *testing.T) {
 	totalReviewers := 10
 
 	findings := []domain.FindingGroup{
-		{Title: "Finding 0", Summary: "1 of 10, fp=60", ReviewerCount: 1}, // 10% → +15 = 75 → removed
-		{Title: "Finding 1", Summary: "3 of 10, fp=60", ReviewerCount: 3}, // 30% → +10 = 70 → kept
-		{Title: "Finding 2", Summary: "4 of 10, fp=60", ReviewerCount: 4}, // 40% → +0  = 60 → kept
-		{Title: "Finding 3", Summary: "7 of 10, fp=60", ReviewerCount: 7}, // 70% → +0  = 60 → kept
+		{Title: "Finding 0", Summary: "1 of 10, fp=60", ReviewerCount: 1},
+		{Title: "Finding 1", Summary: "3 of 10, fp=60", ReviewerCount: 3},
+		{Title: "Finding 2", Summary: "4 of 10, fp=60", ReviewerCount: 4},
+		{Title: "Finding 3", Summary: "7 of 10, fp=60", ReviewerCount: 7},
 	}
 
 	response := evaluationResponse{
@@ -618,16 +613,15 @@ func TestFilteringLogic_WithAgreementBonus_LargeTeam(t *testing.T) {
 }
 
 func TestFilteringLogic(t *testing.T) {
-	// This test simulates the core filtering logic from Apply() without
-	// needing an external agent. We replicate the evalMap + threshold logic.
+
 	threshold := 75
 
 	findings := []domain.FindingGroup{
-		{Title: "Finding 0", Summary: "At threshold", ReviewerCount: 2},       // id=0, score=75 -> removed
-		{Title: "Finding 1", Summary: "Below threshold", ReviewerCount: 1},    // id=1, score=74 -> kept
-		{Title: "Finding 2", Summary: "Above threshold", ReviewerCount: 1},    // id=2, score=90 -> removed
-		{Title: "Finding 3", Summary: "Missing evaluation", ReviewerCount: 3}, // id=3, no eval -> kept + error
-		{Title: "Finding 4", Summary: "Well below", ReviewerCount: 2},         // id=4, score=10 -> kept
+		{Title: "Finding 0", Summary: "At threshold", ReviewerCount: 2},
+		{Title: "Finding 1", Summary: "Below threshold", ReviewerCount: 1},
+		{Title: "Finding 2", Summary: "Above threshold", ReviewerCount: 1},
+		{Title: "Finding 3", Summary: "Missing evaluation", ReviewerCount: 3},
+		{Title: "Finding 4", Summary: "Well below", ReviewerCount: 2},
 	}
 
 	infoItems := []domain.FindingGroup{
@@ -639,12 +633,11 @@ func TestFilteringLogic(t *testing.T) {
 			{ID: 0, FPScore: 75, Reasoning: "exactly at threshold"},
 			{ID: 1, FPScore: 74, Reasoning: "just below threshold"},
 			{ID: 2, FPScore: 90, Reasoning: "clearly false positive"},
-			// ID 3 intentionally missing
+
 			{ID: 4, FPScore: 10, Reasoning: "very likely real issue"},
 		},
 	}
 
-	// Build evalMap (same as Apply)
 	evalMap := make(map[int]findingEvaluation)
 	for _, eval := range response.Evaluations {
 		evalMap[eval.ID] = eval
@@ -672,7 +665,6 @@ func TestFilteringLogic(t *testing.T) {
 		}
 	}
 
-	// Verify kept findings
 	if len(kept) != 3 {
 		t.Fatalf("expected 3 kept findings, got %d", len(kept))
 	}
@@ -690,7 +682,6 @@ func TestFilteringLogic(t *testing.T) {
 		t.Error("Finding 4 (well below) should be kept")
 	}
 
-	// Verify removed findings
 	if len(removed) != 2 {
 		t.Fatalf("expected 2 removed findings, got %d", len(removed))
 	}
@@ -705,12 +696,10 @@ func TestFilteringLogic(t *testing.T) {
 		t.Error("Finding 2 (above threshold) should be removed")
 	}
 
-	// Verify eval errors
 	if evalErrors != 1 {
 		t.Errorf("expected 1 eval error, got %d", evalErrors)
 	}
 
-	// Verify info items are always preserved (they never go through filtering)
 	result := &Result{
 		Grouped: domain.GroupedFindings{
 			Findings: kept,

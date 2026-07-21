@@ -8,14 +8,11 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// flagGroup defines a named group of flags for help output.
 type flagGroup struct {
 	title string
 	flags []string
 }
 
-// flagGroups defines the logical groupings for CLI flags.
-// Flags not listed here appear under "Other Flags".
 var flagGroups = []flagGroup{
 	{
 		title: "Review Settings",
@@ -47,7 +44,6 @@ var flagGroups = []flagGroup{
 	},
 }
 
-// setGroupedUsage configures the command to display flags in logical groups.
 func setGroupedUsage(cmd *cobra.Command) {
 	cmd.SetUsageFunc(func(c *cobra.Command) error {
 		if c.HasAvailableSubCommands() {
@@ -62,7 +58,6 @@ func setGroupedUsage(cmd *cobra.Command) {
 			fmt.Fprintf(c.OutOrStderr(), "Usage:\n  %s\n", c.UseLine())
 		}
 
-		// Track which flags have been placed in a group
 		grouped := make(map[string]bool)
 
 		for _, group := range flagGroups {
@@ -78,7 +73,6 @@ func setGroupedUsage(cmd *cobra.Command) {
 			}
 		}
 
-		// Collect ungrouped flags (help, version, any new flags not yet categorized)
 		other := pflag.NewFlagSet("other", pflag.ContinueOnError)
 		c.Flags().VisitAll(func(f *pflag.Flag) {
 			if !grouped[f.Name] {

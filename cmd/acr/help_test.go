@@ -31,14 +31,12 @@ func TestSetGroupedUsage(t *testing.T) {
 
 	output := buf.String()
 
-	// Check that group headers appear
 	for _, header := range []string{"Review Settings:", "Agent Settings:", "PR Integration:", "Advanced:"} {
 		if !strings.Contains(output, header) {
 			t.Errorf("expected group header %q in output, got:\n%s", header, output)
 		}
 	}
 
-	// Check that flags appear under correct groups
 	reviewIdx := strings.Index(output, "Review Settings:")
 	agentIdx := strings.Index(output, "Agent Settings:")
 	reviewersIdx := strings.Index(output, "--reviewers")
@@ -51,7 +49,6 @@ func TestSetGroupedUsage(t *testing.T) {
 		t.Error("expected --reviewer-agent under Agent Settings")
 	}
 
-	// Ungrouped flags go to Other Flags
 	if !strings.Contains(output, "Other Flags:") {
 		t.Errorf("expected 'Other Flags:' section for ungrouped flags, got:\n%s", output)
 	}
@@ -64,7 +61,7 @@ func TestSetGroupedUsage(t *testing.T) {
 
 func TestSetGroupedUsage_EmptyGroupsOmitted(t *testing.T) {
 	cmd := &cobra.Command{Use: "test"}
-	// Only add a flag from one group
+
 	cmd.Flags().Int("reviewers", 5, "Number of reviewers")
 
 	setGroupedUsage(cmd)
@@ -76,15 +73,13 @@ func TestSetGroupedUsage_EmptyGroupsOmitted(t *testing.T) {
 	_ = cmd.Usage()
 	output := buf.String()
 
-	// Groups with no matching flags should not appear
 	if strings.Contains(output, "Filtering:") {
 		t.Error("Filtering group should be omitted when no filtering flags are defined")
 	}
 }
 
 func TestFlagGroupsCoverAllFlags(t *testing.T) {
-	// Verify that all non-help/version flags in the real command are accounted for
-	// in flagGroups. This catches new flags that haven't been categorized.
+
 	grouped := make(map[string]bool)
 	for _, g := range flagGroups {
 		for _, name := range g.flags {
@@ -92,13 +87,11 @@ func TestFlagGroupsCoverAllFlags(t *testing.T) {
 		}
 	}
 
-	// These are expected to be ungrouped (they go in "Other Flags")
 	exempt := map[string]bool{
 		"help":    true,
 		"version": true,
 	}
 
-	// Build the real command's flag set
 	cmd := &cobra.Command{Use: "acr"}
 	cmd.Flags().IntVarP(&reviewers, "reviewers", "r", 0, "")
 	cmd.Flags().IntVarP(&concurrency, "concurrency", "c", 0, "")

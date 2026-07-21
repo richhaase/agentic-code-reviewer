@@ -215,7 +215,7 @@ func TestMerge_BothConfigAndCLI(t *testing.T) {
 	if len(result) != 2 {
 		t.Fatalf("expected 2 patterns, got %d", len(result))
 	}
-	// Config patterns come first, then CLI patterns
+
 	if result[0] != "config-pattern" {
 		t.Errorf("expected config pattern first, got: %s", result[0])
 	}
@@ -232,8 +232,6 @@ func TestMerge_BothEmpty(t *testing.T) {
 		t.Errorf("expected empty result, got: %v", result)
 	}
 }
-
-// Tests for expanded config schema
 
 func TestLoadFromPathWithWarnings_FullConfig(t *testing.T) {
 	dir := t.TempDir()
@@ -395,7 +393,7 @@ func TestResolve_FlagOverridesAll(t *testing.T) {
 func TestResolve_EnvOverridesConfig(t *testing.T) {
 	cfg := &Config{Reviewers: ptr(3)}
 	envState := EnvState{Reviewers: 5, ReviewersSet: true}
-	flagState := FlagState{} // no flags set
+	flagState := FlagState{}
 	flagValues := ResolvedConfig{}
 
 	result := Resolve(cfg, envState, flagState, flagValues)
@@ -407,8 +405,8 @@ func TestResolve_EnvOverridesConfig(t *testing.T) {
 
 func TestResolve_ConfigOverridesDefault(t *testing.T) {
 	cfg := &Config{Reviewers: ptr(3)}
-	envState := EnvState{}   // no env vars set
-	flagState := FlagState{} // no flags set
+	envState := EnvState{}
+	flagState := FlagState{}
 	flagValues := ResolvedConfig{}
 
 	result := Resolve(cfg, envState, flagState, flagValues)
@@ -419,7 +417,7 @@ func TestResolve_ConfigOverridesDefault(t *testing.T) {
 }
 
 func TestResolve_DefaultsUsedWhenNothingSet(t *testing.T) {
-	cfg := &Config{} // empty config
+	cfg := &Config{}
 	envState := EnvState{}
 	flagState := FlagState{}
 	flagValues := ResolvedConfig{}
@@ -449,7 +447,7 @@ func TestResolve_NilConfig(t *testing.T) {
 }
 
 func TestResolve_MixedSources(t *testing.T) {
-	// reviewers from config, base from env, timeout from flag
+
 	cfg := &Config{
 		Reviewers: ptr(3),
 		Base:      strPtr("config-base"),
@@ -543,7 +541,6 @@ func TestLoadFromPathWithWarnings_PreservesWarningsOnValidationError(t *testing.
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".acr.yaml")
 
-	// Config with both an unknown key (produces warning) and invalid value (produces error)
 	content := `reviewers: 0
 unknown_field: true
 `
@@ -569,8 +566,6 @@ unknown_field: true
 	}
 }
 
-// Tests for unknown key warnings
-
 func TestLoadFromPathWithWarnings_UnknownTopLevelKey(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".acr.yaml")
@@ -593,7 +588,7 @@ unknownkey: value
 	if result.Warnings[0] != `unknown key "unknownkey" in .acr.yaml` {
 		t.Errorf("unexpected warning: %s", result.Warnings[0])
 	}
-	// Config should still be parsed
+
 	if result.Config.Reviewers == nil || *result.Config.Reviewers != 5 {
 		t.Errorf("expected reviewers=5, got %v", result.Config.Reviewers)
 	}
@@ -759,7 +754,7 @@ func TestFindSimilar(t *testing.T) {
 		{"filtrs", "filters"},
 		{"tiemout", "timeout"},
 		{"totally_unrelated_name", ""},
-		{"reviewers", "reviewers"}, // exact match
+		{"reviewers", "reviewers"},
 	}
 
 	for _, tt := range tests {
@@ -772,7 +767,6 @@ func TestFindSimilar(t *testing.T) {
 	}
 }
 
-// Helper functions
 func ptr(i int) *int { return &i }
 
 func strPtr(s string) *string { return &s }
@@ -783,7 +777,7 @@ func durationPtr(d time.Duration) *Duration {
 }
 
 func TestResolveGuidance(t *testing.T) {
-	// Create temp files for guidance file tests
+
 	dir := t.TempDir()
 	flagGuidanceFile := filepath.Join(dir, "flag_guidance.txt")
 	envGuidanceFile := filepath.Join(dir, "env_guidance.txt")
@@ -947,8 +941,6 @@ func TestResolveGuidance(t *testing.T) {
 	}
 }
 
-// Tests for agent config
-
 func TestLoadFromPathWithWarnings_ReviewerAgentConfig(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".acr.yaml")
@@ -1012,7 +1004,7 @@ func TestResolve_ReviewerAgents_FlagOverridesAll(t *testing.T) {
 func TestResolve_ReviewerAgents_EnvOverridesConfig(t *testing.T) {
 	cfg := &Config{ReviewerAgent: strPtr("agy")}
 	envState := EnvState{ReviewerAgents: []string{"claude"}, ReviewerAgentsSet: true}
-	flagState := FlagState{} // no flags set
+	flagState := FlagState{}
 	flagValues := ResolvedConfig{}
 
 	result := Resolve(cfg, envState, flagState, flagValues)
@@ -1024,8 +1016,8 @@ func TestResolve_ReviewerAgents_EnvOverridesConfig(t *testing.T) {
 
 func TestResolve_ReviewerAgents_ConfigOverridesDefault(t *testing.T) {
 	cfg := &Config{ReviewerAgent: strPtr("agy")}
-	envState := EnvState{}   // no env vars set
-	flagState := FlagState{} // no flags set
+	envState := EnvState{}
+	flagState := FlagState{}
 	flagValues := ResolvedConfig{}
 
 	result := Resolve(cfg, envState, flagState, flagValues)
@@ -1036,7 +1028,7 @@ func TestResolve_ReviewerAgents_ConfigOverridesDefault(t *testing.T) {
 }
 
 func TestResolve_ReviewerAgents_DefaultsToCodex(t *testing.T) {
-	cfg := &Config{} // empty config
+	cfg := &Config{}
 	envState := EnvState{}
 	flagState := FlagState{}
 	flagValues := ResolvedConfig{}
@@ -1049,7 +1041,7 @@ func TestResolve_ReviewerAgents_DefaultsToCodex(t *testing.T) {
 }
 
 func TestLoadEnvState_ReviewerAgents(t *testing.T) {
-	// Save and restore original env
+
 	original := os.Getenv("ACR_REVIEWER_AGENT")
 	defer func() {
 		if original != "" {
@@ -1074,7 +1066,7 @@ func TestLoadEnvState_ReviewerAgents(t *testing.T) {
 }
 
 func TestLoadEnvState_ReviewerAgents_NotSet(t *testing.T) {
-	// Save and restore original env
+
 	original := os.Getenv("ACR_REVIEWER_AGENT")
 	defer func() {
 		if original != "" {
@@ -1099,14 +1091,13 @@ func TestLoadEnvState_ReviewerAgents_NotSet(t *testing.T) {
 }
 
 func TestResolveGuidance_Precedence(t *testing.T) {
-	// Test that verifies the exact precedence order
+
 	dir := t.TempDir()
 	guidanceFile := filepath.Join(dir, "guidance.txt")
 	if err := os.WriteFile(guidanceFile, []byte("file content"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	// All sources set, flag guidance text should win
 	cfg := &Config{
 		GuidanceFile: strPtr(guidanceFile),
 	}
@@ -1135,10 +1126,7 @@ func TestResolveGuidance_Precedence(t *testing.T) {
 }
 
 func TestResolveGuidance_ConfigFileRelativePath(t *testing.T) {
-	// Create a temp directory structure:
-	// tempdir/
-	//   guidance/
-	//     review.md
+
 	dir := t.TempDir()
 	guidanceDir := filepath.Join(dir, "guidance")
 	if err := os.MkdirAll(guidanceDir, 0755); err != nil {
@@ -1150,7 +1138,6 @@ func TestResolveGuidance_ConfigFileRelativePath(t *testing.T) {
 		t.Fatalf("failed to write guidance file: %v", err)
 	}
 
-	// Config with relative path
 	relativePath := "guidance/review.md"
 	cfg := &Config{
 		GuidanceFile: &relativePath,
@@ -1159,7 +1146,6 @@ func TestResolveGuidance_ConfigFileRelativePath(t *testing.T) {
 	flagState := FlagState{}
 	flagValues := ResolvedConfig{}
 
-	// Resolve with configDir set to temp directory
 	got, err := ResolveGuidance(cfg, envState, flagState, flagValues, dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1170,7 +1156,7 @@ func TestResolveGuidance_ConfigFileRelativePath(t *testing.T) {
 }
 
 func TestResolveGuidance_ConfigFileAbsolutePath(t *testing.T) {
-	// Create a temp file with guidance content
+
 	dir := t.TempDir()
 	guidanceFile := filepath.Join(dir, "guidance.md")
 	guidanceContent := "absolute path guidance"
@@ -1178,7 +1164,6 @@ func TestResolveGuidance_ConfigFileAbsolutePath(t *testing.T) {
 		t.Fatalf("failed to write guidance file: %v", err)
 	}
 
-	// Config with absolute path - should work regardless of configDir
 	cfg := &Config{
 		GuidanceFile: &guidanceFile,
 	}
@@ -1186,7 +1171,6 @@ func TestResolveGuidance_ConfigFileAbsolutePath(t *testing.T) {
 	flagState := FlagState{}
 	flagValues := ResolvedConfig{}
 
-	// Resolve with a different configDir - absolute path should still work
 	got, err := ResolveGuidance(cfg, envState, flagState, flagValues, "/some/other/dir")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1196,10 +1180,6 @@ func TestResolveGuidance_ConfigFileAbsolutePath(t *testing.T) {
 	}
 }
 
-// Tests for malformed environment variable warnings
-
-// clearACREnv unsets all ACR_* env vars to isolate tests from ambient environment.
-// Uses t.Setenv("VAR", "") then os.Unsetenv to get automatic restore on test cleanup.
 func clearACREnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
@@ -1209,12 +1189,11 @@ func clearACREnv(t *testing.T) {
 		"ACR_GUIDANCE", "ACR_GUIDANCE_FILE", "ACR_FP_FILTER", "ACR_FP_THRESHOLD",
 		"ACR_PR_FEEDBACK", "ACR_PR_FEEDBACK_AGENT",
 	} {
-		t.Setenv(key, os.Getenv(key)) // register for restore
+		t.Setenv(key, os.Getenv(key))
 		os.Unsetenv(key)
 	}
 }
 
-// hasWarningContaining checks if any warning contains the given substring.
 func hasWarningContaining(warnings []string, substr string) bool {
 	for _, w := range warnings {
 		if strings.Contains(w, substr) {
@@ -1347,7 +1326,7 @@ func TestLoadEnvState_NoWarningsForValidValues(t *testing.T) {
 
 func TestLoadEnvState_PhaseTimeouts(t *testing.T) {
 	clearACREnv(t)
-	t.Setenv("ACR_SUMMARIZER_TIMEOUT", "360") // integer seconds
+	t.Setenv("ACR_SUMMARIZER_TIMEOUT", "360")
 	t.Setenv("ACR_FP_FILTER_TIMEOUT", "7m")
 
 	state, warnings := LoadEnvState()
@@ -1372,8 +1351,6 @@ func TestLoadEnvState_InvalidPhaseTimeouts(t *testing.T) {
 		t.Fatalf("expected 2 warnings, got %d: %v", len(warnings), warnings)
 	}
 }
-
-// Tests for deprecated reviewer_agent config key
 
 func TestLoadFromPathWithWarnings_DeprecatedReviewerAgent(t *testing.T) {
 	dir := t.TempDir()
@@ -1567,7 +1544,7 @@ func TestResolvedConfig_Validate_MultipleErrors(t *testing.T) {
 
 func TestResolvedConfig_Validate_EmptyPRFeedbackAgent(t *testing.T) {
 	cfg := Defaults
-	cfg.PRFeedbackAgent = "" // empty means use summarizer agent, should be valid
+	cfg.PRFeedbackAgent = ""
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("expected empty pr_feedback.agent to be valid, got: %v", err)
 	}

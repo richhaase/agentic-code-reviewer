@@ -14,7 +14,6 @@ func TestNewCodexSummaryParser(t *testing.T) {
 	}
 }
 
-// wrapInJSONL wraps a JSON string in the JSONL event format that codex --json outputs.
 func wrapInJSONL(jsonContent string) string {
 	return `{"type":"thread.started","thread_id":"test-thread"}
 {"type":"turn.started"}
@@ -160,7 +159,6 @@ func TestCodexSummaryParser_SummaryParserInterface(t *testing.T) {
 func TestCodexSummaryParser_DecodeErrorIncluded(t *testing.T) {
 	parser := NewCodexSummaryParser()
 
-	// Malformed JSON that will cause a decode error
 	input := []byte(`{"type":"thread.started"}{invalid json here}`)
 
 	_, err := parser.Parse(input)
@@ -168,7 +166,6 @@ func TestCodexSummaryParser_DecodeErrorIncluded(t *testing.T) {
 		t.Fatal("expected error for malformed JSON")
 	}
 
-	// Error should mention decode failure
 	if !strings.Contains(err.Error(), "failed to decode") {
 		t.Errorf("error should include decode failure details, got: %v", err)
 	}

@@ -13,13 +13,12 @@ import (
 func TestCollectSourceIndices_DeduplicatesAcrossGroups(t *testing.T) {
 	groups := []domain.FindingGroup{
 		{Sources: []int{1, 2, 3}},
-		{Sources: []int{2, 3, 4}}, // 2 and 3 are duplicates
-		{Sources: []int{4, 5}},    // 4 is duplicate
+		{Sources: []int{2, 3, 4}},
+		{Sources: []int{4, 5}},
 	}
 
 	indices := collectSourceIndices(groups)
 
-	// Should have 5 unique indices: 1, 2, 3, 4, 5
 	if len(indices) != 5 {
 		t.Errorf("expected 5 unique indices, got %d: %v", len(indices), indices)
 	}
@@ -67,10 +66,8 @@ func TestFormatRawFindings_SkipsOutOfBoundsIndices(t *testing.T) {
 		{Text: "Finding 1", Reviewers: []int{2}},
 	}
 
-	// Index 5 is out of bounds, -1 is invalid
 	result := formatRawFindings(aggregated, []int{0, 5, -1, 1}, 3)
 
-	// Should only include indices 0 and 1
 	if !strings.Contains(result, "Finding 0") {
 		t.Error("expected 'Finding 0' in output")
 	}
@@ -104,7 +101,6 @@ func TestFormatRawFindings_TrimsTrailingWhitespace(t *testing.T) {
 
 	result := formatRawFindings(aggregated, []int{0}, 3)
 
-	// Text should be trimmed of trailing whitespace
 	lines := strings.Split(result, "\n")
 	for _, line := range lines {
 		if strings.HasSuffix(line, "   ") {
@@ -158,7 +154,6 @@ func TestRenderLGTMMarkdown_SortsCommentsByReviewerID(t *testing.T) {
 
 	result := RenderLGTMMarkdown(3, 3, comments, "dev")
 
-	// Reviewer 1 should appear before Reviewer 2, which should appear before Reviewer 3
 	idx1 := strings.Index(result, "Reviewer 1")
 	idx2 := strings.Index(result, "Reviewer 2")
 	idx3 := strings.Index(result, "Reviewer 3")
@@ -239,11 +234,10 @@ func TestRenderLGTMMarkdown_UnmappedDispositionNoAnnotation(t *testing.T) {
 
 	result := RenderLGTMMarkdown(3, 3, comments, "dev")
 
-	// Unmapped should render as plain comment without annotation
 	if !strings.Contains(result, "- **Reviewer 1:** Some comment") {
 		t.Error("expected plain comment without annotation")
 	}
-	// Should not contain any disposition annotations
+
 	for _, annotation := range []string{"informational", "false positive", "exclude pattern", "Survived"} {
 		if strings.Contains(result, annotation) {
 			t.Errorf("unexpected annotation text %q in output", annotation)
@@ -303,7 +297,7 @@ func TestRenderCommentMarkdown_NumbersFindings(t *testing.T) {
 func TestRenderCommentMarkdown_UntitledFindingsFallback(t *testing.T) {
 	grouped := domain.GroupedFindings{
 		Findings: []domain.FindingGroup{
-			{Title: ""}, // empty title
+			{Title: ""},
 		},
 	}
 
@@ -319,7 +313,7 @@ func TestRenderCommentMarkdown_IncludesEvidence(t *testing.T) {
 		Findings: []domain.FindingGroup{
 			{
 				Title:    "Issue",
-				Messages: []string{"Evidence 1", "", "Evidence 2"}, // includes empty
+				Messages: []string{"Evidence 1", "", "Evidence 2"},
 			},
 		},
 	}
@@ -335,7 +329,7 @@ func TestRenderCommentMarkdown_IncludesEvidence(t *testing.T) {
 	if !strings.Contains(result, "- Evidence 2") {
 		t.Error("expected evidence item 2")
 	}
-	// Empty evidence should be skipped
+
 	lineCount := strings.Count(result, "- Evidence")
 	if lineCount != 2 {
 		t.Errorf("expected 2 evidence items (empty skipped), got %d", lineCount)
@@ -394,7 +388,7 @@ func TestRenderReport_SummarizerError(t *testing.T) {
 
 func TestRenderReport_LGTM(t *testing.T) {
 	terminal.WithColorsDisabled(func() {
-		grouped := domain.GroupedFindings{} // no findings
+		grouped := domain.GroupedFindings{}
 		summaryResult := &summarizer.Result{ExitCode: 0}
 		stats := domain.ReviewStats{}
 
@@ -500,7 +494,7 @@ func TestRenderReport_UntitledFinding(t *testing.T) {
 	terminal.WithColorsDisabled(func() {
 		grouped := domain.GroupedFindings{
 			Findings: []domain.FindingGroup{
-				{Title: ""}, // empty title
+				{Title: ""},
 			},
 		}
 		summaryResult := &summarizer.Result{ExitCode: 0}

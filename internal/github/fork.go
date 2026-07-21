@@ -1,4 +1,3 @@
-// Package github provides GitHub PR operations via the gh CLI.
 package github
 
 import (
@@ -9,18 +8,14 @@ import (
 	"strings"
 )
 
-// ForkRef contains resolved information about a fork reference.
 type ForkRef struct {
-	Username   string // Fork owner username (e.g., "yunidbauza")
-	Branch     string // Branch name (e.g., "feat/enable-pr-number-review")
-	RepoURL    string // Clone URL (e.g., "https://github.com/yunidbauza/repo.git")
-	RemoteName string // Temporary remote name (e.g., "fork-yunidbauza")
-	PRNumber   int    // Associated PR number
+	Username   string
+	Branch     string
+	RepoURL    string
+	RemoteName string
+	PRNumber   int
 }
 
-// ParseForkNotation parses GitHub's "username:branch" fork notation.
-// Returns the username, branch, and true if valid fork notation.
-// Returns "", "", false if not fork notation or invalid.
 func ParseForkNotation(ref string) (username, branch string, ok bool) {
 	parts := strings.SplitN(ref, ":", 2)
 	if len(parts) != 2 {
@@ -33,10 +28,8 @@ func ParseForkNotation(ref string) (username, branch string, ok bool) {
 	return username, branch, true
 }
 
-// ErrNoForkPRFound indicates no PR exists for the given fork reference.
 var ErrNoForkPRFound = fmt.Errorf("no open PR found for fork reference")
 
-// prListResult represents a single PR from gh pr list output.
 type prListResult struct {
 	Number              int    `json:"number"`
 	HeadRefName         string `json:"headRefName"`
@@ -48,7 +41,6 @@ type prListResult struct {
 	} `json:"headRepository"`
 }
 
-// buildForkRef constructs a ForkRef from resolved PR metadata.
 func buildForkRef(username, branch, repoName string, prNumber int) *ForkRef {
 	return &ForkRef{
 		Username:   username,
@@ -59,17 +51,12 @@ func buildForkRef(username, branch, repoName string, prNumber int) *ForkRef {
 	}
 }
 
-// ResolveForkRef detects and resolves "username:branch" fork notation.
-// Returns (*ForkRef, nil) for valid fork refs with an open PR.
-// Returns (nil, nil) if ref is not fork notation (caller should use ref as-is).
-// Returns (nil, error) if fork notation is used but resolution fails.
 func ResolveForkRef(ctx context.Context, ref string) (*ForkRef, error) {
 	username, branch, ok := ParseForkNotation(ref)
 	if !ok {
-		return nil, nil // Not fork notation
+		return nil, nil
 	}
 
-	// Query GitHub for PRs with this head branch
 	cmd := exec.CommandContext(ctx, "gh", "pr", "list",
 		"--head", branch,
 		"--json", "number,headRefName,headRepositoryOwner,headRepository",
@@ -85,7 +72,6 @@ func ResolveForkRef(ctx context.Context, ref string) (*ForkRef, error) {
 		return nil, fmt.Errorf("failed to parse PR list: %w", err)
 	}
 
-	// Find PR from the specified fork owner
 	for _, pr := range prs {
 		if strings.EqualFold(pr.HeadRepositoryOwner.Login, username) {
 			return buildForkRef(

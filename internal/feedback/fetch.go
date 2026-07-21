@@ -1,4 +1,3 @@
-// Package feedback provides PR feedback summarization for false positive filtering.
 package feedback
 
 import (
@@ -11,14 +10,12 @@ import (
 	"strings"
 )
 
-// PRContext holds the PR description and all comments.
 type PRContext struct {
 	Number      string
 	Description string
 	Comments    []Comment
 }
 
-// Comment represents a PR comment with its replies.
 type Comment struct {
 	Author     string
 	Body       string
@@ -26,18 +23,15 @@ type Comment struct {
 	Replies    []Reply
 }
 
-// Reply represents a reply to a comment.
 type Reply struct {
 	Author string
 	Body   string
 }
 
-// HasContent returns true if the context has any content worth summarizing.
 func (p *PRContext) HasContent() bool {
 	return p.Description != "" || len(p.Comments) > 0
 }
 
-// FetchPRContext retrieves the PR description and all comments via gh CLI.
 func FetchPRContext(ctx context.Context, prNumber string) (*PRContext, error) {
 	if prNumber == "" {
 		return nil, errors.New("PR number is required")
@@ -45,14 +39,12 @@ func FetchPRContext(ctx context.Context, prNumber string) (*PRContext, error) {
 
 	result := &PRContext{Number: prNumber}
 
-	// Fetch PR description
 	desc, err := fetchPRDescription(ctx, prNumber)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR description: %w", err)
 	}
 	result.Description = desc
 
-	// Fetch comments
 	comments, err := fetchPRComments(ctx, prNumber)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch PR comments: %w", err)
@@ -71,7 +63,6 @@ func fetchPRDescription(ctx context.Context, prNumber string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// prCommentResponse represents a comment from gh api.
 type prCommentResponse struct {
 	User struct {
 		Login string `json:"login"`
@@ -82,9 +73,6 @@ type prCommentResponse struct {
 func fetchPRComments(ctx context.Context, prNumber string) ([]Comment, error) {
 	var comments []Comment
 
-	// Fetch review comments (comments on code) with pagination
-	// Use --jq '.[]' to output each item as NDJSON (one JSON object per line)
-	// This handles multi-page output which would otherwise concatenate arrays
 	endpoint := "repos/{owner}/{repo}/pulls/" + prNumber + "/comments"
 	cmd := exec.CommandContext(ctx, "gh", "api", "--paginate", "--jq", ".[]", endpoint)
 	out, err := cmd.Output()
@@ -106,7 +94,6 @@ func fetchPRComments(ctx context.Context, prNumber string) ([]Comment, error) {
 		}
 	}
 
-	// Also fetch issue comments (general PR comments) with pagination
 	endpoint = "repos/{owner}/{repo}/issues/" + prNumber + "/comments"
 	cmd = exec.CommandContext(ctx, "gh", "api", "--paginate", "--jq", ".[]", endpoint)
 	out, err = cmd.Output()
@@ -128,8 +115,6 @@ func fetchPRComments(ctx context.Context, prNumber string) ([]Comment, error) {
 		}
 	}
 
-	// Fetch review summaries (the body text submitted with "Review changes")
-	// These are stored separately from inline comments and issue comments
 	endpoint = "repos/{owner}/{repo}/pulls/" + prNumber + "/reviews"
 	cmd = exec.CommandContext(ctx, "gh", "api", "--paginate", "--jq", ".[]", endpoint)
 	out, err = cmd.Output()
@@ -154,8 +139,6 @@ func fetchPRComments(ctx context.Context, prNumber string) ([]Comment, error) {
 	return comments, nil
 }
 
-// parseNDJSON parses newline-delimited JSON (one object per line) into comments.
-// NDJSON is a stream of top-level JSON objects, so we decode until io.EOF.
 func parseNDJSON(data []byte) ([]prCommentResponse, error) {
 	if len(data) == 0 {
 		return nil, nil

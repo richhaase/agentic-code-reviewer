@@ -2,10 +2,9 @@ package domain
 
 import "time"
 
-// ReviewerResult holds the result from a single reviewer run.
 type ReviewerResult struct {
 	ReviewerID  int
-	AgentName   string // Which agent type was used (agy, codex, claude, gemini)
+	AgentName   string
 	Findings    []Finding
 	ExitCode    int
 	ParseErrors int
@@ -29,7 +28,6 @@ type ReviewStats struct {
 	FPFilteredCount     int
 }
 
-// AllFailed returns true if all reviewers failed.
 func (s *ReviewStats) AllFailed() bool {
 	totalFailures := len(s.FailedReviewers) + len(s.TimedOutReviewers) + len(s.AuthFailedReviewers)
 	return totalFailures >= s.TotalReviewers

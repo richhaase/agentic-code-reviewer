@@ -30,11 +30,10 @@ func TestCodexAgent_IsAvailable(t *testing.T) {
 	agent := NewCodexAgent("")
 	err := agent.IsAvailable()
 
-	// Check if codex is in PATH
 	_, lookPathErr := exec.LookPath("codex")
 
 	if lookPathErr != nil {
-		// Codex not in PATH - should return error
+
 		if err == nil {
 			t.Error("IsAvailable() should return error when codex is not in PATH")
 		}
@@ -42,7 +41,7 @@ func TestCodexAgent_IsAvailable(t *testing.T) {
 			t.Errorf("IsAvailable() error = %v, want error containing 'codex CLI not found'", err)
 		}
 	} else {
-		// Codex is in PATH - should return nil
+
 		if err != nil {
 			t.Errorf("IsAvailable() unexpected error = %v", err)
 		}
@@ -50,7 +49,7 @@ func TestCodexAgent_IsAvailable(t *testing.T) {
 }
 
 func TestCodexAgent_ExecuteReview_CodexNotAvailable(t *testing.T) {
-	// Temporarily remove PATH to ensure codex is not available
+
 	originalPath := os.Getenv("PATH")
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", "")
@@ -80,7 +79,7 @@ func TestAgentInterface(t *testing.T) {
 }
 
 func TestCodexAgent_ExecuteSummary_CodexNotAvailable(t *testing.T) {
-	// Temporarily remove PATH to ensure codex is not available
+
 	originalPath := os.Getenv("PATH")
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", "")
@@ -146,7 +145,6 @@ func TestCodexAgent_ExecuteReview_ArgsWithoutGuidance(t *testing.T) {
 func TestCodexAgent_ExecuteReview_ArgsWithGuidance(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Set up a git repo so executeDiffBasedReview can fetch a diff
 	for _, cmd := range [][]string{
 		{"git", "init"},
 		{"git", "config", "user.email", "test@test.com"},
@@ -178,7 +176,6 @@ func TestCodexAgent_ExecuteReview_ArgsWithGuidance(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Mock codex that prints args and stdin
 	mockScript := filepath.Join(tmpDir, "codex")
 	err := os.WriteFile(mockScript, []byte("#!/bin/sh\nfor arg in \"$@\"; do echo \"ARG:$arg\"; done\ncat\n"), 0755)
 	if err != nil {
@@ -210,18 +207,17 @@ func TestCodexAgent_ExecuteReview_ArgsWithGuidance(t *testing.T) {
 
 	outputStr := string(output)
 
-	// With guidance, should use diff-based review (no "review" or "--base" args)
 	if strings.Contains(outputStr, "ARG:review") {
 		t.Errorf("with guidance, should not use built-in 'review' subcommand, got:\n%s", outputStr)
 	}
 	if strings.Contains(outputStr, "ARG:--base") {
 		t.Errorf("with guidance, should not use --base flag, got:\n%s", outputStr)
 	}
-	// Should use stdin mode
+
 	if !strings.Contains(outputStr, "ARG:-") {
 		t.Errorf("expected - flag (stdin mode) in args, got:\n%s", outputStr)
 	}
-	// Should include guidance in the rendered prompt
+
 	if !strings.Contains(outputStr, "Focus on security issues") {
 		t.Errorf("expected guidance in stdin prompt, got:\n%s", outputStr)
 	}

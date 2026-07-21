@@ -51,12 +51,10 @@ func TestWriteDiffToTempFile(t *testing.T) {
 		t.Fatalf("WriteDiffToTempFile() error = %v", err)
 	}
 
-	// Verify file exists
 	if _, err := os.Stat(absPath); os.IsNotExist(err) {
 		t.Errorf("WriteDiffToTempFile() file not created at %s", absPath)
 	}
 
-	// Verify file contents
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		t.Fatalf("Failed to read temp file: %v", err)
@@ -65,17 +63,14 @@ func TestWriteDiffToTempFile(t *testing.T) {
 		t.Errorf("WriteDiffToTempFile() content = %q, want %q", string(content), diff)
 	}
 
-	// Verify file has correct naming pattern
 	if !strings.Contains(filepath.Base(absPath), ".acr-diff-") {
 		t.Errorf("WriteDiffToTempFile() filename = %s, want pattern .acr-diff-*", filepath.Base(absPath))
 	}
 
-	// Verify path is absolute
 	if !filepath.IsAbs(absPath) {
 		t.Errorf("WriteDiffToTempFile() path = %s, want absolute path", absPath)
 	}
 
-	// Cleanup
 	CleanupTempFile(absPath)
 	if _, err := os.Stat(absPath); !os.IsNotExist(err) {
 		t.Errorf("CleanupTempFile() failed to remove file")
@@ -91,12 +86,10 @@ func TestWriteInputToTempFile(t *testing.T) {
 		t.Fatalf("WriteInputToTempFile() error = %v", err)
 	}
 
-	// Verify file exists
 	if _, err := os.Stat(absPath); os.IsNotExist(err) {
 		t.Errorf("WriteInputToTempFile() file not created at %s", absPath)
 	}
 
-	// Verify file contents
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		t.Fatalf("Failed to read temp file: %v", err)
@@ -105,12 +98,10 @@ func TestWriteInputToTempFile(t *testing.T) {
 		t.Errorf("WriteInputToTempFile() content = %q, want %q", string(content), string(input))
 	}
 
-	// Verify path is absolute
 	if !filepath.IsAbs(absPath) {
 		t.Errorf("WriteInputToTempFile() path = %s, want absolute path", absPath)
 	}
 
-	// Cleanup
 	CleanupTempFile(absPath)
 }
 
@@ -130,18 +121,18 @@ func TestCleanupTempFile(t *testing.T) {
 	})
 
 	t.Run("cleanup non-existent file does not panic", func(t *testing.T) {
-		// Should not panic or error
+
 		CleanupTempFile("/nonexistent/path/file.txt")
 	})
 
 	t.Run("cleanup empty path does nothing", func(t *testing.T) {
-		// Should not panic or error
+
 		CleanupTempFile("")
 	})
 }
 
 func TestRefFileSizeThreshold(t *testing.T) {
-	// Verify threshold is 100KB
+
 	expected := 100 * 1024
 	if RefFileSizeThreshold != expected {
 		t.Errorf("RefFileSizeThreshold = %d, want %d", RefFileSizeThreshold, expected)

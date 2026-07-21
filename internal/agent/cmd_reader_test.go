@@ -10,7 +10,7 @@ import (
 )
 
 func TestCmdReader_Close(t *testing.T) {
-	// Create a simple command that we can close
+
 	cmd := exec.Command("echo", "test")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -26,10 +26,8 @@ func TestCmdReader_Close(t *testing.T) {
 		cmd:    cmd,
 	}
 
-	// Read all output
 	_, _ = io.ReadAll(reader)
 
-	// Close should not error
 	err = reader.Close()
 	if err != nil {
 		t.Errorf("Close() error = %v, want nil", err)
@@ -128,7 +126,6 @@ func TestCmdReader_Close_Idempotent(t *testing.T) {
 
 	_, _ = io.ReadAll(reader)
 
-	// Close multiple times should not error
 	if err := reader.Close(); err != nil {
 		t.Errorf("First Close() error = %v, want nil", err)
 	}
@@ -138,8 +135,8 @@ func TestCmdReader_Close_Idempotent(t *testing.T) {
 }
 
 func TestCmdReader_CloseWithNilProcess(t *testing.T) {
-	// cmdReader with cmd set but Process is nil (Start() was never called)
-	cmd := exec.Command("true") // Don't start it
+
+	cmd := exec.Command("true")
 
 	reader := &cmdReader{
 		Reader: strings.NewReader(""),
@@ -147,7 +144,6 @@ func TestCmdReader_CloseWithNilProcess(t *testing.T) {
 		ctx:    context.Background(),
 	}
 
-	// Should not panic
 	err := reader.Close()
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -156,9 +152,8 @@ func TestCmdReader_CloseWithNilProcess(t *testing.T) {
 
 func TestCmdReader_CloseWithContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
+	cancel()
 
-	// Create a long-running command
 	cmd := exec.CommandContext(ctx, "sleep", "10")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
@@ -171,7 +166,6 @@ func TestCmdReader_CloseWithContextCancel(t *testing.T) {
 		ctx:    ctx,
 	}
 
-	// Should kill process group and not panic
 	err := reader.Close()
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)

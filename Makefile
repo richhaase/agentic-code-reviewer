@@ -1,8 +1,5 @@
-# Agentic Code Reviewer development tasks
-
 .PHONY: help build test test-coverage fmt lint vet tidy clean find-deadcode staticcheck check eval eval-check-deps
 
-# Show available targets
 help:
 	@echo "Available targets:"
 	@echo "  build        - Build the acr binary with version information"
@@ -18,7 +15,6 @@ help:
 	@echo "  check        - Run all quality checks (fmt, lint, vet, staticcheck, tests)"
 	@echo "  eval         - Run eval tests (requires bats-core)"
 
-# Build the acr binary with version information
 build:
 	@echo "Building acr with version information..."
 	@mkdir -p bin
@@ -31,13 +27,11 @@ build:
 	fi; \
 	echo "Built versioned acr binary to bin/ (version: $$VERSION)"
 
-# Run all unit tests
 test:
 	@echo "Running unit tests..."
 	@go test ./...
 	@echo "Unit tests passed!"
 
-# Run tests with coverage
 test-coverage:
 	@echo "Running unit tests with coverage..."
 	@go clean -testcache
@@ -47,31 +41,26 @@ test-coverage:
 	@go tool cover -html=coverage.out -o coverage.html
 	@echo "Unit tests passed! Coverage report: coverage.html (see also coverage.txt)"
 
-# Format Go source code
 fmt:
 	@echo "Formatting Go source code..."
 	@go fmt ./...
 	@echo "Formatting complete!"
 
-# Run golangci-lint v2
 lint:
 	@echo "Running golangci-lint v2..."
 	@go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0 run --timeout=10m ./...
 	@echo "Linting passed!"
 
-# Run go vet
 vet:
 	@echo "Running go vet..."
 	@go vet ./...
 	@echo "Vet passed!"
 
-# Tidy go modules
 tidy:
 	@echo "Tidying go modules..."
 	@go mod tidy
 	@echo "Modules tidied!"
 
-# Clean build artifacts and test cache
 clean:
 	@echo "Cleaning build artifacts and caches..."
 	@rm -rf bin
@@ -80,22 +69,18 @@ clean:
 	@go clean -testcache
 	@echo "Build artifacts and test cache cleaned"
 
-# Run dead code analysis
 find-deadcode:
 	@echo "Search for dead code..."
 	@go run golang.org/x/tools/cmd/deadcode@latest ./...
 	@echo "Done"
 
-# Run staticcheck
 staticcheck:
 	@echo "Running staticcheck..."
 	@go run honnef.co/go/tools/cmd/staticcheck@latest ./...
 	@echo "Staticcheck passed!"
 
-# Run all quality checks (format, lint, vet, staticcheck, tests)
 check: fmt lint vet staticcheck test
 
-# Check that bats-core is installed
 eval-check-deps:
 	@command -v bats >/dev/null 2>&1 || { \
 		echo "bats-core is required but not installed."; \
@@ -103,7 +88,6 @@ eval-check-deps:
 		exit 1; \
 	}
 
-# Run eval tests
 eval: eval-check-deps build
 	@echo "Running eval tests..."
 	@bats bats/tests/

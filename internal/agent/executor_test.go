@@ -24,7 +24,7 @@ func TestCappedBuffer_UnderLimit(t *testing.T) {
 func TestCappedBuffer_AtLimit(t *testing.T) {
 	buf := newCappedBuffer(5)
 	buf.Write([]byte("hello"))
-	// At limit — further writes silently discarded
+
 	n, err := buf.Write([]byte(" world"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -40,7 +40,7 @@ func TestCappedBuffer_AtLimit(t *testing.T) {
 func TestCappedBuffer_PartialWrite(t *testing.T) {
 	buf := newCappedBuffer(8)
 	buf.Write([]byte("hello"))
-	// 3 bytes remaining — should write partial but report full length
+
 	n, err := buf.Write([]byte(" world"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

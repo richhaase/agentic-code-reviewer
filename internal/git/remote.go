@@ -1,4 +1,3 @@
-// Package git provides git operations including worktree management.
 package git
 
 import (
@@ -8,7 +7,6 @@ import (
 	"strings"
 )
 
-// AddRemote adds a new git remote.
 func AddRemote(repoDir, name, url string) error {
 	cmd := exec.Command("git", "remote", "add", name, url)
 	cmd.Dir = repoDir
@@ -22,7 +20,6 @@ func AddRemote(repoDir, name, url string) error {
 	return nil
 }
 
-// RemoveRemote removes a git remote.
 func RemoveRemote(repoDir, name string) error {
 	cmd := exec.Command("git", "remote", "remove", name)
 	cmd.Dir = repoDir
@@ -36,7 +33,6 @@ func RemoveRemote(repoDir, name string) error {
 	return nil
 }
 
-// FetchBranch fetches a specific branch from a remote.
 func FetchBranch(ctx context.Context, repoDir, remote, branch string) error {
 	cmd := exec.CommandContext(ctx, "git", "fetch", remote, branch)
 	cmd.Dir = repoDir

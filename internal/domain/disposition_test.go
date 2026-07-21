@@ -100,7 +100,7 @@ func TestBuildDispositions_UnmappedRemainUnmapped(t *testing.T) {
 }
 
 func TestBuildDispositions_PriorityOverride(t *testing.T) {
-	// Later steps override earlier ones: FP overrides Info, Survived overrides FP
+
 	dispositions := BuildDispositions(
 		3,
 		[]FindingGroup{

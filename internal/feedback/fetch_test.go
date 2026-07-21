@@ -130,7 +130,7 @@ func TestParseNDJSON_FieldExtraction(t *testing.T) {
 }
 
 func TestParseNDJSON_LargePayload(t *testing.T) {
-	// Build 150 NDJSON objects
+
 	var lines []string
 	for i := 0; i < 150; i++ {
 		lines = append(lines, fmt.Sprintf(`{"user":{"login":"user%d"},"body":"comment %d"}`, i, i))
@@ -144,7 +144,7 @@ func TestParseNDJSON_LargePayload(t *testing.T) {
 	if len(results) != 150 {
 		t.Errorf("expected 150 results, got %d", len(results))
 	}
-	// Verify first and last
+
 	if results[0].User.Login != "user0" {
 		t.Errorf("first login = %q, want %q", results[0].User.Login, "user0")
 	}

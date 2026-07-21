@@ -30,11 +30,10 @@ func TestGeminiAgent_IsAvailable(t *testing.T) {
 	agent := NewGeminiAgent("")
 	err := agent.IsAvailable()
 
-	// Check if gemini is in PATH
 	_, lookPathErr := exec.LookPath("gemini")
 
 	if lookPathErr != nil {
-		// Gemini not in PATH - should return error
+
 		if err == nil {
 			t.Error("IsAvailable() should return error when gemini is not in PATH")
 		}
@@ -42,7 +41,7 @@ func TestGeminiAgent_IsAvailable(t *testing.T) {
 			t.Errorf("IsAvailable() error = %v, want error containing 'gemini CLI not found'", err)
 		}
 	} else {
-		// Gemini is in PATH - should return nil
+
 		if err != nil {
 			t.Errorf("IsAvailable() unexpected error = %v", err)
 		}
@@ -50,7 +49,7 @@ func TestGeminiAgent_IsAvailable(t *testing.T) {
 }
 
 func TestGeminiAgent_ExecuteReview_GeminiNotAvailable(t *testing.T) {
-	// Temporarily remove PATH to ensure gemini is not available
+
 	originalPath := os.Getenv("PATH")
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", "")
@@ -80,7 +79,7 @@ func TestGeminiAgentInterface(t *testing.T) {
 }
 
 func TestGeminiAgent_ExecuteSummary_GeminiNotAvailable(t *testing.T) {
-	// Temporarily remove PATH to ensure gemini is not available
+
 	originalPath := os.Getenv("PATH")
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", "")
@@ -204,7 +203,7 @@ func TestGeminiAgent_ExecuteReview_RefFileMode(t *testing.T) {
 		}
 	}
 
-	bigContent := strings.Repeat("// line of code\n", RefFileSizeThreshold/16+1)
+	bigContent := strings.Repeat("var value = 1\n", RefFileSizeThreshold/14+1)
 	if err := os.WriteFile(testFile, []byte(bigContent), 0644); err != nil {
 		t.Fatal(err)
 	}

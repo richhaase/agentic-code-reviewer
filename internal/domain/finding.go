@@ -2,19 +2,16 @@ package domain
 
 import "slices"
 
-// Finding represents a single review finding from a reviewer iteration.
 type Finding struct {
 	Text       string
 	ReviewerID int
 }
 
-// AggregatedFinding represents a finding with the list of reviewers who found it.
 type AggregatedFinding struct {
 	Text      string
 	Reviewers []int
 }
 
-// FindingGroup represents a grouped/clustered finding from the summarizer.
 type FindingGroup struct {
 	Title         string   `json:"title"`
 	Summary       string   `json:"summary"`
@@ -23,47 +20,40 @@ type FindingGroup struct {
 	Sources       []int    `json:"sources"`
 }
 
-// GroupedFindings represents the output from the summarizer.
 type GroupedFindings struct {
 	Findings []FindingGroup `json:"findings"`
 	Info     []FindingGroup `json:"info"`
 }
 
-// HasFindings returns true if there are any findings.
 func (g *GroupedFindings) HasFindings() bool {
 	return len(g.Findings) > 0
 }
 
-// HasInfo returns true if there are any informational notes.
 func (g *GroupedFindings) HasInfo() bool {
 	return len(g.Info) > 0
 }
 
-// TotalGroups returns the total count of finding groups and info groups.
 func (g *GroupedFindings) TotalGroups() int {
 	return len(g.Findings) + len(g.Info)
 }
 
-// DispositionKind describes what happened to an aggregated finding in the pipeline.
 type DispositionKind int
 
 const (
-	DispositionUnmapped        DispositionKind = iota // Could not trace through pipeline (zero value)
-	DispositionInfo                                   // Categorized as informational by summarizer
-	DispositionFilteredFP                             // Removed by FP filter
-	DispositionFilteredExclude                        // Removed by exclude pattern
-	DispositionSurvived                               // Survived all filters (became a posted finding)
+	DispositionUnmapped DispositionKind = iota
+	DispositionInfo
+	DispositionFilteredFP
+	DispositionFilteredExclude
+	DispositionSurvived
 )
 
-// Disposition describes the pipeline outcome of an aggregated finding.
 type Disposition struct {
 	Kind       DispositionKind
-	FPScore    int    // Only set for DispositionFilteredFP
-	Reasoning  string // Only set for DispositionFilteredFP
+	FPScore    int
+	Reasoning  string
 	GroupTitle string
 }
 
-// FPRemovedInfo captures metadata about a finding group removed by the FP filter.
 type FPRemovedInfo struct {
 	Sources   []int
 	FPScore   int
@@ -71,7 +61,6 @@ type FPRemovedInfo struct {
 	Title     string
 }
 
-// BuildDispositions maps each aggregated finding index to its pipeline disposition.
 func BuildDispositions(
 	aggregatedCount int,
 	infoGroups []FindingGroup,
@@ -81,7 +70,6 @@ func BuildDispositions(
 ) map[int]Disposition {
 	dispositions := make(map[int]Disposition, aggregatedCount)
 
-	// 1. Mark info groups
 	for _, g := range infoGroups {
 		for _, src := range g.Sources {
 			dispositions[src] = Disposition{
@@ -91,7 +79,6 @@ func BuildDispositions(
 		}
 	}
 
-	// 2. Mark FP-filtered
 	for _, fp := range fpRemoved {
 		for _, src := range fp.Sources {
 			dispositions[src] = Disposition{
@@ -103,7 +90,6 @@ func BuildDispositions(
 		}
 	}
 
-	// 3. Mark exclude-filtered
 	for _, g := range excludeFiltered {
 		for _, src := range g.Sources {
 			dispositions[src] = Disposition{
@@ -113,7 +99,6 @@ func BuildDispositions(
 		}
 	}
 
-	// 4. Mark survivors
 	for _, g := range survivingFindings {
 		for _, src := range g.Sources {
 			dispositions[src] = Disposition{
@@ -123,7 +108,6 @@ func BuildDispositions(
 		}
 	}
 
-	// 5. Fill remaining unmapped indices (zero value is DispositionUnmapped)
 	for i := range aggregatedCount {
 		if _, ok := dispositions[i]; !ok {
 			dispositions[i] = Disposition{}
@@ -133,7 +117,6 @@ func BuildDispositions(
 	return dispositions
 }
 
-// AggregateFindings aggregates findings by text, tracking which reviewers found each.
 func AggregateFindings(findings []Finding) []AggregatedFinding {
 	seen := make(map[string][]int)
 	order := make([]string, 0)

@@ -1,4 +1,3 @@
-// Package github provides GitHub PR operations via the gh CLI.
 package github
 
 import (
@@ -11,13 +10,10 @@ import (
 	"strings"
 )
 
-// ErrNoPRFound indicates no pull request exists for the given branch.
 var ErrNoPRFound = errors.New("no pull request found")
 
-// ErrAuthFailed indicates GitHub authentication failed.
 var ErrAuthFailed = errors.New("GitHub authentication failed")
 
-// CIStatus represents the CI check status for a PR.
 type CIStatus struct {
 	AllPassed bool
 	Pending   []string
@@ -25,9 +21,6 @@ type CIStatus struct {
 	Error     string
 }
 
-// GetCurrentPRNumber returns the PR number for the given branch (or current branch).
-// Returns ErrNoPRFound if no PR exists, ErrAuthFailed if authentication failed,
-// or another error for other failures.
 func GetCurrentPRNumber(ctx context.Context, branch string) (string, error) {
 	args := []string{"pr", "view"}
 	if branch != "" {
@@ -43,13 +36,11 @@ func GetCurrentPRNumber(ctx context.Context, branch string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// prViewResponse represents the JSON response from gh pr view.
 type prViewResponse struct {
 	HeadRefName string `json:"headRefName"`
 	BaseRefName string `json:"baseRefName"`
 }
 
-// parsePRViewJSON parses the JSON output from gh pr view.
 func parsePRViewJSON(data []byte) (head, base string, err error) {
 	var resp prViewResponse
 	if err := json.Unmarshal(data, &resp); err != nil {
@@ -58,8 +49,6 @@ func parsePRViewJSON(data []byte) (head, base string, err error) {
 	return resp.HeadRefName, resp.BaseRefName, nil
 }
 
-// GetPRBranch returns the head branch name for a PR number.
-// Returns ErrNoPRFound if no PR exists, ErrAuthFailed if authentication failed.
 func GetPRBranch(ctx context.Context, prNumber string) (string, error) {
 	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "headRefName")
 	out, err := cmd.Output()
@@ -70,8 +59,6 @@ func GetPRBranch(ctx context.Context, prNumber string) (string, error) {
 	return head, err
 }
 
-// GetPRBaseRef returns the base branch name for a PR number.
-// Returns ErrNoPRFound if no PR exists, ErrAuthFailed if authentication failed.
 func GetPRBaseRef(ctx context.Context, prNumber string) (string, error) {
 	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "baseRefName")
 	out, err := cmd.Output()
@@ -82,13 +69,8 @@ func GetPRBaseRef(ctx context.Context, prNumber string) (string, error) {
 	return base, err
 }
 
-// ValidatePR checks that a PR exists and is accessible.
-// Returns nil if the PR exists, or a descriptive error:
-// - ErrNoPRFound if the PR doesn't exist
-// - ErrAuthFailed if authentication failed
-// - Other error for unexpected failures
 func ValidatePR(ctx context.Context, prNumber string) error {
-	// Use gh pr view with minimal fields to validate the PR exists
+
 	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "number")
 	_, err := cmd.Output()
 	if err != nil {
@@ -97,15 +79,12 @@ func ValidatePR(ctx context.Context, prNumber string) error {
 	return nil
 }
 
-// GetRepoRemote returns the git remote name that corresponds to the current gh repo.
-// This handles fork workflows where "origin" may point to a fork, not the base repo.
-// Falls back to "origin" if detection fails.
 func GetRepoRemote(ctx context.Context) string {
-	// Get the current repo's SSH and HTTPS URLs from gh
+
 	cmd := exec.CommandContext(ctx, "gh", "repo", "view", "--json", "url,sshUrl")
 	out, err := cmd.Output()
 	if err != nil {
-		return "origin" // fallback
+		return "origin"
 	}
 
 	var repoInfo struct {
@@ -116,15 +95,12 @@ func GetRepoRemote(ctx context.Context) string {
 		return "origin"
 	}
 
-	// Get git remotes
 	remoteCmd := exec.CommandContext(ctx, "git", "remote", "-v")
 	remoteOut, err := remoteCmd.Output()
 	if err != nil {
 		return "origin"
 	}
 
-	// Parse remotes and find matching one
-	// Format: "origin	git@github.com:owner/repo.git (fetch)"
 	lines := strings.Split(string(remoteOut), "\n")
 	for _, line := range lines {
 		fields := strings.Fields(line)
@@ -134,7 +110,6 @@ func GetRepoRemote(ctx context.Context) string {
 		remoteName := fields[0]
 		remoteURL := fields[1]
 
-		// Check if this remote matches either URL (normalized)
 		if urlMatches(remoteURL, repoInfo.URL) || urlMatches(remoteURL, repoInfo.SSHUrl) {
 			return remoteName
 		}
@@ -143,23 +118,21 @@ func GetRepoRemote(ctx context.Context) string {
 	return "origin"
 }
 
-// urlMatches checks if two git URLs refer to the same repository.
-// Handles HTTPS, SSH shorthand (git@host:path), and SSH URL (ssh://host/path) variations.
 func urlMatches(url1, url2 string) bool {
-	// Normalize URLs for comparison
+
 	normalize := func(url string) string {
 		url = strings.TrimSuffix(url, ".git")
 		url = strings.TrimPrefix(url, "https://")
 		url = strings.TrimPrefix(url, "http://")
-		// Handle SSH URL format: ssh://git@github.com/owner/repo -> github.com/owner/repo
+
 		if strings.HasPrefix(url, "ssh://") {
 			url = strings.TrimPrefix(url, "ssh://")
-			// Remove user@ if present (e.g., git@github.com -> github.com)
+
 			if idx := strings.Index(url, "@"); idx != -1 {
 				url = url[idx+1:]
 			}
 		}
-		// Handle SSH shorthand format: git@github.com:owner/repo -> github.com/owner/repo
+
 		if strings.HasPrefix(url, "git@") {
 			url = strings.TrimPrefix(url, "git@")
 			url = strings.Replace(url, ":", "/", 1)
@@ -169,7 +142,6 @@ func urlMatches(url1, url2 string) bool {
 	return normalize(url1) == normalize(url2)
 }
 
-// classifyGHError examines a gh CLI error and returns a typed error.
 func classifyGHError(err error) error {
 	var exitErr *exec.ExitError
 	if !errors.As(err, &exitErr) {
@@ -196,7 +168,6 @@ func classifyGHError(err error) error {
 	return fmt.Errorf("gh command failed: %w", err)
 }
 
-// ApprovePR approves a PR with the given body.
 func ApprovePR(ctx context.Context, prNumber, body string) error {
 	cmd := exec.CommandContext(ctx, "gh", "pr", "review", prNumber, "--approve", "--body-file", "-")
 	cmd.Stdin = strings.NewReader(body)
@@ -214,8 +185,6 @@ func ApprovePR(ctx context.Context, prNumber, body string) error {
 	return nil
 }
 
-// SubmitPRReview submits a PR review with the given body.
-// If requestChanges is true, uses --request-changes; otherwise uses --comment.
 func SubmitPRReview(ctx context.Context, prNumber, body string, requestChanges bool) error {
 	flag := "--comment"
 	if requestChanges {
@@ -238,7 +207,6 @@ func SubmitPRReview(ctx context.Context, prNumber, body string, requestChanges b
 	return nil
 }
 
-// CheckCIStatus checks the CI status for a PR.
 func CheckCIStatus(ctx context.Context, prNumber string) CIStatus {
 	cmd := exec.CommandContext(ctx, "gh", "pr", "checks", prNumber, "--json", "name,bucket")
 	out, err := cmd.Output()
@@ -258,13 +226,11 @@ func CheckCIStatus(ctx context.Context, prNumber string) CIStatus {
 	return ParseCIChecks(out)
 }
 
-// CICheck represents a single CI check from the GitHub API.
 type CICheck struct {
 	Name   string `json:"name"`
 	Bucket string `json:"bucket"`
 }
 
-// ParseCIChecks parses CI check JSON output and categorizes results.
 func ParseCIChecks(data []byte) CIStatus {
 	var checks []CICheck
 	if err := json.Unmarshal(data, &checks); err != nil {
@@ -272,7 +238,7 @@ func ParseCIChecks(data []byte) CIStatus {
 	}
 
 	if len(checks) == 0 {
-		// No CI checks configured - allow approval
+
 		return CIStatus{AllPassed: true}
 	}
 
@@ -283,9 +249,9 @@ func ParseCIChecks(data []byte) CIStatus {
 		case "pending":
 			pending = append(pending, check.Name)
 		case "pass", "skipping":
-			// OK
+
 		default:
-			// fail, cancel, or unknown
+
 			failed = append(failed, check.Name)
 		}
 	}
@@ -357,13 +323,11 @@ func ParsePRWatchState(data []byte) (PRWatchState, error) {
 	return state, nil
 }
 
-// IsGHAvailable checks if the gh CLI is available.
 func IsGHAvailable() bool {
 	_, err := exec.LookPath("gh")
 	return err == nil
 }
 
-// CheckGHAvailable returns an error if the gh CLI is not available.
 func CheckGHAvailable() error {
 	_, err := exec.LookPath("gh")
 	if err != nil {
@@ -372,8 +336,6 @@ func CheckGHAvailable() error {
 	return nil
 }
 
-// GetCurrentUser returns the username of the authenticated gh user.
-// Returns empty string on error.
 func GetCurrentUser(ctx context.Context) string {
 	cmd := exec.CommandContext(ctx, "gh", "api", "user", "--jq", ".login")
 	out, err := cmd.Output()
@@ -383,8 +345,6 @@ func GetCurrentUser(ctx context.Context) string {
 	return strings.TrimSpace(string(out))
 }
 
-// GetPRAuthor returns the username of the PR author.
-// Returns empty string on error.
 func GetPRAuthor(ctx context.Context, prNumber string) string {
 	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "author", "--jq", ".author.login")
 	out, err := cmd.Output()
@@ -394,21 +354,15 @@ func GetPRAuthor(ctx context.Context, prNumber string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// IsSelfReview checks if the current user is the author of the PR.
 func IsSelfReview(ctx context.Context, prNumber string) bool {
 	currentUser := GetCurrentUser(ctx)
 	prAuthor := GetPRAuthor(ctx, prNumber)
 	return checkSelfReview(currentUser, prAuthor)
 }
 
-// checkSelfReview compares usernames to determine if this is a self-review.
-// Returns true if:
-// - Both usernames are non-empty and match (case-insensitive), OR
-// - Either username is empty (fail closed: assume self-review when uncertain)
 func checkSelfReview(currentUser, prAuthor string) bool {
 	if currentUser == "" || prAuthor == "" {
-		// Fail closed: if we can't determine users, assume self-review
-		// to prevent accidental self-approvals
+
 		return true
 	}
 	return strings.EqualFold(currentUser, prAuthor)

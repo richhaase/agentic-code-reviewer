@@ -1,4 +1,3 @@
-// Package terminal provides terminal output formatting and TTY detection.
 package terminal
 
 import (
@@ -8,7 +7,6 @@ import (
 	"golang.org/x/term"
 )
 
-// ANSI color codes.
 const (
 	Reset   = "\033[0m"
 	Bold    = "\033[1m"
@@ -22,48 +20,34 @@ const (
 	Blue    = "\033[34m"
 )
 
-// colorMu protects access to colorsEnabled for thread safety.
 var colorMu sync.RWMutex
 
-// colorsEnabled tracks whether color output is enabled globally.
-// Access is protected by colorMu for thread safety.
 var colorsEnabled = true
 
-// DisableColors turns off color output globally.
-// This function is thread-safe.
 func DisableColors() {
 	colorMu.Lock()
 	defer colorMu.Unlock()
 	colorsEnabled = false
 }
 
-// EnableColors turns on color output globally.
-// This function is thread-safe.
 func EnableColors() {
 	colorMu.Lock()
 	defer colorMu.Unlock()
 	colorsEnabled = true
 }
 
-// ColorsEnabled returns whether colors are currently enabled.
-// This function is thread-safe.
 func ColorsEnabled() bool {
 	colorMu.RLock()
 	defer colorMu.RUnlock()
 	return colorsEnabled
 }
 
-// SetColorsEnabled sets the color output state.
-// This function is thread-safe.
 func SetColorsEnabled(enabled bool) {
 	colorMu.Lock()
 	defer colorMu.Unlock()
 	colorsEnabled = enabled
 }
 
-// WithColorsDisabled runs a function with colors disabled, then restores the previous state.
-// This is useful for tests that need to disable colors without affecting other tests.
-// This function is thread-safe.
 func WithColorsDisabled(fn func()) {
 	colorMu.Lock()
 	prev := colorsEnabled
@@ -79,9 +63,6 @@ func WithColorsDisabled(fn func()) {
 	fn()
 }
 
-// Color returns the color code if colors are enabled, otherwise empty string.
-// This provides a cleaner API: Color(Cyan) instead of colors.Cyan
-// This function is thread-safe.
 func Color(c string) string {
 	colorMu.RLock()
 	defer colorMu.RUnlock()
@@ -91,27 +72,22 @@ func Color(c string) string {
 	return ""
 }
 
-// IsTTY returns true if the given file descriptor is a TTY.
 func IsTTY(fd int) bool {
 	return term.IsTerminal(fd)
 }
 
-// IsStdoutTTY returns true if stdout is a TTY.
 func IsStdoutTTY() bool {
 	return IsTTY(int(os.Stdout.Fd()))
 }
 
-// IsStderrTTY returns true if stderr is a TTY.
 func IsStderrTTY() bool {
 	return IsTTY(int(os.Stderr.Fd()))
 }
 
-// IsStdinTTY returns true if stdin is a TTY.
 func IsStdinTTY() bool {
 	return IsTTY(int(os.Stdin.Fd()))
 }
 
-// GetTerminalWidth returns the terminal width, or 80 if detection fails.
 func GetTerminalWidth() int {
 	width, _, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil || width <= 0 {

@@ -4,27 +4,12 @@ import (
 	"context"
 )
 
-// Agent represents a backend that can execute code reviews and summarizations.
-// Implementations include AntigravityAgent, CodexAgent, ClaudeAgent, and GeminiAgent.
 type Agent interface {
-	// Name returns the agent's identifier (e.g., "agy", "codex", "claude", "gemini").
 	Name() string
 
-	// IsAvailable checks if the agent's backend CLI is installed and accessible.
-	// Returns an error if the agent cannot be used.
 	IsAvailable() error
 
-	// ExecuteReview runs a code review with the given configuration.
-	// Returns an ExecutionResult for streaming output and an error if execution fails.
-	// The caller MUST call Close() on the result to ensure proper resource cleanup.
-	// After Close(), ExitCode() and Stderr() return valid values.
 	ExecuteReview(ctx context.Context, config *ReviewConfig) (*ExecutionResult, error)
 
-	// ExecuteSummary runs a summarization task with the given prompt and input data.
-	// The prompt contains the summarization instructions.
-	// The input contains the data to summarize (typically JSON-encoded aggregated findings).
-	// Returns an ExecutionResult for streaming output.
-	// The caller MUST call Close() on the result to ensure proper resource cleanup.
-	// After Close(), ExitCode() and Stderr() return valid values.
 	ExecuteSummary(ctx context.Context, prompt string, input []byte) (*ExecutionResult, error)
 }

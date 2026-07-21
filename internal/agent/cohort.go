@@ -1,4 +1,3 @@
-// Package agent provides LLM agent abstractions.
 package agent
 
 import (
@@ -8,8 +7,6 @@ import (
 	"strings"
 )
 
-// ParseAgentNames splits a comma-separated agent string into a slice of names.
-// Handles whitespace trimming. Returns default agent if input is empty.
 func ParseAgentNames(input string) []string {
 	if input == "" {
 		return []string{DefaultAgent}
@@ -32,8 +29,6 @@ func ParseAgentNames(input string) []string {
 	return result
 }
 
-// ValidateAgentNames checks that all agent names are supported.
-// Returns an error listing unsupported agents.
 func ValidateAgentNames(names []string) error {
 	var invalid []string
 	for _, name := range names {
@@ -50,21 +45,16 @@ func ValidateAgentNames(names []string) error {
 	return nil
 }
 
-// CreateAgents creates Agent instances for the given names with the default model.
-// Validates all agent CLIs are available (fail fast).
 func CreateAgents(names []string) ([]Agent, error) {
 	return CreateAgentsWithModel(names, "")
 }
 
-// CreateAgentsWithModel creates Agent instances for the given names with an optional model override.
-// If model is empty, agents use their default models.
-// Validates all agent CLIs are available (fail fast).
 func CreateAgentsWithModel(names []string, model string) ([]Agent, error) {
 	agents := make([]Agent, 0, len(names))
 	seen := make(map[string]Agent)
 
 	for _, name := range names {
-		// Reuse existing agent instance if same name appears multiple times
+
 		if existing, ok := seen[name]; ok {
 			agents = append(agents, existing)
 			continue
@@ -86,9 +76,6 @@ func CreateAgentsWithModel(names []string, model string) ([]Agent, error) {
 	return agents, nil
 }
 
-// AgentsNeedDiff returns true if any agent in the list requires a pre-computed diff.
-// Codex has built-in diff via --base and doesn't need one. Other supported
-// agents receive prompts over stdin, so the runner precomputes and shares the diff.
 func AgentsNeedDiff(agents []Agent) bool {
 	for _, a := range agents {
 		if AgentNeedsDiff(a.Name()) {
@@ -98,7 +85,6 @@ func AgentsNeedDiff(agents []Agent) bool {
 	return false
 }
 
-// AgentNeedsDiff reports whether an agent needs ACR to provide the git diff.
 func AgentNeedsDiff(name string) bool {
 	switch name {
 	case "codex":
@@ -110,8 +96,6 @@ func AgentNeedsDiff(name string) bool {
 	}
 }
 
-// FormatDistribution returns a human-readable distribution summary.
-// Example: "2×agy, 2×codex, 1×claude" for 5 reviewers with 3 agent types.
 func FormatDistribution(agents []Agent, totalReviewers int) string {
 	if len(agents) == 0 {
 		return ""
@@ -121,21 +105,18 @@ func FormatDistribution(agents []Agent, totalReviewers int) string {
 		return agents[0].Name()
 	}
 
-	// Count how many times each agent will be used
 	counts := make(map[string]int)
 	for i := range totalReviewers {
 		agent := agents[i%len(agents)]
 		counts[agent.Name()]++
 	}
 
-	// Collect unique agent names and sort for consistent output
 	names := make([]string, 0, len(counts))
 	for name := range counts {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 
-	// Format as "N×agent"
 	parts := make([]string, 0, len(names))
 	for _, name := range names {
 		parts = append(parts, fmt.Sprintf("%d×%s", counts[name], name))
@@ -144,8 +125,6 @@ func FormatDistribution(agents []Agent, totalReviewers int) string {
 	return strings.Join(parts, ", ")
 }
 
-// AgentForReviewer returns the agent for a given reviewer ID using round-robin.
-// Reviewer IDs are 1-based. Returns nil if agents slice is empty or reviewerID < 1.
 func AgentForReviewer(agents []Agent, reviewerID int) Agent {
 	if len(agents) == 0 || reviewerID < 1 {
 		return nil

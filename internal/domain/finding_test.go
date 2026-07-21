@@ -8,7 +8,7 @@ func TestAggregateFindings_DeduplicatesByText(t *testing.T) {
 	findings := []Finding{
 		{Text: "Issue A", ReviewerID: 1},
 		{Text: "Issue B", ReviewerID: 2},
-		{Text: "Issue A", ReviewerID: 3}, // duplicate text
+		{Text: "Issue A", ReviewerID: 3},
 	}
 
 	result := AggregateFindings(findings)
@@ -17,7 +17,6 @@ func TestAggregateFindings_DeduplicatesByText(t *testing.T) {
 		t.Fatalf("expected 2 unique findings, got %d", len(result))
 	}
 
-	// Check that Issue A has both reviewers
 	var issueA *AggregatedFinding
 	for i := range result {
 		if result[i].Text == "Issue A" {
@@ -38,7 +37,7 @@ func TestAggregateFindings_PreservesInsertionOrder(t *testing.T) {
 		{Text: "First", ReviewerID: 1},
 		{Text: "Second", ReviewerID: 1},
 		{Text: "Third", ReviewerID: 1},
-		{Text: "First", ReviewerID: 2}, // duplicate - should not change order
+		{Text: "First", ReviewerID: 2},
 	}
 
 	result := AggregateFindings(findings)
@@ -84,8 +83,8 @@ func TestAggregateFindings_SortsReviewerIDs(t *testing.T) {
 func TestAggregateFindings_IgnoresDuplicateReviewerIDs(t *testing.T) {
 	findings := []Finding{
 		{Text: "Issue", ReviewerID: 1},
-		{Text: "Issue", ReviewerID: 1}, // same reviewer, same finding
-		{Text: "Issue", ReviewerID: 1}, // third time
+		{Text: "Issue", ReviewerID: 1},
+		{Text: "Issue", ReviewerID: 1},
 	}
 
 	result := AggregateFindings(findings)

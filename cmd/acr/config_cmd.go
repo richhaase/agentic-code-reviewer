@@ -72,9 +72,9 @@ func newConfigInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
 		Short: "Generate a starter .acr.yaml file",
-		Long:  "Create a commented .acr.yaml configuration file in the git repository root.",
+		Long:  "Create a .acr.yaml configuration file with default settings in the git repository root.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Write to git repo root (same location runtime loading uses)
+
 			repoRoot, err := git.GetRoot()
 			if err != nil {
 				return fmt.Errorf("not in a git repository: %w", err)
@@ -85,63 +85,39 @@ func newConfigInitCmd() *cobra.Command {
 				return fmt.Errorf("%s already exists; remove it first or edit it directly", configPath)
 			}
 
-			starter := `# acr configuration file
-# See https://github.com/richhaase/agentic-code-reviewer for documentation.
-
-# Number of parallel reviewers to run (default: 5)
-# reviewers: 5
-
-# Maximum concurrent reviewers (default: same as reviewers)
-# concurrency: 0
-
-# Base branch for diff comparison (default: main)
-# base: main
-
-# Timeout per reviewer, Go duration format (default: 10m)
-# timeout: 10m
-
-# Retry failed reviewers N times (default: 1)
-# retries: 1
-
-# Fetch latest base ref from origin before diff (default: true)
-# fetch: true
-
-# Agent(s) for reviews: agy, codex, claude, gemini
-# reviewer_agents:
-#   - codex
-
-# Agent for summarization: agy, codex, claude, gemini
-# summarizer_agent: codex
-
-# Timeout for summarizer phase (default: 5m)
-# summarizer_timeout: 5m
-
-# Timeout for false positive filter phase (default: 5m)
-# fp_filter_timeout: 5m
-
-# Path to file containing review guidance
-# guidance_file: ""
-
-# Filtering configuration
-# filters:
-#   exclude_patterns:
-#     - "pattern to exclude"
-
-# False positive filtering
-# fp_filter:
-#   enabled: true
-#   threshold: 75
-
-# PR feedback summarization
-# pr_feedback:
-#   enabled: true
-#   agent: ""
+			starter := `reviewers: 5
+concurrency: 0
+base: main
+timeout: 10m
+retries: 1
+fetch: true
+reviewer_agents:
+  - codex
+summarizer_agent: codex
+reviewer_model: ""
+summarizer_model: ""
+summarizer_timeout: 5m
+fp_filter_timeout: 5m
+guidance_file: ""
+filters:
+  exclude_patterns: []
+fp_filter:
+  enabled: true
+  threshold: 75
+pr_feedback:
+  enabled: true
+  agent: ""
+watch:
+  poll_interval: 1m
+  settle_time: 10m
+  max_reviews: 10
+  max_duration: 24h
 `
 			if err := os.WriteFile(configPath, []byte(starter), 0644); err != nil {
 				return fmt.Errorf("failed to write %s: %w", configPath, err)
 			}
 
-			fmt.Printf("Created %s with default settings (commented out).\n", configPath)
+			fmt.Printf("Created %s with default settings.\n", configPath)
 			return nil
 		},
 	}
@@ -160,7 +136,6 @@ func newConfigValidateCmd() *cobra.Command {
 			var errors []string
 			var warnings []string
 
-			// Load and validate config file (don't early-return so env var issues are also reported)
 			cfg := &config.Config{}
 			configDir := ""
 			configFileError := false
@@ -175,16 +150,9 @@ func newConfigValidateCmd() *cobra.Command {
 				warnings = append(warnings, result.Warnings...)
 			}
 
-			// Check env vars for parse issues. At runtime these are warnings (values are
-			// ignored and defaults used), but in validation mode we report them as errors
-			// since the user should fix their environment configuration.
 			envState, envWarnings := config.LoadEnvState()
 			errors = append(errors, envWarnings...)
 
-			// Resolve full config and validate semantically.
-			// When the config file has errors, resolve env vars against defaults only
-			// (skip the broken config) to avoid duplicating config-file errors while
-			// still catching env-var semantic issues like ACR_REVIEWERS=0.
 			resolveConfig := cfg
 			if configFileError {
 				resolveConfig = &config.Config{}
@@ -193,18 +161,15 @@ func newConfigValidateCmd() *cobra.Command {
 			validationErrs := resolved.ValidateAll()
 			errors = append(errors, validationErrs...)
 
-			// Validate guidance file is readable (uses same resolution logic as runtime)
 			_, guidanceErr := config.ResolveGuidance(cfg, envState, config.FlagState{}, config.Defaults, configDir)
 			if guidanceErr != nil {
 				errors = append(errors, guidanceErr.Error())
 			}
 
-			// Report warnings
 			for _, w := range warnings {
 				logger.Logf(terminal.StyleWarning, "Config: %s", w)
 			}
 
-			// Report errors
 			for _, e := range errors {
 				logger.Logf(terminal.StyleError, "%s", e)
 			}

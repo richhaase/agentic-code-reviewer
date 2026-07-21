@@ -45,7 +45,7 @@ func TestParseCIChecks_WithPending(t *testing.T) {
 	if len(status.Pending) != 2 {
 		t.Errorf("expected 2 pending checks, got %d", len(status.Pending))
 	}
-	// Verify the actual check names are captured
+
 	found := map[string]bool{}
 	for _, name := range status.Pending {
 		found[name] = true
@@ -133,7 +133,6 @@ func TestParseCIChecks_EmptyChecks(t *testing.T) {
 
 	status := ParseCIChecks([]byte(json))
 
-	// No CI checks configured - should allow approval
 	if !status.AllPassed {
 		t.Error("expected AllPassed to be true when no checks exist")
 	}
@@ -186,8 +185,6 @@ func TestParseCIChecks_UnknownBucketTreatedAsFailure(t *testing.T) {
 	}
 }
 
-// Tests for self-review functions
-
 func TestCheckSelfReview_MatchingSameCase(t *testing.T) {
 	result := checkSelfReview("octocat", "octocat")
 	if !result {
@@ -217,7 +214,7 @@ func TestCheckSelfReview_DifferentUsers(t *testing.T) {
 }
 
 func TestCheckSelfReview_EmptyCurrentUser(t *testing.T) {
-	// Fail closed: assume self-review when current user lookup fails
+
 	result := checkSelfReview("", "octocat")
 	if !result {
 		t.Error("expected true when current user is empty (fail closed)")
@@ -225,7 +222,7 @@ func TestCheckSelfReview_EmptyCurrentUser(t *testing.T) {
 }
 
 func TestCheckSelfReview_EmptyPRAuthor(t *testing.T) {
-	// Fail closed: assume self-review when PR author lookup fails
+
 	result := checkSelfReview("octocat", "")
 	if !result {
 		t.Error("expected true when PR author is empty (fail closed)")
@@ -233,7 +230,7 @@ func TestCheckSelfReview_EmptyPRAuthor(t *testing.T) {
 }
 
 func TestCheckSelfReview_BothEmpty(t *testing.T) {
-	// Fail closed: assume self-review when both lookups fail
+
 	result := checkSelfReview("", "")
 	if !result {
 		t.Error("expected true when both are empty (fail closed)")
@@ -241,7 +238,7 @@ func TestCheckSelfReview_BothEmpty(t *testing.T) {
 }
 
 func TestCheckSelfReview_WhitespaceOnly(t *testing.T) {
-	// Whitespace-only strings are not empty but should not match valid usernames
+
 	result := checkSelfReview("  ", "octocat")
 	if result {
 		t.Error("expected false when current user is whitespace (not a match)")
@@ -274,10 +271,8 @@ func TestCheckSelfReview_UsernameWithHyphens(t *testing.T) {
 	}
 }
 
-// Tests for classifyGHError
-
 func TestClassifyGHError_NoPRFound(t *testing.T) {
-	// Create an ExitError with stderr indicating no PR found
+
 	exitErr := &exec.ExitError{
 		Stderr: []byte(`no pull requests found for branch "feature-branch"`),
 	}
@@ -353,7 +348,7 @@ func TestClassifyGHError_EmptyStderr(t *testing.T) {
 }
 
 func TestClassifyGHError_NonExitError(t *testing.T) {
-	// Test with a non-ExitError
+
 	plainErr := errors.New("some other error")
 
 	err := classifyGHError(plainErr)
@@ -403,8 +398,6 @@ func TestParsePRViewJSON_MissingFields(t *testing.T) {
 	}
 }
 
-// Tests for urlMatches - Issue 2: SSH URL format not normalized
-
 func TestUrlMatches_HTTPSFormat(t *testing.T) {
 	result := urlMatches("https://github.com/owner/repo.git", "https://github.com/owner/repo")
 	if !result {
@@ -420,7 +413,7 @@ func TestUrlMatches_SSHShorthandFormat(t *testing.T) {
 }
 
 func TestUrlMatches_SSHURLFormat(t *testing.T) {
-	// This is the bug: ssh:// URL format is not handled
+
 	result := urlMatches("ssh://git@github.com/owner/repo.git", "https://github.com/owner/repo")
 	if !result {
 		t.Error("expected true for ssh:// URL vs HTTPS")
@@ -428,7 +421,7 @@ func TestUrlMatches_SSHURLFormat(t *testing.T) {
 }
 
 func TestUrlMatches_SSHURLFormatNoUser(t *testing.T) {
-	// ssh://github.com/owner/repo format (less common but valid)
+
 	result := urlMatches("ssh://github.com/owner/repo", "https://github.com/owner/repo")
 	if !result {
 		t.Error("expected true for ssh:// URL without user vs HTTPS")
@@ -457,20 +450,20 @@ func TestUrlMatches_CaseInsensitive(t *testing.T) {
 }
 
 func TestIsGHAvailable(t *testing.T) {
-	// Smoke test: just verify it doesn't panic and returns a bool
+
 	result := IsGHAvailable()
-	_ = result // We can't assert the value since gh may or may not be installed
+	_ = result
 }
 
 func TestCheckGHAvailable(t *testing.T) {
 	err := CheckGHAvailable()
 	if err != nil {
-		// gh not installed - verify it's a descriptive error
+
 		if !strings.Contains(err.Error(), "gh CLI not available") {
 			t.Errorf("expected descriptive error, got %q", err.Error())
 		}
 	}
-	// If err == nil, gh is installed - also fine
+
 }
 
 func TestCIStatus_FieldAccess(t *testing.T) {
@@ -570,13 +563,12 @@ func TestUrlMatches_HTTPFormat(t *testing.T) {
 }
 
 func TestUrlMatches_EmptyStrings(t *testing.T) {
-	// Two empty strings should match (both normalize to "")
+
 	result := urlMatches("", "")
 	if !result {
 		t.Error("expected true for two empty strings")
 	}
 
-	// Empty vs non-empty should not match
 	result = urlMatches("", "https://github.com/owner/repo")
 	if result {
 		t.Error("expected false for empty vs non-empty")

@@ -123,7 +123,7 @@ func TestFilter_Apply(t *testing.T) {
 		},
 		{
 			name:     "info is never filtered",
-			patterns: []string{".*"}, // matches everything
+			patterns: []string{".*"},
 			input: domain.GroupedFindings{
 				Findings: []domain.FindingGroup{
 					{Title: "Finding", Messages: []string{"will be filtered"}},
@@ -250,7 +250,6 @@ func TestFilter_Apply_DoesNotMutateOriginal(t *testing.T) {
 	f, _ := New([]string{"exclude"})
 	result := f.Apply(original)
 
-	// Original should be unchanged
 	if len(original.Findings) != 2 {
 		t.Errorf("original was mutated: got %d findings, want 2", len(original.Findings))
 	}
@@ -258,7 +257,6 @@ func TestFilter_Apply_DoesNotMutateOriginal(t *testing.T) {
 		t.Errorf("original was mutated: got %d info, want 1", len(original.Info))
 	}
 
-	// Result should be filtered
 	if len(result.Findings) != 1 {
 		t.Errorf("result not filtered: got %d findings, want 1", len(result.Findings))
 	}

@@ -8,11 +8,7 @@ assignees: ''
 
 ## Description
 
-<!-- What happened? -->
-
 ## Expected Behavior
-
-<!-- What did you expect to happen? -->
 
 ## Steps to Reproduce
 
@@ -27,5 +23,3 @@ assignees: ''
 - Agent: (agy/codex/claude)
 
 ## Additional Context
-
-<!-- Logs, screenshots, config files, etc. -->

@@ -11,7 +11,7 @@ func TestGeminiOutputParser_ReadFinding(t *testing.T) {
 		name       string
 		input      string
 		reviewerID int
-		want       []string // Expected finding texts in order
+		want       []string
 	}{
 		{
 			name:       "single-line JSON with response field (gemini CLI format)",
@@ -228,18 +228,17 @@ func TestNewGeminiOutputParser(t *testing.T) {
 }
 
 func TestGeminiOutputParserInterface(t *testing.T) {
-	// Verify that GeminiOutputParser implements the ReviewParser interface
+
 	var _ ReviewParser = (*GeminiOutputParser)(nil)
 }
 
 func TestGeminiOutputParser_MultipleCallsReturnNothing(t *testing.T) {
-	// After parsing once, subsequent calls should return nil
+
 	parser := NewGeminiOutputParser(1)
 	input := `{"response": "Single finding"}`
 	scanner := bufio.NewScanner(strings.NewReader(input))
 	ConfigureScanner(scanner)
 
-	// First call should return the finding
 	finding, err := parser.ReadFinding(scanner)
 	if err != nil {
 		t.Fatalf("First ReadFinding() error = %v", err)
@@ -251,7 +250,6 @@ func TestGeminiOutputParser_MultipleCallsReturnNothing(t *testing.T) {
 		t.Errorf("finding.Text = %q, want %q", finding.Text, "Single finding")
 	}
 
-	// Second call should return nil (no more findings)
 	finding, err = parser.ReadFinding(scanner)
 	if err != nil {
 		t.Fatalf("Second ReadFinding() error = %v", err)

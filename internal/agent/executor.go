@@ -8,18 +8,13 @@ import (
 	"os/exec"
 )
 
-// maxStderrSize is the maximum bytes captured from agent subprocess stderr.
-// Prevents unbounded memory growth from misbehaving CLI tools.
-const maxStderrSize = 1 << 20 // 1MB
+const maxStderrSize = 1 << 20
 
-// stderrBuffer is the interface for stderr capture buffers.
 type stderrBuffer interface {
 	io.Writer
 	String() string
 }
 
-// cappedBuffer is a bytes.Buffer that stops writing after a size limit.
-// Once the limit is reached, further writes are silently discarded.
 type cappedBuffer struct {
 	buf bytes.Buffer
 	max int
@@ -32,11 +27,11 @@ func newCappedBuffer(max int) *cappedBuffer {
 func (c *cappedBuffer) Write(p []byte) (int, error) {
 	remaining := c.max - c.buf.Len()
 	if remaining <= 0 {
-		// Silently discard — report full length to avoid io.ErrShortWrite
+
 		return len(p), nil
 	}
 	if len(p) > remaining {
-		// Write what we can, but report full length consumed
+
 		c.buf.Write(p[:remaining])
 		return len(p), nil
 	}
@@ -51,32 +46,20 @@ func (c *cappedBuffer) String() string {
 	return c.buf.String()
 }
 
-// executeOptions configures command execution for agent CLI invocations.
 type executeOptions struct {
-	// Command is the CLI executable name (e.g., "agy", "codex", "claude", "gemini").
 	Command string
-	// Args are the command-line arguments.
+
 	Args []string
-	// Stdin provides input to the command (typically the prompt).
+
 	Stdin io.Reader
-	// WorkDir sets the working directory for the command.
+
 	WorkDir string
-	// TempFilePath is a temp file to clean up on Close (used by ref-file pattern).
+
 	TempFilePath string
 }
 
-// executeCommand runs a CLI command with proper process group setup and resource management.
-// This is the shared implementation used by all agent ExecuteReview/ExecuteSummary methods.
-//
-// It handles:
-//   - Setting process group for proper signal handling (Setpgid)
-//   - Capturing stderr for error diagnostics
-//   - Creating stdout pipe for streaming output
-//   - Starting the command and returning a managed ExecutionResult
-//   - Cleaning up temp files on error or when the result is closed
 func executeCommand(ctx context.Context, opts executeOptions) (*ExecutionResult, error) {
-	// #nosec G204 - Command is always one of the known agent CLIs (agy, codex, claude, gemini)
-	// passed from trusted code in the agent implementations, not user input.
+
 	cmd := exec.CommandContext(ctx, opts.Command, opts.Args...)
 
 	if opts.Stdin != nil {
@@ -87,12 +70,9 @@ func executeCommand(ctx context.Context, opts executeOptions) (*ExecutionResult,
 		cmd.Dir = opts.WorkDir
 	}
 
-	// Set process group so cancellation can terminate the agent CLI and any
-	// helper processes that inherited its stdout/stderr pipes.
 	configureProcessGroup(cmd)
 	cmd.Cancel = func() error { return terminateProcessGroup(cmd) }
 
-	// Capture stderr for error diagnostics (capped to prevent unbounded memory)
 	stderr := newCappedBuffer(maxStderrSize)
 	cmd.Stderr = stderr
 

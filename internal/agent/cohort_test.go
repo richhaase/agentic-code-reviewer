@@ -110,7 +110,7 @@ func TestValidateAgentNames(t *testing.T) {
 }
 
 func TestAgentForReviewer(t *testing.T) {
-	// Create mock agents
+
 	agents := []Agent{
 		&mockAgent{name: "codex"},
 		&mockAgent{name: "claude"},
@@ -121,13 +121,13 @@ func TestAgentForReviewer(t *testing.T) {
 		reviewerID   int
 		expectedName string
 	}{
-		{1, "codex"},  // (1-1) % 3 = 0 → codex
-		{2, "claude"}, // (2-1) % 3 = 1 → claude
-		{3, "agy"},    // (3-1) % 3 = 2 → agy
-		{4, "codex"},  // (4-1) % 3 = 0 → codex (wrap around)
-		{5, "claude"}, // (5-1) % 3 = 1 → claude
-		{6, "agy"},    // (6-1) % 3 = 2 → agy
-		{7, "codex"},  // (7-1) % 3 = 0 → codex
+		{1, "codex"},
+		{2, "claude"},
+		{3, "agy"},
+		{4, "codex"},
+		{5, "claude"},
+		{6, "agy"},
+		{7, "codex"},
 	}
 
 	for _, tt := range tests {
@@ -143,7 +143,6 @@ func TestAgentForReviewer(t *testing.T) {
 func TestAgentForReviewer_SingleAgent(t *testing.T) {
 	agents := []Agent{&mockAgent{name: "codex"}}
 
-	// All reviewers should get the same agent
 	for i := 1; i <= 10; i++ {
 		agent := AgentForReviewer(agents, i)
 		if agent.Name() != "codex" {
@@ -267,7 +266,7 @@ func TestFormatDistribution(t *testing.T) {
 				&mockAgent{name: "claude"},
 			},
 			totalReviewers: 4,
-			expected:       "2×claude, 2×codex", // sorted alphabetically
+			expected:       "2×claude, 2×codex",
 		},
 		{
 			name: "three agents uneven split",
@@ -277,7 +276,7 @@ func TestFormatDistribution(t *testing.T) {
 				&mockAgent{name: "agy"},
 			},
 			totalReviewers: 5,
-			expected:       "1×agy, 2×claude, 2×codex", // sorted alphabetically
+			expected:       "1×agy, 2×claude, 2×codex",
 		},
 		{
 			name: "fewer reviewers than agents",
@@ -307,7 +306,6 @@ func TestFormatDistribution(t *testing.T) {
 	}
 }
 
-// mockAgent implements Agent interface for testing
 type mockAgent struct {
 	name string
 }

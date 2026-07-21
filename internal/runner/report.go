@@ -13,7 +13,6 @@ import (
 
 const maxRawOutputLines = 10
 
-// RenderReport renders a terminal report for the review results.
 func RenderReport(
 	grouped domain.GroupedFindings,
 	summaryResult *summarizer.Result,
@@ -23,7 +22,6 @@ func RenderReport(
 
 	var lines []string
 
-	// Handle summarizer errors
 	if summaryResult.ExitCode != 0 {
 		lines = append(lines, "")
 		lines = append(lines, fmt.Sprintf("%s✗ Summarizer Error%s", terminal.Color(terminal.Red), terminal.Color(terminal.Reset)))
@@ -45,7 +43,6 @@ func RenderReport(
 		return strings.Join(lines, "\n")
 	}
 
-	// Warnings
 	var warnings []string
 	if stats.ParseErrors > 0 {
 		warnings = append(warnings, fmt.Sprintf("JSONL parse errors: %d", stats.ParseErrors))
@@ -79,7 +76,6 @@ func RenderReport(
 		lines = append(lines, "")
 	}
 
-	// No findings case
 	if !grouped.HasFindings() {
 		lines = append(lines, fmt.Sprintf("%s✓%s %s%sLGTM%s %s(%d/%d reviewers)%s",
 			terminal.Color(terminal.Green), terminal.Color(terminal.Reset),
@@ -88,7 +84,6 @@ func RenderReport(
 		return strings.Join(lines, "\n")
 	}
 
-	// Findings header
 	lines = append(lines, "")
 	findingWord := "finding"
 	if len(grouped.Findings) != 1 {
@@ -98,7 +93,6 @@ func RenderReport(
 		terminal.Color(terminal.Cyan), terminal.Color(terminal.Bold), len(grouped.Findings), findingWord, terminal.Color(terminal.Reset)))
 	lines = append(lines, terminal.Ruler(width, "━"))
 
-	// Render each finding
 	for idx, finding := range grouped.Findings {
 		title := finding.Title
 		if title == "" {
@@ -196,7 +190,6 @@ func RenderReport(
 	return strings.Join(lines, "\n")
 }
 
-// RenderCommentMarkdown renders GitHub comment markdown for findings.
 func RenderCommentMarkdown(
 	grouped domain.GroupedFindings,
 	totalReviewers int,
@@ -236,7 +229,6 @@ func RenderCommentMarkdown(
 		}
 	}
 
-	// Raw findings section
 	rawIndices := collectSourceIndices(grouped.Findings)
 	rawSection := formatRawFindings(aggregated, rawIndices, totalReviewers)
 	if rawSection != "" {
@@ -255,15 +247,11 @@ func RenderCommentMarkdown(
 	return strings.Join(lines, "\n")
 }
 
-// AnnotatedComment pairs a reviewer's raw finding text with its pipeline disposition.
 type AnnotatedComment struct {
 	Text        string
 	Disposition domain.Disposition
 }
 
-// RenderLGTMMarkdown renders approval comment markdown.
-// annotatedComments maps reviewer ID to their findings with disposition annotations.
-// If nil, falls back to unannotated rendering.
 func RenderLGTMMarkdown(totalReviewers, successfulReviewers int, annotatedComments map[int][]AnnotatedComment, version string) string {
 	var lines []string
 	lines = append(lines, "## LGTM :white_check_mark:")
@@ -317,7 +305,6 @@ func formatDisposition(d domain.Disposition) string {
 	}
 }
 
-// RenderDismissedLGTMMarkdown renders LGTM markdown for when a user dismisses all findings.
 func RenderDismissedLGTMMarkdown(findings []domain.FindingGroup, stats domain.ReviewStats, version string) string {
 	var lines []string
 	lines = append(lines, "## LGTM :white_check_mark:")
@@ -353,7 +340,6 @@ func RenderDismissedLGTMMarkdown(findings []domain.FindingGroup, stats domain.Re
 	return strings.Join(lines, "\n")
 }
 
-// renderFooter returns a small attribution line for GitHub comments.
 func renderFooter(version string) string {
 	if version == "" {
 		return "_Posted by [acr](https://github.com/richhaase/agentic-code-reviewer)_"
@@ -397,8 +383,6 @@ func formatRawFindings(aggregated []domain.AggregatedFinding, indices []int, tot
 	return strings.Join(lines, "\n")
 }
 
-// formatReviewersWithAgents formats reviewer IDs with their agent names.
-// Example: "#1 (codex), #3 (claude)"
 func formatReviewersWithAgents(reviewerIDs []int, agentNames map[int]string) string {
 	strs := make([]string, len(reviewerIDs))
 	for i, id := range reviewerIDs {

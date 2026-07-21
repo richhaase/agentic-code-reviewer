@@ -43,7 +43,7 @@ func TestSelectedIndices_ReturnsCorrectIndices(t *testing.T) {
 	}
 
 	m := NewSelector(findings)
-	m.selected[1] = false // Deselect middle finding
+	m.selected[1] = false
 
 	indices := m.SelectedIndices()
 
@@ -63,7 +63,7 @@ func TestSelectedIndices_Sorted(t *testing.T) {
 	}
 
 	m := NewSelector(findings)
-	// Indices should be sorted regardless of iteration order
+
 	indices := m.SelectedIndices()
 
 	for i := 1; i < len(indices); i++ {
@@ -143,7 +143,6 @@ func TestUpdate_VimKeybindings(t *testing.T) {
 		{Title: "Finding 3"},
 	}
 
-	// Test j for down
 	m := NewSelector(findings)
 	newModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
 	m = newModel.(SelectorModel)
@@ -152,7 +151,6 @@ func TestUpdate_VimKeybindings(t *testing.T) {
 		t.Errorf("j key: expected cursor=1, got %d", m.cursor)
 	}
 
-	// Test k for up
 	newModel, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
 	m = newModel.(SelectorModel)
 
@@ -167,7 +165,6 @@ func TestUpdate_SpaceTogglesSelection(t *testing.T) {
 	}
 	m := NewSelector(findings)
 
-	// Initially selected, toggle off
 	newModel, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
 	m = newModel.(SelectorModel)
 
@@ -175,7 +172,6 @@ func TestUpdate_SpaceTogglesSelection(t *testing.T) {
 		t.Error("expected finding to be deselected after space")
 	}
 
-	// Toggle back on
 	newModel, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
 	m = newModel.(SelectorModel)
 
@@ -228,12 +224,10 @@ func TestUpdate_ExpandToggle(t *testing.T) {
 	}
 	m := NewSelector(findings)
 
-	// Initially not expanded
 	if m.expanded[0] {
 		t.Error("expected finding to not be expanded initially")
 	}
 
-	// Toggle expand
 	newModel, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
 	m = newModel.(SelectorModel)
 
@@ -241,7 +235,6 @@ func TestUpdate_ExpandToggle(t *testing.T) {
 		t.Error("expected finding to be expanded after 'e'")
 	}
 
-	// Toggle collapse
 	newModel, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
 	m = newModel.(SelectorModel)
 
@@ -364,7 +357,7 @@ func TestView_CollapsedHidesSummary(t *testing.T) {
 		{Title: "Finding", Summary: "This is the detailed summary"},
 	}
 	m := NewSelector(findings)
-	// expanded[0] is false by default
+
 	view := m.View()
 
 	if containsString(view, "detailed summary") {
@@ -384,7 +377,6 @@ func TestView_ContainsHelpText(t *testing.T) {
 	}
 }
 
-// Helper function
 func containsString(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
 }

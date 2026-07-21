@@ -9,26 +9,20 @@ import (
 	"strings"
 )
 
-// Compile-time interface check
 var _ Agent = (*CodexAgent)(nil)
 
-// CodexAgent implements the Agent interface for the Codex CLI backend.
 type CodexAgent struct {
 	model string
 }
 
-// NewCodexAgent creates a new CodexAgent instance.
-// If model is non-empty, it overrides the default model via --model.
 func NewCodexAgent(model string) *CodexAgent {
 	return &CodexAgent{model: model}
 }
 
-// Name returns the agent's identifier.
 func (c *CodexAgent) Name() string {
 	return "codex"
 }
 
-// IsAvailable checks if the codex CLI is installed and accessible.
 func (c *CodexAgent) IsAvailable() error {
 	_, err := exec.LookPath("codex")
 	if err != nil {
@@ -37,12 +31,6 @@ func (c *CodexAgent) IsAvailable() error {
 	return nil
 }
 
-// ExecuteReview runs a code review using the codex CLI.
-// Returns an ExecutionResult for streaming the JSONL output.
-//
-// Without guidance, uses 'codex exec review --base X' for the built-in review behavior.
-// With guidance, falls back to the diff-based review path because codex's --base flag
-// and stdin prompt (-) are mutually exclusive (see #170).
 func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (*ExecutionResult, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
@@ -73,13 +61,6 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (*
 	})
 }
 
-// ExecuteSummary runs a summarization task using the codex CLI.
-// Uses 'codex exec --color never -' with the prompt and input piped to stdin.
-//
-// Note: While Codex can read files within its working directory, this function
-// embeds the input directly in the prompt for simplicity. Very large inputs
-// (>100KB) may hit prompt length limits, but summary inputs are typically
-// much smaller since they contain aggregated findings rather than raw diffs.
 func (c *CodexAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (*ExecutionResult, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
@@ -89,7 +70,7 @@ func (c *CodexAgent) ExecuteSummary(ctx context.Context, prompt string, input []
 	if c.model != "" {
 		args = append([]string{"--model", c.model}, args...)
 	}
-	// Use MultiReader to avoid copying large input byte slice
+
 	stdin := io.MultiReader(
 		strings.NewReader(prompt),
 		strings.NewReader("\n\nINPUT JSON:\n"),

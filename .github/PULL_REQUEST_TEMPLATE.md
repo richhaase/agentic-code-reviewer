@@ -1,16 +1,10 @@
 ## Summary
 
-<!-- Brief description of what this PR does -->
-
 ## Changes
-
-<!-- List the key changes -->
 
 - 
 
 ## Test Plan
-
-<!-- How were these changes tested? -->
 
 - [ ] `make check` passes
 - [ ] ACR run completed (see CONTRIBUTING.md for requirements)
@@ -18,5 +12,3 @@
 - [ ] Manual testing performed (describe below)
 
 ## Related Issues
-
-<!-- Link related issues: Fixes #123, Relates to #456 -->
