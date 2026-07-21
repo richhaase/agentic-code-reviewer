@@ -119,6 +119,7 @@ type loop struct {
 	ciErrors        int
 	cycleErrors     int
 	retryPending    bool
+	retryHead       string
 }
 
 func (l *loop) logf(format string, args ...any) {
@@ -208,6 +209,15 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 			l.requestArmed = false
 		}
 
+		if trigger == "" && l.retryPending {
+			if st.HeadSHA == l.retryHead {
+				trigger = "retry after transient preparation failure"
+			} else {
+				l.retryPending = false
+				l.retryHead = ""
+			}
+		}
+
 		if trigger == "" && l.pendingApproval != "" {
 			if st.HeadSHA == l.lastHead {
 				if reason, done := l.tryApprove(ctx); done {
@@ -220,10 +230,6 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 			if reason, done := l.checkMaxReviews(); done {
 				return reason
 			}
-		}
-
-		if trigger == "" && l.retryPending {
-			trigger = "retry after transient preparation failure"
 		}
 
 		if trigger == "" {
@@ -338,6 +344,8 @@ func (l *loop) tryApprove(ctx context.Context) (ExitReason, bool) {
 
 func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, bool) {
 	l.retryPending = false
+	l.retryHead = ""
+	l.pendingApproval = ""
 	l.reviews++
 	l.logf("Review #%d/%d starting (%s)", l.reviews, l.cfg.MaxReviews, trigger)
 
@@ -361,6 +369,7 @@ func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, boo
 				return ReasonError, true
 			}
 			l.retryPending = true
+			l.retryHead = head
 			return 0, false
 		}
 		l.logf("Review #%d failed: %v", l.reviews, err)

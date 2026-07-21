@@ -130,7 +130,7 @@ func resolveRemoteBranchSource(ctx context.Context, repositoryRoot, remote, bran
 	if err := gitpkg.FetchBaseRef(ctx, repositoryRoot, remote, branch); err != nil {
 		return nil, fmt.Errorf("failed to refresh trusted review configuration: %w", err)
 	}
-	ref := gitpkg.QualifyBaseRef(remote, branch)
+	ref := "refs/remotes/" + remote + "/" + branch
 	source, err := NewRepositoryRevisionSource(ctx, repositoryRoot, ref)
 	if err != nil {
 		return nil, fmt.Errorf("failed to snapshot trusted review configuration: %w", err)

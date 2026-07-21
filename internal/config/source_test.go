@@ -176,6 +176,53 @@ func TestResolveTrustedSourceUsesExplicitRepositoryOutsideCurrentDirectory(t *te
 	}
 }
 
+func TestResolveTrustedSourceUsesFullyQualifiedRemoteTrackingRef(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	seedRoot := filepath.Join(root, "seed")
+	remoteRoot := filepath.Join(root, "origin.git")
+	repositoryRoot := filepath.Join(root, "working")
+	if err := os.MkdirAll(seedRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	runConfigGit(t, seedRoot, "init", "-b", "main")
+	runConfigGit(t, seedRoot, "config", "user.email", "test@example.com")
+	runConfigGit(t, seedRoot, "config", "user.name", "Test User")
+	writeConfigSourceFile(t, seedRoot, ConfigFileName, "reviewers: 12\n")
+	runConfigGit(t, seedRoot, "add", ".")
+	runConfigGit(t, seedRoot, "commit", "-m", "trusted")
+	runConfigGit(t, root, "clone", "--bare", seedRoot, remoteRoot)
+	runConfigGit(t, root, "clone", remoteRoot, repositoryRoot)
+	runConfigGit(t, repositoryRoot, "config", "user.email", "test@example.com")
+	runConfigGit(t, repositoryRoot, "config", "user.name", "Test User")
+	runConfigGit(t, repositoryRoot, "checkout", "-b", "incoming")
+	writeConfigSourceFile(t, repositoryRoot, ConfigFileName, "reviewers: 1\n")
+	runConfigGit(t, repositoryRoot, "add", ".")
+	runConfigGit(t, repositoryRoot, "commit", "-m", "incoming")
+	runConfigGit(t, repositoryRoot, "tag", "origin/main")
+
+	source, err := ResolveTrustedSource(ctx, TrustedSourceRequest{
+		RepositoryRoot: repositoryRoot,
+		Remote:         "origin",
+		Branch:         "main",
+		Policy:         CanonicalNamedBranch,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := source.LoadWithWarnings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved := Resolve(result.Config, EnvState{}, FlagState{}, ResolvedConfig{})
+	if resolved.Reviewers != 12 {
+		t.Fatalf("Reviewers = %d", resolved.Reviewers)
+	}
+	if result.Source.Ref != "refs/remotes/origin/main" {
+		t.Fatalf("source ref = %q", result.Source.Ref)
+	}
+}
+
 func TestResolveTrustedSourceDisabledIdentity(t *testing.T) {
 	ctx := context.Background()
 	source, err := ResolveTrustedSource(ctx, TrustedSourceRequest{

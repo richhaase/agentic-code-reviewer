@@ -61,7 +61,7 @@ func TestResolveTrustedReviewConfigSourceUsesSoleConfiguredRemoteDefaultBranch(t
 	if guidance != "trusted guidance" {
 		t.Fatalf("guidance = %q", guidance)
 	}
-	if result.Source.Ref != "upstream/main" {
+	if result.Source.Ref != "refs/remotes/upstream/main" {
 		t.Fatalf("source ref = %q", result.Source.Ref)
 	}
 }

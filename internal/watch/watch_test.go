@@ -477,6 +477,62 @@ func TestRetryableCycleFailuresBecomeFatalAfterLimit(t *testing.T) {
 	}
 }
 
+func TestRetryableRequestedReviewCannotPostPriorPendingApproval(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa"), requested("aaa")}
+	h.ci = []bool{true}
+	deps := h.deps()
+	attempts := 0
+	deps.RunCycle = func(_ context.Context, _ int, trigger string) (Cycle, error) {
+		attempts++
+		h.triggers = append(h.triggers, trigger)
+		switch attempts {
+		case 1:
+			return Cycle{Result: CycleLGTMCommentCIPending, LGTMBody: "obsolete"}, nil
+		case 2:
+			return Cycle{Result: CycleError}, fmt.Errorf("%w: network unavailable", ErrRetryableCycle)
+		default:
+			return Cycle{Result: CycleLGTMApproved}, nil
+		}
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if len(h.approvedWith) != 0 {
+		t.Fatalf("obsolete approval posted: %v", h.approvedWith)
+	}
+	if len(h.triggers) != 3 || h.triggers[1] != "re-review requested" || h.triggers[2] != "retry after transient preparation failure" {
+		t.Fatalf("triggers = %v", h.triggers)
+	}
+}
+
+func TestRetryablePreparationFailureSettlesChangedHead(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa"), open("bbb")}
+	deps := h.deps()
+	attempts := 0
+	deps.RunCycle = func(_ context.Context, _ int, trigger string) (Cycle, error) {
+		attempts++
+		h.triggers = append(h.triggers, trigger)
+		if attempts == 1 {
+			return Cycle{Result: CycleError}, fmt.Errorf("%w: network unavailable", ErrRetryableCycle)
+		}
+		return Cycle{Result: CycleLGTMApproved}, nil
+	}
+	startedAt := h.clock.Now()
+
+	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if len(h.triggers) != 2 || h.triggers[1] != "commits settled" {
+		t.Fatalf("triggers = %v", h.triggers)
+	}
+	if elapsed := h.clock.Now().Sub(startedAt); elapsed < defaultConfig(PostModeApprove).SettleTime {
+		t.Fatalf("changed head settled for %s", elapsed)
+	}
+}
+
 func TestParsePostMode(t *testing.T) {
 	for _, valid := range []string{"interactive", "comment", "approve"} {
 		if _, err := ParsePostMode(valid); err != nil {
