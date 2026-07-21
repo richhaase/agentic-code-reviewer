@@ -91,15 +91,21 @@ internal/
 
 6. **Terminal Detection**: Colors auto-disabled when stdout is not a TTY.
 
-## Code Comments — Absolute Rule
+## Code Comments — Global Rule
 
-Code comments of any kind are never acceptable in this codebase — no doc
-comments, no inline comments, no section markers, no exceptions. Adding a
-comment is the number one bug and a major flaw in review. Comments age poorly
-and do not age uniformly with the code, so nothing that can be read in the
-code may ever be documented separately. Maintain only user-facing
-documentation (README, CLI help text, config samples) that makes someone's
-life easier, and only as much of it as is absolutely necessary.
+Code comments are prohibited throughout this repository. Do not add or retain
+inline comments, block comments, doc comments, TODO or FIXME comments, section
+markers, commented-out code, explanatory annotations, or comments in tests,
+scripts, configuration, and code examples. A comment introduced in a change is
+a defect and must be removed before the change is complete. Express intent
+through names, types, functions, and code structure instead.
+
+The sole exception is a very brief comment that is explicitly required as part
+of public API documentation, such as text consumed by API documentation tooling
+or required for API consumers. This exception must not be used for ordinary
+implementation explanation, internal documentation, or optional doc comments.
+User-facing prose in README files, CLI help, and other documentation is allowed,
+but fenced code examples must follow the no-comments rule.
 
 ## Code Patterns
 
@@ -122,10 +128,8 @@ When adding features:
 ### Adding a new CLI flag
 
 ```go
-// In cmd/acr/main.go, add to var block:
 var myFlag string
 
-// In run(), add flag definition:
 rootCmd.Flags().StringVarP(&myFlag, "my-flag", "m", getEnvStr("ACR_MY_FLAG", "default"), "Description")
 ```
 
