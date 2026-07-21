@@ -52,7 +52,7 @@ func TestParseForkNotation_MultipleColons(t *testing.T) {
 }
 
 func TestBuildForkRef(t *testing.T) {
-	// Test the ForkRef construction logic (not the gh CLI call)
+
 	ref := buildForkRef("yunidbauza", "feat/branch", "agentic-code-reviewer", 83)
 
 	if ref.Username != "yunidbauza" {

@@ -35,7 +35,6 @@ func TestWrapText_WordBoundary(t *testing.T) {
 	text := "word1 word2 word3"
 	result := WrapText(text, 12, "")
 
-	// Should preserve complete words, not split them
 	lines := strings.Split(result, "\n")
 	for _, line := range lines {
 		words := strings.Fields(line)
@@ -46,7 +45,6 @@ func TestWrapText_WordBoundary(t *testing.T) {
 		}
 	}
 
-	// All three words should be present
 	if !strings.Contains(result, "word1") || !strings.Contains(result, "word2") || !strings.Contains(result, "word3") {
 		t.Errorf("missing words in result: %q", result)
 	}
@@ -67,18 +65,17 @@ func TestWrapText_WhitespaceOnlyInput(t *testing.T) {
 }
 
 func TestWrapText_SingleLongWord(t *testing.T) {
-	// A word longer than width should still appear (no infinite loop)
+
 	longWord := "supercalifragilisticexpialidocious"
 	result := WrapText(longWord, 10, "")
 
-	// The word should be present in output
 	if !strings.Contains(result, longWord) {
 		t.Errorf("long word should be in output: %q", result)
 	}
 }
 
 func TestWrapText_NarrowWidthWithIndent(t *testing.T) {
-	// Width <= indent length: should still produce output
+
 	result := WrapText("hello world", 3, ">>> ")
 	if result == "" {
 		t.Error("expected non-empty output even with narrow width")
@@ -108,7 +105,7 @@ func TestFormatDuration_UnderOneMinute(t *testing.T) {
 		{500 * time.Millisecond, "0.5s"},
 		{5 * time.Second, "5.0s"},
 		{45*time.Second + 300*time.Millisecond, "45.3s"},
-		{59*time.Second + 999*time.Millisecond, "60.0s"}, // edge: rounds to 60
+		{59*time.Second + 999*time.Millisecond, "60.0s"},
 	}
 
 	for _, tt := range tests {

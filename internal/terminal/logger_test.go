@@ -8,7 +8,6 @@ import (
 	"testing"
 )
 
-// captureStderr captures stderr output during the execution of f.
 func captureStderr(f func()) string {
 	old := os.Stderr
 	r, w, _ := os.Pipe()
@@ -32,7 +31,7 @@ func TestNewLogger(t *testing.T) {
 }
 
 func TestLogger_Log_AllStyles(t *testing.T) {
-	// Disable colors for predictable output
+
 	DisableColors()
 	defer EnableColors()
 
@@ -50,7 +49,7 @@ func TestLogger_Log_AllStyles(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(string(tc.style), func(t *testing.T) {
-			logger := &Logger{isTTY: false} // Non-TTY to avoid line clearing
+			logger := &Logger{isTTY: false}
 
 			output := captureStderr(func() {
 				logger.Log("test message", tc.style)
@@ -93,7 +92,6 @@ func TestLogger_Log_WithColors(t *testing.T) {
 		logger.Log("colored message", StyleSuccess)
 	})
 
-	// Should contain ANSI escape codes
 	if !strings.Contains(output, "\033[") {
 		t.Errorf("expected ANSI codes in colored output, got %q", output)
 	}
@@ -106,21 +104,19 @@ func TestLogger_Log_TTYClearsLine(t *testing.T) {
 	DisableColors()
 	defer EnableColors()
 
-	// With TTY mode, should clear line first
 	logger := &Logger{isTTY: true}
 
 	output := captureStderr(func() {
 		logger.Log("tty message", StyleInfo)
 	})
 
-	// Should contain carriage return for line clearing
 	if !strings.Contains(output, "\r") {
 		t.Errorf("expected carriage return in TTY output, got %q", output)
 	}
 }
 
 func TestStyle_Constants(t *testing.T) {
-	// Verify style constants have expected values
+
 	if StyleInfo != "info" {
 		t.Errorf("StyleInfo = %q, want %q", StyleInfo, "info")
 	}
@@ -151,7 +147,6 @@ func TestLogger_EmptyMessage(t *testing.T) {
 		logger.Log("", StyleInfo)
 	})
 
-	// Should still output the tag with empty message
 	if !strings.Contains(output, "[") {
 		t.Errorf("expected tag brackets in output even for empty message, got %q", output)
 	}

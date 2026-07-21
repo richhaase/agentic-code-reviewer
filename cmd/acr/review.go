@@ -53,7 +53,6 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		return domain.ExitError
 	}
 
-	// Show agent distribution if multiple agents
 	if len(reviewAgents) > 1 {
 		distribution := agent.FormatDistribution(reviewAgents, opts.Reviewers)
 		logger.Logf(terminal.StyleInfo, "Agent distribution: %s%s%s",
@@ -63,14 +62,9 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 			terminal.Color(terminal.Dim), opts.ReviewerAgents[0], terminal.Color(terminal.Reset))
 	}
 
-	// Resolve the base ref once before launching parallel reviewers.
-	// This ensures all reviewers compare against the same ref, avoiding
-	// inconsistent results if network conditions vary during parallel execution.
 	resolvedBaseRef := opts.Base
 	if opts.Fetch {
-		// Update current branch from remote (fast-forward only).
-		// Skip when the base ref is relative to HEAD (e.g., HEAD~3) since
-		// fast-forwarding would change what those refs resolve to.
+
 		if !git.IsRelativeRef(opts.Base) {
 			branchResult := git.UpdateCurrentBranch(ctx, opts.WorkDir)
 			if branchResult.Updated && opts.Verbose {
@@ -81,7 +75,6 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 			}
 		}
 
-		// Fetch base ref
 		result := git.FetchRemoteRef(ctx, opts.Base, opts.WorkDir)
 		resolvedBaseRef = result.ResolvedRef
 		if result.FetchAttempted && !result.RefResolved {
@@ -91,15 +84,12 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		}
 	}
 
-	// Pre-compute the git diff once and share it across all reviewers.
-	// Always compute (even for codex-only) so we can short-circuit empty diffs.
 	diff, err := git.GetDiff(ctx, resolvedBaseRef, opts.WorkDir)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Failed to get diff: %v", err)
 		return domain.ExitError
 	}
 
-	// Short-circuit: no changes means nothing to review
 	if diff == "" {
 		logger.Logf(terminal.StyleSuccess, "No changes detected between HEAD and %s. Nothing to review.", resolvedBaseRef)
 		opts.record(OutcomeNoChanges)
@@ -110,15 +100,12 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		logger.Logf(terminal.StyleDim, "Diff size: %d bytes", len(diff))
 	}
 
-	// Pass precomputed diff to agents that need it (Antigravity, Claude, Gemini).
-	// Codex ignores it (built-in diff via --base).
 	diffPrecomputed := agent.AgentsNeedDiff(reviewAgents)
 
 	if opts.Verbose && opts.UseRefFile {
 		logger.Logf(terminal.StyleDim, "Ref-file mode enabled")
 	}
 
-	// Run reviewers
 	r, err := runner.New(runner.Config{
 		Reviewers:       opts.Reviewers,
 		Concurrency:     opts.Concurrency,
@@ -137,8 +124,6 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		return domain.ExitError
 	}
 
-	// Start PR feedback summarizer in parallel with reviewers (if enabled, reviewing a PR, and FP filter is on)
-	// Skip if FP filter is disabled since the feedback summary is only consumed by the FP filter
 	var priorFeedback string
 	var feedbackWg sync.WaitGroup
 	if opts.PRFeedbackEnabled && opts.DetectedPR != "" && opts.FPFilterEnabled {
@@ -148,7 +133,6 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		go func() {
 			defer feedbackWg.Done()
 
-			// Determine which agent to use for feedback summarization
 			feedbackAgentName := opts.PRFeedbackAgent
 			if feedbackAgentName == "" {
 				feedbackAgentName = opts.SummarizerAgent
@@ -160,9 +144,9 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 
 			summary, err := summarizer.Summarize(feedbackCtx, opts.DetectedPR)
 			if err != nil {
-				// Distinguish feedback-specific timeout from parent context cancellation
+
 				if ctx.Err() != nil {
-					// Parent context was canceled (e.g., user interrupt) — don't log as timeout
+
 					return
 				}
 				if feedbackCtx.Err() == context.DeadlineExceeded {
@@ -190,20 +174,16 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		return domain.ExitError
 	}
 
-	// Build statistics
 	stats := runner.BuildStats(results, opts.Reviewers, wallClock)
 
-	// Check if all reviewers failed
 	if stats.AllFailed() {
 		logger.Log("All reviewers failed", terminal.StyleError)
 		return domain.ExitError
 	}
 
-	// Aggregate and summarize findings
 	allFindings := runner.CollectFindings(results)
 	aggregated := domain.AggregateFindings(allFindings)
 
-	// Run summarizer with spinner
 	phaseSpinner := terminal.NewPhaseSpinner("Summarizing")
 	spinnerCtx, spinnerCancel := context.WithCancel(context.Background())
 	spinnerDone := make(chan struct{})
@@ -232,7 +212,6 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 
 	stats.SummarizerDuration = summaryResult.Duration
 
-	// Wait for PR feedback summarizer to complete
 	feedbackWg.Wait()
 
 	var fpFilteredCount int
@@ -289,7 +268,6 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		excludeFiltered = diffFindingGroups(preExclude, summaryResult.Grouped.Findings)
 	}
 
-	// Build disposition map for LGTM annotation
 	dispositions := domain.BuildDispositions(
 		len(aggregated),
 		summaryResult.Grouped.Info,
@@ -297,7 +275,7 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		excludeFiltered,
 		summaryResult.Grouped.Findings,
 	)
-	// Render and print report
+
 	report := runner.RenderReport(summaryResult.Grouped, summaryResult, stats)
 	fmt.Println(report)
 
@@ -305,7 +283,6 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		return domain.ExitError
 	}
 
-	// Handle PR actions
 	if !summaryResult.Grouped.HasFindings() {
 		return handleLGTM(ctx, opts, allFindings, aggregated, dispositions, stats, logger)
 	}
@@ -332,8 +309,6 @@ func usesGeminiAgent(opts ReviewOpts) bool {
 	return false
 }
 
-// diffFindingGroups returns groups present in before but not in after.
-// Relies on filter.Apply preserving order, so after is an ordered subsequence.
 func diffFindingGroups(before, after []domain.FindingGroup) []domain.FindingGroup {
 	j := 0
 	var removed []domain.FindingGroup

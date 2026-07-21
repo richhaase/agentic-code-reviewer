@@ -6,7 +6,7 @@ import (
 )
 
 func TestEnableDisableColors(t *testing.T) {
-	// Ensure we start enabled
+
 	EnableColors()
 
 	if Color(Cyan) != Cyan {
@@ -19,7 +19,6 @@ func TestEnableDisableColors(t *testing.T) {
 		t.Error("expected empty string when colors disabled")
 	}
 
-	// Re-enable for other tests
 	EnableColors()
 
 	if Color(Cyan) != Cyan {
@@ -72,36 +71,32 @@ func TestColor_DisabledReturnsEmpty(t *testing.T) {
 }
 
 func TestIsTTY(t *testing.T) {
-	// We can't really test if something IS a TTY in a test environment
-	// but we can verify the function doesn't panic and returns a bool
+
 	_ = IsTTY(0)
 	_ = IsTTY(1)
 	_ = IsTTY(2)
 }
 
 func TestIsStdoutTTY(t *testing.T) {
-	// In test environment, stdout is typically not a TTY
-	// Just verify it doesn't panic
+
 	result := IsStdoutTTY()
-	// In CI/test environments, this is typically false
+
 	_ = result
 }
 
 func TestIsStderrTTY(t *testing.T) {
-	// In test environment, stderr is typically not a TTY
-	// Just verify it doesn't panic
+
 	result := IsStderrTTY()
 	_ = result
 }
 
 func TestGetTerminalWidth(t *testing.T) {
 	width := GetTerminalWidth()
-	// Should return either actual width or default 80
+
 	if width <= 0 {
 		t.Errorf("GetTerminalWidth() = %d, want > 0", width)
 	}
-	// In non-TTY environment, should return 80
-	// but we can't guarantee the test environment
+
 	if width < 10 || width > 10000 {
 		t.Errorf("GetTerminalWidth() = %d, seems unreasonable", width)
 	}
@@ -118,7 +113,7 @@ func TestColorsEnabled(t *testing.T) {
 		t.Error("ColorsEnabled() should return false after DisableColors()")
 	}
 
-	EnableColors() // Restore for other tests
+	EnableColors()
 }
 
 func TestSetColorsEnabled(t *testing.T) {
@@ -132,13 +127,12 @@ func TestSetColorsEnabled(t *testing.T) {
 		t.Error("ColorsEnabled() should return false after SetColorsEnabled(false)")
 	}
 
-	SetColorsEnabled(true) // Restore for other tests
+	SetColorsEnabled(true)
 }
 
 func TestWithColorsDisabled(t *testing.T) {
 	EnableColors()
 
-	// Verify colors are enabled before
 	if !ColorsEnabled() {
 		t.Fatal("colors should be enabled before WithColorsDisabled")
 	}
@@ -148,38 +142,34 @@ func TestWithColorsDisabled(t *testing.T) {
 		insideState = ColorsEnabled()
 	})
 
-	// Verify colors were disabled inside the function
 	if insideState {
 		t.Error("colors should be disabled inside WithColorsDisabled")
 	}
 
-	// Verify colors are restored after
 	if !ColorsEnabled() {
 		t.Error("colors should be restored after WithColorsDisabled")
 	}
 }
 
 func TestWithColorsDisabled_RestoresPreviousState(t *testing.T) {
-	// Test that it restores the previous state, not just enables colors
+
 	DisableColors()
 	defer EnableColors()
 
 	WithColorsDisabled(func() {
-		// Colors should be disabled inside
+
 		if ColorsEnabled() {
 			t.Error("colors should be disabled inside WithColorsDisabled")
 		}
 	})
 
-	// Should restore to disabled (the previous state)
 	if ColorsEnabled() {
 		t.Error("WithColorsDisabled should restore previous disabled state")
 	}
 }
 
 func TestColorFunctions_ThreadSafe(t *testing.T) {
-	// Test that color functions can be called concurrently without race conditions
-	// Run with -race flag to verify
+
 	var wg sync.WaitGroup
 	iterations := 100
 
@@ -208,5 +198,5 @@ func TestColorFunctions_ThreadSafe(t *testing.T) {
 	}
 
 	wg.Wait()
-	EnableColors() // Restore for other tests
+	EnableColors()
 }

@@ -11,7 +11,6 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
-// Styles for the selector UI.
 var (
 	selectorTitleStyle = lipgloss.NewStyle().
 				Bold(true).
@@ -35,17 +34,15 @@ var (
 				PaddingLeft(6)
 )
 
-// SelectorModel is the bubbletea model for the interactive finding selector.
 type SelectorModel struct {
 	findings  []domain.FindingGroup
-	selected  map[int]bool // selection state (kept out of domain types)
-	expanded  map[int]bool // which items show full details
+	selected  map[int]bool
+	expanded  map[int]bool
 	cursor    int
 	confirmed bool
 	quitted   bool
 }
 
-// NewSelector creates a new selector model with all findings selected by default.
 func NewSelector(findings []domain.FindingGroup) SelectorModel {
 	selected := make(map[int]bool, len(findings))
 	for i := range findings {
@@ -59,12 +56,10 @@ func NewSelector(findings []domain.FindingGroup) SelectorModel {
 	}
 }
 
-// Init implements tea.Model.
 func (m SelectorModel) Init() tea.Cmd {
 	return nil
 }
 
-// Update implements tea.Model.
 func (m SelectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -100,7 +95,6 @@ func (m SelectorModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// View implements tea.Model.
 func (m SelectorModel) View() string {
 	if len(m.findings) == 0 {
 		return "No findings to select.\n"
@@ -108,19 +102,16 @@ func (m SelectorModel) View() string {
 
 	var b strings.Builder
 
-	// Header
 	b.WriteString(selectorTitleStyle.Render("Select findings to post"))
 	b.WriteString("\n\n")
 
-	// Findings list
 	for i, finding := range m.findings {
-		// Checkbox
+
 		checkbox := selectorCheckboxUnselected
 		if m.selected[i] {
 			checkbox = selectorCheckboxSelected
 		}
 
-		// Title with number and reviewer count
 		title := fmt.Sprintf("%s %d. %s", checkbox, i+1, finding.Title)
 		if finding.ReviewerCount > 0 {
 			title += fmt.Sprintf(" (%d reviewer", finding.ReviewerCount)
@@ -130,7 +121,6 @@ func (m SelectorModel) View() string {
 			title += ")"
 		}
 
-		// Apply cursor highlighting
 		if i == m.cursor {
 			b.WriteString(selectorCursorStyle.Render(title))
 		} else {
@@ -138,7 +128,6 @@ func (m SelectorModel) View() string {
 		}
 		b.WriteString("\n")
 
-		// Show summary if expanded
 		if m.expanded[i] && finding.Summary != "" {
 			summary := WrapText(finding.Summary, 70, "")
 			for _, line := range strings.Split(summary, "\n") {
@@ -148,7 +137,6 @@ func (m SelectorModel) View() string {
 		}
 	}
 
-	// Footer with help
 	b.WriteString("\n")
 	help := "↑/↓ navigate • space toggle • e expand • a all • n none • enter confirm • q quit"
 	b.WriteString(selectorHelpStyle.Render(help))
@@ -157,7 +145,6 @@ func (m SelectorModel) View() string {
 	return b.String()
 }
 
-// SelectedIndices returns the indices of selected findings in sorted order.
 func (m SelectorModel) SelectedIndices() []int {
 	indices := make([]int, 0, len(m.selected))
 	for i, sel := range m.selected {
@@ -169,21 +156,14 @@ func (m SelectorModel) SelectedIndices() []int {
 	return indices
 }
 
-// Confirmed returns true if the user confirmed the selection.
 func (m SelectorModel) Confirmed() bool {
 	return m.confirmed
 }
 
-// Quitted returns true if the user quit without confirming.
 func (m SelectorModel) Quitted() bool {
 	return m.quitted
 }
 
-// RunSelector runs the interactive finding selector.
-// Returns:
-//   - selectedIndices: indices of findings the user selected
-//   - canceled: true if user quit without confirming
-//   - err: any error from the TUI program
 func RunSelector(findings []domain.FindingGroup) (selectedIndices []int, canceled bool, err error) {
 	if len(findings) == 0 {
 		return nil, false, nil

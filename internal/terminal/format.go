@@ -6,10 +6,8 @@ import (
 	"time"
 )
 
-// MaxReportWidth is the maximum width for reports.
 const MaxReportWidth = 90
 
-// FormatDuration formats a duration in human-readable form.
 func FormatDuration(d time.Duration) string {
 	secs := d.Seconds()
 	if secs < 60 {
@@ -20,12 +18,10 @@ func FormatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dm %.1fs", mins, remainSecs)
 }
 
-// Ruler returns a horizontal rule string.
 func Ruler(width int, char string) string {
 	return fmt.Sprintf("%s%s%s", Color(Dim), strings.Repeat(char, width), Color(Reset))
 }
 
-// WrapText wraps text to width with proper indentation.
 func WrapText(text string, width int, indent string) string {
 	if width <= len(indent) {
 		return indent + text
@@ -71,7 +67,6 @@ func WrapText(text string, width int, indent string) string {
 	return strings.Join(lines, "\n")
 }
 
-// ReportWidth returns the report width based on terminal width.
 func ReportWidth() int {
 	w := GetTerminalWidth()
 	if w > MaxReportWidth {

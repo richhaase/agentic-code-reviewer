@@ -30,11 +30,10 @@ func TestClaudeAgent_IsAvailable(t *testing.T) {
 	agent := NewClaudeAgent("")
 	err := agent.IsAvailable()
 
-	// Check if claude is in PATH
 	_, lookPathErr := exec.LookPath("claude")
 
 	if lookPathErr != nil {
-		// Claude not in PATH - should return error
+
 		if err == nil {
 			t.Error("IsAvailable() should return error when claude is not in PATH")
 		}
@@ -42,7 +41,7 @@ func TestClaudeAgent_IsAvailable(t *testing.T) {
 			t.Errorf("IsAvailable() error = %v, want error containing 'claude CLI not found'", err)
 		}
 	} else {
-		// Claude is in PATH - should return nil
+
 		if err != nil {
 			t.Errorf("IsAvailable() unexpected error = %v", err)
 		}
@@ -50,7 +49,7 @@ func TestClaudeAgent_IsAvailable(t *testing.T) {
 }
 
 func TestClaudeAgent_ExecuteReview_ClaudeNotAvailable(t *testing.T) {
-	// Temporarily remove PATH to ensure claude is not available
+
 	originalPath := os.Getenv("PATH")
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", "")
@@ -80,7 +79,7 @@ func TestClaudeAgentInterface(t *testing.T) {
 }
 
 func TestClaudeAgent_ExecuteSummary_ClaudeNotAvailable(t *testing.T) {
-	// Temporarily remove PATH to ensure claude is not available
+
 	originalPath := os.Getenv("PATH")
 	defer os.Setenv("PATH", originalPath)
 	os.Setenv("PATH", "")
@@ -201,7 +200,7 @@ func TestClaudeAgent_ExecuteReview_RefFileMode(t *testing.T) {
 		}
 	}
 
-	bigContent := strings.Repeat("// line of code\n", RefFileSizeThreshold/16+1)
+	bigContent := strings.Repeat("var value = 1\n", RefFileSizeThreshold/14+1)
 	if err := os.WriteFile(testFile, []byte(bigContent), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +277,7 @@ func TestClaudeAgent_ExecuteReview_ExplicitRefFile(t *testing.T) {
 		}
 	}
 
-	if err := os.WriteFile(testFile, []byte("package main\n\n// small change\n"), 0644); err != nil {
+	if err := os.WriteFile(testFile, []byte("package main\n\nvar smallChange = true\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -351,7 +350,7 @@ func TestClaudeAgent_ExecuteSummary_Args(t *testing.T) {
 	if !strings.Contains(outputStr, "ARG:json") {
 		t.Errorf("expected json in args, got:\n%s", outputStr)
 	}
-	// Verify --json-schema is NOT used (it constrains all ExecuteSummary callers to one schema)
+
 	if strings.Contains(outputStr, "ARG:--json-schema") {
 		t.Errorf("unexpected --json-schema in args — ExecuteSummary must not constrain output format")
 	}

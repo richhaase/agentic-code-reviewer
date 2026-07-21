@@ -1,12 +1,8 @@
-# GoReleaser configuration for acr (agentic-code-reviewer)
-# Documentation: https://goreleaser.com
 version: 2
 
 before:
   hooks:
-    # Ensure module dependencies are tidy
     - go mod tidy
-    # Run tests before release
     - go test ./...
 
 builds:
@@ -21,7 +17,6 @@ builds:
     goarch:
       - amd64
       - arm64
-    # Custom ldflags for version info
     ldflags:
       - -s -w
       - -X main.version={{.Version}}
@@ -130,7 +125,6 @@ homebrew_casks:
       Note: non-interactive claude -p usage draws from your Claude
       subscription limits; see the README billing note for current status.
 
-# Sign and notarize macOS binaries
 notarize:
   macos:
     - enabled: '{{ isEnvSet "QUILL_SIGN_P12" }}'
@@ -146,6 +140,5 @@ notarize:
         wait: true
         timeout: 20m
 
-# Announce releases on social media (optional)
 announce:
   skip: true

@@ -11,7 +11,6 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/config"
 )
 
-// chdir changes to dir and returns a cleanup function to restore the original directory.
 func chdir(t *testing.T, dir string) {
 	t.Helper()
 	origDir, err := os.Getwd()
@@ -28,7 +27,6 @@ func chdir(t *testing.T, dir string) {
 	})
 }
 
-// initGitRepo initializes a git repo in dir.
 func initGitRepo(t *testing.T, dir string) {
 	t.Helper()
 	cmd := exec.Command("git", "init")
@@ -72,7 +70,6 @@ func TestConfigInit_FailsIfExists(t *testing.T) {
 	chdir(t, dir)
 	initGitRepo(t, dir)
 
-	// Create the file first
 	configPath := filepath.Join(dir, config.ConfigFileName)
 	if err := os.WriteFile(configPath, []byte("existing"), 0644); err != nil {
 		t.Fatal(err)
@@ -106,7 +103,6 @@ func TestConfigValidate_DetectsInvalidEnvVars(t *testing.T) {
 	chdir(t, dir)
 	initGitRepo(t, dir)
 
-	// Set semantically invalid env var (parses fine, but fails validation)
 	t.Setenv("ACR_REVIEWERS", "0")
 
 	cmd := newConfigCmd()

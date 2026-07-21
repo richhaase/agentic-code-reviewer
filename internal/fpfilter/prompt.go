@@ -23,7 +23,6 @@ For EACH finding you evaluate, check the list above for a semantic match (same t
 - "concurrent session overwrites" and "session history can be truncated" are the same issue
 `
 
-// buildPromptWithFeedback appends prior feedback context to the base prompt if provided.
 func buildPromptWithFeedback(basePrompt, priorFeedback string) string {
 	if priorFeedback == "" {
 		return basePrompt
@@ -107,8 +106,8 @@ fp_score: 5
 Why: Clear security vulnerability with specific evidence.
 
 EXAMPLE 4:
-Finding: {"id": 3, "title": "Use constants for magic numbers", "summary": "Magic number 86400 should be a named constant", "messages": ["seconds := 86400 // seconds in a day"], "reviewer_count": 1}
-Reasoning: Readability suggestion. The value is correct and commented.
+Finding: {"id": 3, "title": "Use constants for magic numbers", "summary": "Magic number 86400 should be a named constant", "messages": ["seconds := 86400"], "reviewer_count": 1}
+Reasoning: Readability suggestion. The value is correct.
 fp_score: 85
 Why: Style preference with no functional impact.
 

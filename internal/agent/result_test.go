@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-// mockReadCloser is a simple ReadCloser for testing.
 type mockReadCloser struct {
 	*bytes.Reader
 	closed bool
@@ -54,7 +53,6 @@ func TestExecutionResult_Close(t *testing.T) {
 		func() string { return stderr },
 	)
 
-	// Before close
 	if result.IsClosed() {
 		t.Error("IsClosed() = true before Close(), want false")
 	}
@@ -65,13 +63,11 @@ func TestExecutionResult_Close(t *testing.T) {
 		t.Errorf("Stderr() = %q before Close(), want empty", result.Stderr())
 	}
 
-	// Close
 	err := result.Close()
 	if err != nil {
 		t.Errorf("Close() error = %v, want nil", err)
 	}
 
-	// After close
 	if !result.IsClosed() {
 		t.Error("IsClosed() = false after Close(), want true")
 	}
@@ -99,12 +95,10 @@ func TestExecutionResult_CloseOnce(t *testing.T) {
 		nil,
 	)
 
-	// Close multiple times
 	_ = result.Close()
 	_ = result.Close()
 	_ = result.Close()
 
-	// exitCodeFunc should only be called once
 	if callCount != 1 {
 		t.Errorf("exitCodeFunc called %d times, want 1", callCount)
 	}
@@ -113,7 +107,6 @@ func TestExecutionResult_CloseOnce(t *testing.T) {
 func TestExecutionResult_NilFuncs(t *testing.T) {
 	mock := newMockReadCloser([]byte("test"))
 
-	// Create with nil funcs
 	result := NewExecutionResult(mock, nil, nil)
 
 	err := result.Close()
@@ -121,7 +114,6 @@ func TestExecutionResult_NilFuncs(t *testing.T) {
 		t.Errorf("Close() error = %v, want nil", err)
 	}
 
-	// Should return default values
 	if result.ExitCode() != 0 {
 		t.Errorf("ExitCode() = %d with nil func, want 0", result.ExitCode())
 	}
@@ -131,7 +123,7 @@ func TestExecutionResult_NilFuncs(t *testing.T) {
 }
 
 func TestExecutionResult_ImplementsReadCloser(t *testing.T) {
-	// Compile-time check that ExecutionResult implements io.ReadCloser
+
 	var _ io.ReadCloser = (*ExecutionResult)(nil)
 }
 

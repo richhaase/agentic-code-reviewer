@@ -12,7 +12,6 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
-// stringReadCloser wraps strings.Reader to implement io.ReadCloser
 type stringReadCloser struct {
 	*strings.Reader
 }
@@ -96,11 +95,10 @@ func TestBuildStats_EmptyResults(t *testing.T) {
 }
 
 func TestBuildStats_TimeoutTakesPrecedenceOverExitCode(t *testing.T) {
-	// When TimedOut is true, the reviewer should be categorized as timed out
-	// regardless of exit code
+
 	results := []domain.ReviewerResult{
-		{ReviewerID: 1, TimedOut: true, ExitCode: 0}, // timed out but exit 0
-		{ReviewerID: 2, TimedOut: true, ExitCode: 1}, // timed out with non-zero
+		{ReviewerID: 1, TimedOut: true, ExitCode: 0},
+		{ReviewerID: 2, TimedOut: true, ExitCode: 1},
 	}
 
 	stats := BuildStats(results, 2, time.Second)
@@ -130,7 +128,7 @@ func TestCollectFindings_FlattensFromAllReviewers(t *testing.T) {
 		},
 		{
 			ReviewerID: 3,
-			Findings:   nil, // no findings
+			Findings:   nil,
 		},
 	}
 
@@ -245,7 +243,6 @@ func TestBuildStats_TracksAgentNames(t *testing.T) {
 	}
 }
 
-// mockAgent implements agent.Agent interface for testing
 type mockAgent struct {
 	name string
 }
@@ -266,7 +263,6 @@ func (m *mockAgent) ExecuteSummary(_ context.Context, _ string, _ []byte) (*agen
 	return nil, nil
 }
 
-// mockStreamingAgent implements agent.Agent for testing streaming output parsing.
 type mockStreamingAgent struct {
 	name   string
 	output string
@@ -293,8 +289,7 @@ func (m *mockStreamingAgent) ExecuteSummary(_ context.Context, _ string, _ []byt
 }
 
 func TestRunReviewer_ParserErrorRecovery(t *testing.T) {
-	// Create mock agent that returns JSONL with one bad line in the middle
-	// Format matches Codex output: {"item":{"type":"agent_message","text":"..."}}
+
 	mockAgent := &mockStreamingAgent{
 		output: `{"item":{"type":"agent_message","text":"finding 1"}}
 invalid json line here
@@ -310,7 +305,6 @@ invalid json line here
 
 	result := r.runReviewer(context.Background(), 1)
 
-	// Should have 2 findings despite 1 parse error
 	if len(result.Findings) != 2 {
 		t.Errorf("expected 2 findings, got %d", len(result.Findings))
 	}
@@ -320,10 +314,9 @@ invalid json line here
 }
 
 func TestRunReviewer_RecoverableParseError(t *testing.T) {
-	// Test that runner continues parsing when parser returns RecoverableParseError
-	// This tests the explicit contract between parser and runner
+
 	mockAgent := &mockStreamingAgent{
-		name:   "codex", // Use codex parser
+		name:   "codex",
 		output: "line1\nline2\nline3\n",
 	}
 
@@ -336,8 +329,6 @@ func TestRunReviewer_RecoverableParseError(t *testing.T) {
 
 	result := r.runReviewer(context.Background(), 1)
 
-	// The codex parser will treat all non-JSON lines as parse errors but continue.
-	// This verifies the parser continues after recoverable errors.
 	if result.ParseErrors != 3 {
 		t.Errorf("expected 3 parse errors for non-JSON lines, got %d", result.ParseErrors)
 	}
@@ -376,7 +367,6 @@ func TestBuildStats_AllFailedIncludesAuthFailures(t *testing.T) {
 	}
 }
 
-// mockAuthFailAgent returns a configurable exit code with stderr for auth testing.
 type mockAuthFailAgent struct {
 	name      string
 	exitCode  int

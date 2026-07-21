@@ -11,7 +11,7 @@ func TestClaudeOutputParser_ReadFinding(t *testing.T) {
 		name       string
 		input      string
 		reviewerID int
-		want       []string // Expected finding texts in order
+		want       []string
 	}{
 		{
 			name:       "single plain text finding",
@@ -190,7 +190,7 @@ performance/cache.go:50: Inefficient loop - O(n^2) complexity could be reduced t
 }
 
 func TestClaudeOutputParser_ParseErrors(t *testing.T) {
-	// ClaudeOutputParser parses plain text, so it doesn't have parse errors
+
 	tests := []struct {
 		name            string
 		input           string
@@ -256,7 +256,7 @@ func TestNewClaudeOutputParser(t *testing.T) {
 }
 
 func TestClaudeOutputParserInterface(t *testing.T) {
-	// Verify that ClaudeOutputParser implements the ReviewParser interface
+
 	var _ ReviewParser = (*ClaudeOutputParser)(nil)
 }
 

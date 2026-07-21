@@ -6,7 +6,6 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
-// filterFindingsByIndices returns findings at the specified indices.
 func filterFindingsByIndices(findings []domain.FindingGroup, indices []int) []domain.FindingGroup {
 	indexSet := make(map[int]bool, len(indices))
 	for _, i := range indices {
@@ -22,7 +21,6 @@ func filterFindingsByIndices(findings []domain.FindingGroup, indices []int) []do
 	return result
 }
 
-// exitCodeError is a wrapper type for returning exit codes via error interface.
 type exitCodeError struct {
 	code domain.ExitCode
 }

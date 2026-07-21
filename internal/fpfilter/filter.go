@@ -1,4 +1,3 @@
-// Package fpfilter provides false positive filtering for code review findings.
 package fpfilter
 
 import (
@@ -12,10 +11,6 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
-// DefaultThreshold is the minimum confidence score (0-100) for a finding to
-// be considered a true positive. Findings below this threshold are filtered
-// as likely false positives. 75 was chosen based on empirical testing to
-// balance precision (fewer false positives) with recall (keeping real issues).
 const DefaultThreshold = 75
 
 type EvaluatedFinding struct {
@@ -42,9 +37,6 @@ type Filter struct {
 	logger    *terminal.Logger
 }
 
-// New creates a new false positive filter.
-// The model parameter overrides the agent's default model (empty = default).
-// If verbose is true, non-fatal errors (like Close failures) are logged.
 func New(agentName, model string, threshold int, verbose bool, logger *terminal.Logger) *Filter {
 	if threshold < 1 || threshold > 100 {
 		threshold = DefaultThreshold
@@ -58,8 +50,6 @@ func New(agentName, model string, threshold int, verbose bool, logger *terminal.
 	}
 }
 
-// skippedResult returns a Result that passes through all findings unfiltered.
-// Used for fail-open behavior when errors occur.
 func skippedResult(grouped domain.GroupedFindings, start time.Time, reason string) *Result {
 	return &Result{
 		Grouped:    grouped,
@@ -91,11 +81,6 @@ type findingEvaluation struct {
 	Reasoning string `json:"reasoning"`
 }
 
-// agreementBonus returns an fp_score bonus for low-agreement findings.
-// Findings with weak reviewer consensus get a positive bonus, making them
-// more likely to exceed the FP threshold and be filtered out.
-// The bonus is ratio-based so it works correctly regardless of how many
-// reviewers are configured (2, 5, 10, 20, etc.).
 func agreementBonus(reviewerCount, totalReviewers int) int {
 	if totalReviewers <= 1 || reviewerCount <= 0 {
 		return 0
@@ -154,7 +139,7 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 		}
 		return skippedResult(grouped, start, "LLM execution failed: "+err.Error())
 	}
-	// Close errors are non-fatal; they only occur on process cleanup issues.
+
 	defer func() {
 		if err := execResult.Close(); err != nil && f.verbose {
 			f.logger.Logf(terminal.StyleDim, "fp-filter close error (non-fatal): %v", err)
@@ -169,9 +154,6 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 		return skippedResult(grouped, start, "response read failed: "+err.Error())
 	}
 
-	// Extract the response text using the agent-specific summary parser.
-	// Each agent wraps output differently (codex: JSONL events, claude: structured_output,
-	// agent-specific wrappers). The parser's ExtractText strips these wrappers.
 	parser, err := agent.NewSummaryParser(f.agentName)
 	if err != nil {
 		return skippedResult(grouped, start, "parser creation failed: "+err.Error())

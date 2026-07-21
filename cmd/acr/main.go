@@ -1,4 +1,3 @@
-// Package main provides the CLI entry point for the agentic code reviewer.
 package main
 
 import (
@@ -156,36 +155,29 @@ func registerSharedReviewFlags(cmd *cobra.Command) {
 		"Agent for PR feedback summarization (default: same as --summarizer-agent, env: ACR_PR_FEEDBACK_AGENT)")
 }
 
-// worktreeResult holds the outputs from worktree setup.
 type worktreeResult struct {
 	workDir          string
-	detectedBase     string // PR base ref detected from GitHub (empty if not auto-detected)
+	detectedBase     string
 	baseAutoDetected bool
 	prRemote         string
 	prRepoRoot       string
-	cleanup          func() // Call to remove worktree; nil if no worktree created
+	cleanup          func()
 }
 
-// setupWorktree handles --pr and --worktree-branch modes.
-// Returns a worktreeResult with the working directory and cleanup function.
-// If neither flag is set, returns zero-value result (no worktree).
 func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Logger) (worktreeResult, error) {
 	var result worktreeResult
 
-	// Validate mutual exclusivity
 	if prNumber != "" && worktreeBranch != "" {
 		logger.Log("--pr and --worktree-branch are mutually exclusive", terminal.StyleError)
 		return result, exitCode(domain.ExitError)
 	}
 
-	// Handle PR-based review
 	if prNumber != "" {
 		if err := github.CheckGHAvailable(); err != nil {
 			logger.Logf(terminal.StyleError, "--pr requires gh CLI: %v", err)
 			return result, exitCode(domain.ExitError)
 		}
 
-		// Early validation: check PR exists and auth is valid
 		if err := github.ValidatePR(ctx, prNumber); err != nil {
 			if errors.Is(err, github.ErrNoPRFound) {
 				logger.Logf(terminal.StyleError, "PR #%s not found", prNumber)
@@ -200,18 +192,15 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 		logger.Logf(terminal.StyleInfo, "Fetching PR %s#%s%s",
 			terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset))
 
-		// Auto-detect base ref only if not explicitly set via flag OR env var
-		// This respects user's intentional base configuration
 		explicitBaseSet := cmd.Flags().Changed("base") || os.Getenv("ACR_BASE_REF") != ""
 		if !explicitBaseSet {
 			if detectedBase, err := github.GetPRBaseRef(ctx, prNumber); err == nil && detectedBase != "" {
 				result.detectedBase = detectedBase
-				result.baseAutoDetected = true // Ensures config.Resolve won't override it
+				result.baseAutoDetected = true
 				logger.Logf(terminal.StyleDim, "Auto-detected base: %s", detectedBase)
 			}
 		}
 
-		// Get repo root for worktree creation
 		repoRoot, err := git.GetRoot()
 		if err != nil {
 			logger.Logf(terminal.StyleError, "%v", err)
@@ -219,11 +208,9 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 		}
 		result.prRepoRoot = repoRoot
 
-		// Detect the correct remote for PR refs (handles fork workflows)
 		remote := github.GetRepoRemote(ctx)
 		result.prRemote = remote
 
-		// Create worktree from PR - uses FETCH_HEAD to avoid branch conflicts
 		wt, err := git.CreateWorktreeFromPR(repoRoot, remote, prNumber)
 		if err != nil {
 			logger.Logf(terminal.StyleError, "%v", err)
@@ -241,7 +228,6 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 		logger.Logf(terminal.StyleInfo, "Creating worktree for %s%s%s",
 			terminal.Color(terminal.Bold), worktreeBranch, terminal.Color(terminal.Reset))
 
-		// Check if this is fork notation (username:branch)
 		var actualRef string
 		var cleanupRemote func()
 
@@ -252,7 +238,7 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 		}
 
 		if forkRef != nil {
-			// Fork flow: add remote, fetch, set ref
+
 			logger.Logf(terminal.StyleInfo, "Resolved fork PR #%d from %s",
 				forkRef.PRNumber, forkRef.Username)
 
@@ -262,7 +248,6 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 				return result, exitCode(domain.ExitError)
 			}
 
-			// Add temporary remote
 			if err := git.AddRemote(repoRoot, forkRef.RemoteName, forkRef.RepoURL); err != nil {
 				logger.Logf(terminal.StyleError, "Error adding remote: %v", err)
 				return result, exitCode(domain.ExitError)
@@ -271,7 +256,6 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 				_ = git.RemoveRemote(repoRoot, forkRef.RemoteName)
 			}
 
-			// Fetch the branch
 			logger.Logf(terminal.StyleDim, "Fetching %s from %s", forkRef.Branch, forkRef.RepoURL)
 			if err := git.FetchBranch(ctx, repoRoot, forkRef.RemoteName, forkRef.Branch); err != nil {
 				cleanupRemote()
@@ -281,7 +265,7 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 
 			actualRef = fmt.Sprintf("%s/%s", forkRef.RemoteName, forkRef.Branch)
 		} else {
-			// Normal branch
+
 			actualRef = worktreeBranch
 		}
 
@@ -294,7 +278,6 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 			return result, exitCode(domain.ExitError)
 		}
 
-		// Cleanup remote after worktree is created (worktree has the files, remote no longer needed)
 		if cleanupRemote != nil {
 			cleanupRemote()
 		}
@@ -312,18 +295,13 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 	return result, nil
 }
 
-// configResult holds the outputs from config loading and resolution.
 type configResult struct {
 	resolved        config.ResolvedConfig
 	excludePatterns []string
 }
 
-// loadAndResolveConfig loads the config file, builds flag/env state, resolves
-// configuration precedence, qualifies the base ref for PR mode, validates,
-// and resolves guidance. It encapsulates all config-related setup.
 func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *terminal.Logger) (configResult, error) {
-	// Load config file (unless --no-config)
-	// When using a worktree, load config from the worktree (branch-specific settings)
+
 	var cfg *config.Config
 	var configDir string
 	if !noConfig {
@@ -340,14 +318,12 @@ func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *termina
 		}
 		cfg = result.Config
 		configDir = result.ConfigDir
-		// Display warnings for unknown keys
+
 		for _, warning := range result.Warnings {
 			logger.Logf(terminal.StyleWarning, "Warning: %s", warning)
 		}
 	}
 
-	// Build flag state from cobra's Changed() method
-	// For fetch, either --fetch or --no-fetch being set counts as explicit
 	fetchFlagSet := cmd.Flags().Changed("fetch") || cmd.Flags().Changed("no-fetch")
 	flagState := config.FlagState{
 		ReviewersSet:         cmd.Flags().Changed("reviewers"),
@@ -374,18 +350,13 @@ func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *termina
 		WatchMaxDurationSet:  cmd.Flags().Changed("max-duration"),
 	}
 
-	// Load env var state
 	envState, envWarnings := config.LoadEnvState()
 	for _, warning := range envWarnings {
 		logger.Logf(terminal.StyleWarning, "Warning: %s", warning)
 	}
 
-	// Build flag values struct
-	// noFetch exists for shell alias ergonomics where --fetch=false is awkward.
-	// Example: alias acr-nofetch='acr --no-fetch'
-	// When both flags are set (unlikely), noFetch takes precedence.
 	fetchValue := fetch && !noFetch
-	// Use auto-detected base ref from PR if available, otherwise use the flag value
+
 	resolvedBaseRef := baseRef
 	if wt.detectedBase != "" {
 		resolvedBaseRef = wt.detectedBase
@@ -416,30 +387,24 @@ func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *termina
 		WatchMaxDuration:  watchMaxDuration,
 	}
 
-	// Resolve final configuration (precedence: flags > env vars > config file > defaults)
 	resolved := config.Resolve(cfg, envState, flagState, flagValues)
 
-	// For PR mode: fetch and qualify the base ref so git diff works in the detached worktree
-	// Only do this for unqualified branch names - skip for SHAs, tags, HEAD, or already-qualified refs
-	// When baseAutoDetected is true, always qualify (PR base refs are always unqualified branches)
 	if wt.prRemote != "" && git.ShouldQualifyBaseRef(resolved.Base, wt.baseAutoDetected) {
-		// Fetch the base ref from the remote so it exists locally
+
 		if err := git.FetchBaseRef(wt.prRepoRoot, wt.prRemote, resolved.Base); err != nil {
 			logger.Logf(terminal.StyleWarning, "Could not fetch base ref: %v", err)
-			// Don't qualify - keep original ref so git diff can try it directly
+
 		} else {
-			// Only qualify the base ref if fetch succeeded
+
 			resolved.Base = git.QualifyBaseRef(wt.prRemote, resolved.Base)
 		}
 	}
 
-	// Validate resolved config
 	if err := resolved.Validate(); err != nil {
 		logger.Logf(terminal.StyleError, "%v", err)
 		return configResult{}, exitCode(domain.ExitError)
 	}
 
-	// Default concurrency to reviewers if not specified (0 means same as reviewers)
 	if resolved.Concurrency <= 0 {
 		resolved.Concurrency = resolved.Reviewers
 	}
@@ -447,10 +412,8 @@ func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *termina
 		resolved.Concurrency = resolved.Reviewers
 	}
 
-	// Merge exclude patterns (config patterns + CLI patterns)
 	allExcludePatterns := config.Merge(cfg, excludePatterns)
 
-	// Resolve guidance (precedence: flags > env vars > config file)
 	resolvedGuidance, err := config.ResolveGuidance(cfg, envState, flagState, flagValues, configDir)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Failed to resolve guidance: %v", err)
@@ -465,23 +428,20 @@ func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *termina
 }
 
 func runReview(cmd *cobra.Command, _ []string) error {
-	// Disable colors if stdout is not a TTY
+
 	if !terminal.IsStdoutTTY() {
 		terminal.DisableColors()
 	}
 
 	logger := terminal.NewLogger()
 
-	// Prune stale ACR worktrees from previous runs (only review-* dirs older than 2h)
 	if err := git.PruneStaleWorktrees(); err != nil && verbose {
 		logger.Logf(terminal.StyleDim, "Worktree prune: %v", err)
 	}
 
-	// Set up context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Handle signals
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -491,7 +451,6 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		cancel()
 	}()
 
-	// Set up worktree (--pr or --worktree-branch)
 	wt, err := setupWorktree(ctx, cmd, logger)
 	if err != nil {
 		return err
@@ -500,15 +459,11 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		defer wt.cleanup()
 	}
 
-	// Load and resolve configuration
 	cfgResult, err := loadAndResolveConfig(cmd, wt, logger)
 	if err != nil {
 		return err
 	}
 
-	// Auto-detect PR for current branch if not explicitly specified and not in local mode
-	// This enables PR feedback summarization even without --pr flag
-	// Skip auto-detection if PR feedback is disabled since the PR number is only used for feedback
 	detectedPR := prNumber
 	if detectedPR == "" && !local && cfgResult.resolved.PRFeedbackEnabled && github.IsGHAvailable() {
 		if detected, err := github.GetCurrentPRNumber(ctx, worktreeBranch); err == nil {
@@ -519,7 +474,6 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Run the review
 	opts := ReviewOpts{
 		ResolvedConfig:  cfgResult.resolved,
 		Verbose:         verbose,

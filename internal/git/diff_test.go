@@ -34,7 +34,6 @@ func TestGetDiff_InvalidBaseRef(t *testing.T) {
 func TestGetDiff_Basic(t *testing.T) {
 	tmpDir := createTestRepo(t)
 
-	// Modify file
 	testFile := filepath.Join(tmpDir, "test.txt")
 	if err := os.WriteFile(testFile, []byte("modified"), 0644); err != nil {
 		t.Fatalf("Failed to modify test file: %v", err)
@@ -356,7 +355,6 @@ func TestUpdateCurrentBranch_Diverged(t *testing.T) {
 	}
 }
 
-// createTestRepo creates a temporary git repo with one commit and returns its path.
 func createTestRepo(t *testing.T) string {
 	t.Helper()
 	tmpDir, err := os.MkdirTemp("", "git-test-*")

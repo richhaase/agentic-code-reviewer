@@ -1,14 +1,3 @@
-// Package integration provides end-to-end tests for the acr binary using mock agent CLIs.
-//
-// These tests replace the BATS integration tests with Go tests that:
-//   - Use mock CLI scripts instead of real LLM backends (zero cost, fast, deterministic)
-//   - Test the full binary (build → exec → assert output + exit code)
-//   - Cover success paths, error paths, output format, and flag handling
-//
-// Mock agents return canned responses in the correct format for each agent type:
-//   - codex: JSONL event stream (--json mode)
-//   - claude: JSON wrapper with result field (--output-format json mode)
-//   - agy: plain review text and raw JSON summaries (--print mode)
 package integration
 
 import (
@@ -21,15 +10,13 @@ import (
 	"testing"
 )
 
-// testEnv holds paths and state for integration test execution.
 type testEnv struct {
-	acrBin   string // Path to built acr binary
-	mockDir  string // Directory containing mock CLI scripts
-	repoDir  string // Temporary git repo for test execution
-	origPath string // Original PATH to restore
+	acrBin   string
+	mockDir  string
+	repoDir  string
+	origPath string
 }
 
-// buildOnce ensures the acr binary is built exactly once across all tests.
 var (
 	buildOnce    sync.Once
 	builtAcrBin  string
@@ -41,7 +28,7 @@ func ensureBinary(t *testing.T) string {
 	t.Helper()
 	buildOnce.Do(func() {
 		builtAcrRoot = findRepoRoot(t)
-		// Use a stable path under the build dir so it persists across tests
+
 		builtAcrBin = filepath.Join(builtAcrRoot, "bin", "acr-test")
 		build := exec.Command("go", "build", "-o", builtAcrBin, "./cmd/acr")
 		build.Dir = builtAcrRoot
@@ -56,19 +43,16 @@ func ensureBinary(t *testing.T) string {
 	return builtAcrBin
 }
 
-// setupTestEnv builds the acr binary (once) and creates a temporary git repo with a diff.
 func setupTestEnv(t *testing.T) *testEnv {
 	t.Helper()
 
 	acrBin := ensureBinary(t)
 
-	// Create mock CLI directory
 	mockDir := filepath.Join(t.TempDir(), "mocks")
 	if err := os.MkdirAll(mockDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create temporary git repo with a diff
 	repoDir := createTestRepo(t)
 
 	return &testEnv{
@@ -79,11 +63,10 @@ func setupTestEnv(t *testing.T) *testEnv {
 	}
 }
 
-// withMockAgents prepends the mock directory to PATH so mock CLIs are found first.
 func (e *testEnv) withMockAgents() []string {
 	env := os.Environ()
 	newPath := e.mockDir + ":" + e.origPath
-	// Replace PATH in env slice
+
 	for i, v := range env {
 		if strings.HasPrefix(v, "PATH=") {
 			env[i] = "PATH=" + newPath
@@ -93,7 +76,6 @@ func (e *testEnv) withMockAgents() []string {
 	return append(env, "PATH="+newPath)
 }
 
-// run executes acr with the given args and returns stdout, stderr, and exit code.
 func (e *testEnv) run(args ...string) (stdout, stderr string, exitCode int) {
 	cmd := exec.Command(e.acrBin, args...)
 	cmd.Dir = e.repoDir
@@ -116,7 +98,6 @@ func (e *testEnv) run(args ...string) (stdout, stderr string, exitCode int) {
 	return outBuf.String(), errBuf.String(), exitCode
 }
 
-// findRepoRoot walks up to find the go.mod file.
 func findRepoRoot(t *testing.T) string {
 	t.Helper()
 	dir, err := os.Getwd()
@@ -135,7 +116,6 @@ func findRepoRoot(t *testing.T) string {
 	}
 }
 
-// createTestRepo creates a temporary git repo with a diff against HEAD~1.
 func createTestRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -153,7 +133,6 @@ func createTestRepo(t *testing.T) string {
 		}
 	}
 
-	// Initial commit
 	testFile := filepath.Join(dir, "main.go")
 	if err := os.WriteFile(testFile, []byte("package main\n\nfunc main() {}\n"), 0644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
@@ -169,7 +148,6 @@ func createTestRepo(t *testing.T) string {
 		}
 	}
 
-	// Second commit with a change (creates a diff)
 	if err := os.WriteFile(testFile, []byte("package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n"), 0644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
@@ -187,37 +165,28 @@ func createTestRepo(t *testing.T) string {
 	return dir
 }
 
-// --- Mock Agent Responses ---
-
-// codex reviewer returns plain text findings (one per line, streamed to stdout)
 const codexReviewerResponse = `**main.go:6**: Missing error handling for fmt.Println return value.
 **main.go:3**: Unused import "fmt" should be removed if not needed.
 `
 
-// codex summarizer returns JSONL event stream
 const codexSummarizerResponse = `{"type":"item.created","item":{"type":"agent_message","text":""}}
 {"type":"item.completed","item":{"type":"agent_message","text":"{\"findings\":[{\"title\":\"Missing error handling\",\"summary\":\"fmt.Println return value not checked\",\"messages\":[\"main.go:6: Missing error handling for fmt.Println return value.\"],\"reviewer_count\":1,\"sources\":[0]}],\"info\":[]}"}}`
 
-// claude reviewer returns plain text (from result field in JSON wrapper)
 const claudeReviewerResponse = `I found a potential issue:
 **main.go:6**: The return value of fmt.Println is not checked.
 `
 
-// claude summarizer response (JSON wrapper with result field)
 func claudeSummarizerJSON() string {
 	return `{"type":"result","result":"{\"findings\":[{\"title\":\"Unchecked return value\",\"summary\":\"fmt.Println return value ignored\",\"messages\":[\"main.go:6: Return value not checked\"],\"reviewer_count\":1,\"sources\":[0]}],\"info\":[]}"}`
 }
 
-// agy reviewer returns plain text
 const agyReviewerResponse = `- main.go:6: fmt.Println return value is not checked for errors.
 `
 
-// agy summarizer response is raw JSON
 func agySummarizerJSON() string {
 	return `{"findings":[{"title":"Unchecked Println","summary":"Return value ignored","messages":["main.go:6: unchecked"],"reviewer_count":1,"sources":[0]}],"info":[]}`
 }
 
-// LGTM responses (no findings)
 const codexLGTMReview = "The code looks good. No issues found."
 const claudeLGTMReview = "No issues found. The code is clean."
 const agyLGTMReview = "Code review complete. No problems detected."
@@ -232,16 +201,10 @@ func agyLGTMSummary() string {
 	return `{"findings":[],"info":[]}`
 }
 
-// --- Mock CLI Script Generators ---
-
-// writeMockCLI writes a shell script that returns canned responses.
-// The script examines its arguments to determine if it's being called as
-// a reviewer (--print without --output-format) or summarizer/fp-filter (--output-format json).
 func writeMockCodex(t *testing.T, dir string, reviewResponse, summaryResponse string) {
 	t.Helper()
-	// Codex uses --json for structured output (summarizer) vs no --json (reviewer)
+
 	script := fmt.Sprintf(`#!/bin/sh
-# Consume stdin to prevent broken pipe on large diffs
 cat /dev/stdin >/dev/null 2>&1
 
 has_json=false
@@ -265,7 +228,7 @@ fi
 
 func writeMockClaude(t *testing.T, dir string, reviewResponse, summaryResponse string) {
 	t.Helper()
-	// Claude uses --output-format json for structured output (summarizer) vs --print only (reviewer)
+
 	script := fmt.Sprintf(`#!/bin/sh
 has_json=false
 for arg in "$@"; do
@@ -316,11 +279,9 @@ func writeMock(t *testing.T, dir, name, script string) {
 	}
 }
 
-// Also mock gh CLI to prevent real GitHub API calls
 func writeMockGH(t *testing.T, dir string) {
 	t.Helper()
 	script := `#!/bin/sh
-# Mock gh - return empty/error for all commands
 exit 1
 `
 	writeMock(t, dir, "gh", script)
@@ -329,8 +290,6 @@ exit 1
 func escape(s string) string {
 	return strings.ReplaceAll(s, "'", "'\"'\"'")
 }
-
-// --- Tests ---
 
 func TestVersion(t *testing.T) {
 	env := setupTestEnv(t)
@@ -451,7 +410,7 @@ func TestCodexReview_LGTM(t *testing.T) {
 	if exitCode != 0 {
 		t.Errorf("exit code = %d, want 0 (LGTM)\nstderr: %s", exitCode, stderr)
 	}
-	// LGTM appears in stdout report or stderr status messages
+
 	combined := stdout + stderr
 	if !strings.Contains(combined, "LGTM") && !strings.Contains(combined, "skipping PR approval") {
 		t.Errorf("expected LGTM or approval message, got:\nstdout: %s\nstderr: %s", stdout, stderr)
@@ -552,7 +511,6 @@ func TestMixedAgents(t *testing.T) {
 	writeMockAgy(t, env.mockDir, agyReviewerResponse, agySummarizerJSON())
 	writeMockGH(t, env.mockDir)
 
-	// Use codex as summarizer since all mock agents are available
 	stdout, stderr, exitCode := env.run("--local", "--reviewers", "3",
 		"--reviewer-agent", "codex,claude,agy", "--summarizer-agent", "codex",
 		"--base", "HEAD~1", "--no-fp-filter")
@@ -567,7 +525,7 @@ func TestMixedAgents(t *testing.T) {
 
 func TestFPFilter_CodexAgent(t *testing.T) {
 	env := setupTestEnv(t)
-	// For FP filter, the summarizer agent is called twice: once for summarization, once for FP filter
+
 	writeMockCodex(t, env.mockDir, codexReviewerResponse, codexSummarizerResponse)
 	writeMockGH(t, env.mockDir)
 
@@ -575,15 +533,14 @@ func TestFPFilter_CodexAgent(t *testing.T) {
 		"--reviewer-agent", "codex", "--summarizer-agent", "codex",
 		"--base", "HEAD~1")
 
-	// Either 0 (all filtered) or 1 (some findings remain)
 	if exitCode != 0 && exitCode != 1 {
 		t.Errorf("exit code = %d, want 0 or 1\nstderr: %s", exitCode, stderr)
 	}
-	// Should not show FP filter skip warning
+
 	if strings.Contains(stderr, "FP filter skipped") {
 		t.Errorf("FP filter should not be skipped, stderr:\n%s", stderr)
 	}
-	// Verify the FP filter ran (output should contain report or LGTM)
+
 	combined := stdout + stderr
 	if !strings.Contains(combined, "finding") && !strings.Contains(combined, "LGTM") && !strings.Contains(combined, "skipping PR") {
 		t.Errorf("expected findings report or LGTM after FP filter, got:\nstdout: %s\nstderr: %s", stdout, stderr)
@@ -603,7 +560,6 @@ func TestOutputFormat_FindingsReport(t *testing.T) {
 		t.Fatalf("exit code = %d, want 1", exitCode)
 	}
 
-	// Verify report structure
 	if !strings.Contains(stdout, "finding") {
 		t.Error("report missing 'finding' count")
 	}
@@ -634,7 +590,6 @@ func TestOutputFormat_TimingSection(t *testing.T) {
 		t.Fatalf("exit code = %d, want 1 (findings)", exitCode)
 	}
 
-	// Verify timing section is present with expected fields
 	if !strings.Contains(stdout, "Timing:") {
 		t.Error("report missing Timing: section")
 	}
@@ -645,8 +600,6 @@ func TestOutputFormat_TimingSection(t *testing.T) {
 		t.Error("timing section missing total")
 	}
 }
-
-// --- Error Path Tests ---
 
 func TestInvalidAgentName(t *testing.T) {
 	env := setupTestEnv(t)
@@ -661,12 +614,10 @@ func TestInvalidAgentName(t *testing.T) {
 
 func TestMissingAgentCLI(t *testing.T) {
 	env := setupTestEnv(t)
-	// Create a dir with gh mock but no agent CLIs
-	// Prepend it to PATH so it shadows any real agent CLIs
+
 	noAgentDir := t.TempDir()
 	writeMockGH(t, noAgentDir)
 
-	// Write dummy scripts that shadow real agent CLIs but exit with "not found"
 	for _, name := range []string{"codex", "claude", "agy"} {
 		script := "#!/bin/sh\nexit 127\n"
 		if err := os.WriteFile(filepath.Join(noAgentDir, name), []byte(script), 0755); err != nil {
@@ -677,8 +628,7 @@ func TestMissingAgentCLI(t *testing.T) {
 	cmd := exec.Command(env.acrBin, "--local", "--reviewer-agent", "codex",
 		"--summarizer-agent", "codex", "--base", "HEAD~1")
 	cmd.Dir = env.repoDir
-	// Prepend noAgentDir to PATH (keeps system tools like git available)
-	// Replace PATH in env slice to avoid duplicate entries
+
 	sysEnv := os.Environ()
 	newPath := noAgentDir + ":" + env.origPath
 	for i, v := range sysEnv {
@@ -706,7 +656,6 @@ func TestEmptyDiff(t *testing.T) {
 	writeMockCodex(t, env.mockDir, codexReviewerResponse, codexSummarizerResponse)
 	writeMockGH(t, env.mockDir)
 
-	// HEAD~0 = no diff
 	_, stderr, exitCode := env.run("--local", "--reviewers", "1",
 		"--reviewer-agent", "codex", "--summarizer-agent", "codex",
 		"--base", "HEAD")
@@ -738,7 +687,6 @@ func TestGuidanceFile(t *testing.T) {
 	writeMockCodex(t, env.mockDir, codexReviewerResponse, codexSummarizerResponse)
 	writeMockGH(t, env.mockDir)
 
-	// Create a guidance file
 	guidanceFile := filepath.Join(env.repoDir, "guidance.md")
 	if err := os.WriteFile(guidanceFile, []byte("Focus on error handling issues."), 0644); err != nil {
 		t.Fatal(err)
@@ -748,7 +696,6 @@ func TestGuidanceFile(t *testing.T) {
 		"--reviewer-agent", "codex", "--summarizer-agent", "codex",
 		"--base", "HEAD~1", "--no-fp-filter", "--guidance-file", guidanceFile)
 
-	// Should succeed (0 or 1)
 	if exitCode != 0 && exitCode != 1 {
 		t.Errorf("exit code = %d, want 0 or 1\nstderr: %s", exitCode, stderr)
 	}
@@ -762,7 +709,6 @@ func TestNoFetchFlag(t *testing.T) {
 	writeMockCodex(t, env.mockDir, codexLGTMReview, codexLGTMSummary)
 	writeMockGH(t, env.mockDir)
 
-	// --no-fetch should work without a remote
 	_, stderr, exitCode := env.run("--local", "--no-fetch", "--reviewers", "1",
 		"--reviewer-agent", "codex", "--summarizer-agent", "codex",
 		"--base", "HEAD~1")

@@ -8,17 +8,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// RefFileSizeThreshold is the diff size (in bytes) above which we write to a
-// temp file instead of passing via stdin. This avoids ARG_MAX limits (~128KB
-// on macOS) and keeps prompts manageable for LLM context windows.
-// 100KB provides headroom below the limit while handling most typical diffs.
-// All supported agents (Antigravity, Claude, Codex, Gemini) have file system access and can
-// read files from the working directory when instructed via the prompt.
-const RefFileSizeThreshold = 100 * 1024 // 100KB
+const RefFileSizeThreshold = 100 * 1024
 
-// GetWorkDir returns the working directory to use for temp files.
-// If workDir is non-empty, returns it. Otherwise returns os.Getwd().
-// Returns an error if unable to determine the working directory.
 func GetWorkDir(workDir string) (string, error) {
 	if workDir != "" {
 		return workDir, nil
@@ -30,9 +21,6 @@ func GetWorkDir(workDir string) (string, error) {
 	return wd, nil
 }
 
-// WriteDiffToTempFile writes the diff content to a temporary file in the working directory.
-// Returns the absolute path to the temp file.
-// The caller is responsible for cleaning up the file (use CleanupTempFile).
 func WriteDiffToTempFile(workDir, diff string) (string, error) {
 	wd, err := GetWorkDir(workDir)
 	if err != nil {
@@ -46,7 +34,7 @@ func WriteDiffToTempFile(workDir, diff string) (string, error) {
 
 	absPath, err := filepath.Abs(tempPath)
 	if err != nil {
-		// Clean up the temp file since we can't return a valid path
+
 		if rmErr := os.Remove(tempPath); rmErr != nil && !os.IsNotExist(rmErr) {
 			fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s during error handling: %v\n", tempPath, rmErr)
 		}
@@ -56,12 +44,6 @@ func WriteDiffToTempFile(workDir, diff string) (string, error) {
 	return absPath, nil
 }
 
-// WriteInputToTempFile writes input content (e.g., summary input JSON) to a temporary file.
-// Returns the absolute path to the temp file.
-// If workDir is empty, uses the current working directory (same as WriteDiffToTempFile).
-// This ensures the file is accessible by sandboxed agent tools (e.g., Claude's Read tool).
-// The suffix is a human-readable label only; a UUID is appended to avoid collisions.
-// The caller is responsible for cleaning up the file (use CleanupTempFile).
 func WriteInputToTempFile(workDir string, input []byte, suffix string) (string, error) {
 	wd, err := GetWorkDir(workDir)
 	if err != nil {
@@ -75,7 +57,7 @@ func WriteInputToTempFile(workDir string, input []byte, suffix string) (string, 
 
 	absPath, err := filepath.Abs(tempPath)
 	if err != nil {
-		// Clean up the temp file since we can't return a valid path
+
 		if rmErr := os.Remove(tempPath); rmErr != nil && !os.IsNotExist(rmErr) {
 			fmt.Fprintf(os.Stderr, "Warning: failed to clean up temp file %s during error handling: %v\n", tempPath, rmErr)
 		}
@@ -85,8 +67,6 @@ func WriteInputToTempFile(workDir string, input []byte, suffix string) (string, 
 	return absPath, nil
 }
 
-// CleanupTempFile removes a temporary file. If removal fails, it logs a warning
-// but does not return an error since cleanup failures are non-fatal.
 func CleanupTempFile(path string) {
 	if path == "" {
 		return

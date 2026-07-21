@@ -5,25 +5,20 @@ import (
 	"runtime/debug"
 )
 
-// Version information - injected via ldflags at build time
 var (
 	version = "dev"
 	commit  = "none"
 	date    = "unknown"
 )
 
-// buildVersionString formats version information for display.
 func buildVersionString() string {
 	ver, rev, buildDate := getVersionInfo()
 	return fmt.Sprintf("acr %s (commit: %s, built: %s)", ver, rev, buildDate)
 }
 
-// getVersionInfo returns version information, falling back to debug.ReadBuildInfo()
-// for binaries installed via `go install`.
 func getVersionInfo() (ver, rev, buildDate string) {
 	ver, rev, buildDate = version, commit, date
 
-	// If version is still "dev", try to get info from build info (go install case)
 	if ver == "dev" {
 		if info, ok := debug.ReadBuildInfo(); ok {
 			if info.Main.Version != "" && info.Main.Version != "(devel)" {

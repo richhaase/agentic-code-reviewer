@@ -17,22 +17,17 @@ import (
 
 const maxDisplayedCIChecks = 5
 
-// prContext holds PR number and self-review status for GitHub operations.
 type prContext struct {
 	number       string
 	isSelfReview bool
-	err          error // non-nil if PR lookup failed (distinguishes auth errors from "no PR")
+	err          error
 }
 
-// getPRContext retrieves PR number and self-review status for the current branch.
-// If --pr flag was used, uses that PR number directly instead of looking it up.
 func getPRContext(ctx context.Context, opts ReviewOpts) prContext {
 	if opts.Local || !github.IsGHAvailable() {
 		return prContext{}
 	}
 
-	// If --pr flag was used, we already have the PR number
-	// This is important for detached worktrees where branch lookup would fail
 	if opts.PRNumber != "" {
 		return prContext{
 			number:       opts.PRNumber,
@@ -40,7 +35,6 @@ func getPRContext(ctx context.Context, opts ReviewOpts) prContext {
 		}
 	}
 
-	// Otherwise, look up PR from branch
 	foundPR, err := github.GetCurrentPRNumber(ctx, opts.WorktreeBranch)
 	if err != nil {
 		return prContext{err: err}
@@ -51,8 +45,6 @@ func getPRContext(ctx context.Context, opts ReviewOpts) prContext {
 	}
 }
 
-// checkPRAvailable verifies gh CLI is available and PR exists.
-// Returns error if gh CLI unavailable or auth failed, true if PR exists, false if no PR found.
 func checkPRAvailable(pr prContext, opts ReviewOpts, logger *terminal.Logger) (bool, error) {
 	if err := github.CheckGHAvailable(); err != nil {
 		return false, err
@@ -86,12 +78,8 @@ func checkPRAvailable(pr prContext, opts ReviewOpts, logger *terminal.Logger) (b
 	return true, nil
 }
 
-// stdinReader is a shared buffered reader for all interactive stdin prompts.
-// Using a single reader avoids data loss when multiple prompts read from stdin
-// in the same session.
 var stdinReader = bufio.NewReader(os.Stdin)
 
-// readUserInput reads a line from stdin, returning empty string on error.
 func readUserInput() string {
 	response, err := stdinReader.ReadString('\n')
 	if err != nil && len(strings.TrimSpace(response)) == 0 {
@@ -100,7 +88,6 @@ func readUserInput() string {
 	return strings.ToLower(strings.TrimSpace(response))
 }
 
-// promptOptionalMessage prompts for an optional reviewer note to prepend to the review.
 func promptOptionalMessage() string {
 	fmt.Print(formatPrompt("Add a note to the review?", "(press Enter to skip):"))
 	msg, err := stdinReader.ReadString('\n')
@@ -110,12 +97,10 @@ func promptOptionalMessage() string {
 	return strings.TrimSpace(msg)
 }
 
-// prependUserNote prepends a reviewer note to the review body.
 func prependUserNote(body, note string) string {
 	return fmt.Sprintf("**Reviewer's note:** %s\n\n---\n\n%s", note, body)
 }
 
-// formatPrompt creates a colored prompt string for user input.
 func formatPrompt(question, options string) string {
 	return fmt.Sprintf("%s?%s %s %s%s%s ",
 		terminal.Color(terminal.Cyan), terminal.Color(terminal.Reset),
@@ -123,13 +108,12 @@ func formatPrompt(question, options string) string {
 		terminal.Color(terminal.Dim), options, terminal.Color(terminal.Reset))
 }
 
-// formatPRRef creates a bold PR reference like "#123".
 func formatPRRef(prNumber string) string {
 	return fmt.Sprintf("%s#%s%s", terminal.Color(terminal.Bold), prNumber, terminal.Color(terminal.Reset))
 }
 
 func handleLGTM(ctx context.Context, opts ReviewOpts, allFindings []domain.Finding, aggregated []domain.AggregatedFinding, dispositions map[int]domain.Disposition, stats domain.ReviewStats, logger *terminal.Logger) domain.ExitCode {
-	// Build a text→aggregated index lookup for mapping raw findings to dispositions
+
 	textToIndex := make(map[string]int, len(aggregated))
 	for i, af := range aggregated {
 		textToIndex[af.Text] = i
@@ -164,7 +148,6 @@ func handleFindings(ctx context.Context, opts ReviewOpts, grouped domain.Grouped
 
 	selectedFindings := grouped.Findings
 
-	// Interactive selection when in TTY and not auto-submitting (skip in local mode)
 	if !opts.Local && !opts.AutoYes && terminal.IsStdoutTTY() {
 		indices, canceled, err := terminal.RunSelector(grouped.Findings)
 		if err != nil {
@@ -182,8 +165,7 @@ func handleFindings(ctx context.Context, opts ReviewOpts, grouped domain.Grouped
 
 			lgtmBody := runner.RenderDismissedLGTMMarkdown(grouped.Findings, stats, version)
 			pr := getPRContext(ctx, opts)
-			// Best-effort: LGTM posting is optional when dismissing findings.
-			// Auth/network errors should not fail the run.
+
 			_ = confirmAndSubmitLGTM(ctx, lgtmBody, pr, opts, logger)
 			return domain.ExitNoFindings
 		}
@@ -221,7 +203,7 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 	requestChanges := !pr.isSelfReview && !opts.ForcePostComment
 
 	if !opts.AutoYes {
-		// Check if stdin is a TTY before prompting to avoid hanging in CI
+
 		if !terminal.IsStdinTTY() {
 			logger.Log("Non-interactive mode without --yes flag; skipping PR review.", terminal.StyleDim)
 			return nil
@@ -289,7 +271,6 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 	return nil
 }
 
-// lgtmAction represents the action to take for an LGTM review.
 type lgtmAction int
 
 const (
@@ -337,7 +318,6 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 		}
 	}
 
-	// Check CI status before approving
 	if action == actionApprove {
 		var err error
 		action, err = checkCIAndMaybeDowngrade(ctx, pr.number, action, opts, logger)
@@ -374,7 +354,6 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 	return nil
 }
 
-// promptLGTMAction prompts the user for LGTM action choice.
 func promptLGTMAction(pr prContext) lgtmAction {
 	fmt.Println()
 	prRef := formatPRRef(pr.number)
@@ -451,7 +430,6 @@ func headMovedSinceReview(ctx context.Context, opts ReviewOpts, prNumber string,
 	return true
 }
 
-// logCIChecks logs a list of CI checks with truncation.
 func logCIChecks(logger *terminal.Logger, checks []string) {
 	for i, check := range checks {
 		if i >= maxDisplayedCIChecks {
@@ -462,8 +440,6 @@ func logCIChecks(logger *terminal.Logger, checks []string) {
 	}
 }
 
-// checkCIAndMaybeDowngrade checks CI status and downgrades to comment if CI is not green.
-// Returns error if CI status check fails (network/auth issues).
 func checkCIAndMaybeDowngrade(ctx context.Context, prNum string, action lgtmAction, opts ReviewOpts, logger *terminal.Logger) (lgtmAction, error) {
 	ciStatus := github.CheckCIStatus(ctx, prNum)
 
@@ -529,7 +505,6 @@ func checkCIAndMaybeDowngrade(ctx context.Context, prNum string, action lgtmActi
 	}
 }
 
-// executeLGTMAction executes the chosen LGTM action.
 func executeLGTMAction(ctx context.Context, action lgtmAction, prNumber, body string, logger *terminal.Logger) error {
 	switch action {
 	case actionApprove:

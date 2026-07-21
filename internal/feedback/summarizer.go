@@ -10,7 +10,6 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
-// Summarizer summarizes PR feedback for the FP filter.
 type Summarizer struct {
 	agentName string
 	model     string
@@ -18,8 +17,6 @@ type Summarizer struct {
 	logger    *terminal.Logger
 }
 
-// NewSummarizer creates a new PR feedback summarizer.
-// The model parameter overrides the agent's default model (empty = default).
 func NewSummarizer(agentName, model string, verbose bool, logger *terminal.Logger) *Summarizer {
 	return &Summarizer{
 		agentName: agentName,
@@ -29,13 +26,11 @@ func NewSummarizer(agentName, model string, verbose bool, logger *terminal.Logge
 	}
 }
 
-// Summarize fetches PR context and returns a structured summary of prior feedback.
 func (s *Summarizer) Summarize(ctx context.Context, prNumber string) (string, error) {
 	if prNumber == "" {
 		return "", fmt.Errorf("PR number is required")
 	}
 
-	// Fetch PR context
 	prCtx, err := FetchPRContext(ctx, prNumber)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch PR context: %w", err)
@@ -45,16 +40,13 @@ func (s *Summarizer) Summarize(ctx context.Context, prNumber string) (string, er
 		return "", nil
 	}
 
-	// Build input for the LLM
 	input := s.buildInput(prCtx)
 
-	// Create agent
 	ag, err := agent.NewAgentWithModel(s.agentName, s.model)
 	if err != nil {
 		return "", fmt.Errorf("failed to create agent: %w", err)
 	}
 
-	// Execute summary
 	execResult, err := ag.ExecuteSummary(ctx, summarizePrompt, []byte(input))
 	if err != nil {
 		if ctx.Err() != nil {
@@ -68,7 +60,6 @@ func (s *Summarizer) Summarize(ctx context.Context, prNumber string) (string, er
 		}
 	}()
 
-	// Read output
 	output, err := io.ReadAll(execResult)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -79,10 +70,8 @@ func (s *Summarizer) Summarize(ctx context.Context, prNumber string) (string, er
 
 	summary := strings.TrimSpace(string(output))
 
-	// Clean up markdown code fences if present
 	summary = agent.StripMarkdownCodeFence(summary)
 
-	// Check for "no feedback" response
 	if strings.Contains(strings.ToLower(summary), "no prior feedback") {
 		return "", nil
 	}

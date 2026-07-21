@@ -1,4 +1,3 @@
-// Package summarizer provides finding summarization via LLM.
 package summarizer
 
 import (
@@ -60,7 +59,6 @@ Rules:
 - Put non-actionable outcomes (e.g., "no diffs", "no changes to review") in "info".
 - If the input is empty, return: {"findings": [], "info": []}`
 
-// Result contains the output from the summarizer.
 type Result struct {
 	Grouped  domain.GroupedFindings
 	ExitCode int
@@ -69,17 +67,12 @@ type Result struct {
 	Duration time.Duration
 }
 
-// inputItem represents a single finding for the summarizer input payload.
 type inputItem struct {
 	ID        int    `json:"id"`
 	Text      string `json:"text"`
 	Reviewers []int  `json:"reviewers"`
 }
 
-// Summarize summarizes the aggregated findings using an LLM.
-// The agentName parameter specifies which agent to use for summarization.
-// The model parameter overrides the agent's default model (empty = default).
-// If verbose is true, non-fatal errors (like Close failures) are logged.
 func Summarize(ctx context.Context, agentName, model string, aggregated []domain.AggregatedFinding, verbose bool, logger *terminal.Logger) (*Result, error) {
 	start := time.Now()
 
@@ -90,13 +83,11 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 		}, nil
 	}
 
-	// Create agent
 	ag, err := agent.NewAgentWithModel(agentName, model)
 	if err != nil {
 		return nil, err
 	}
 
-	// Build input payload
 	items := make([]inputItem, len(aggregated))
 	for i, a := range aggregated {
 		items[i] = inputItem{
@@ -111,7 +102,6 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 		return nil, err
 	}
 
-	// Check if context is already canceled
 	if ctx.Err() != nil {
 		return &Result{
 			ExitCode: -1,
@@ -120,10 +110,9 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 		}, nil
 	}
 
-	// Execute summary via agent
 	execResult, err := ag.ExecuteSummary(ctx, groupPrompt, payload)
 	if err != nil {
-		// Handle context cancellation
+
 		if ctx.Err() != nil {
 			return &Result{
 				ExitCode: -1,
@@ -133,18 +122,16 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 		}
 		return nil, err
 	}
-	// Close errors are non-fatal; defer ensures cleanup on all exit paths.
-	// The explicit Close() below handles the primary close; this is a safety net.
+
 	defer func() {
 		if err := execResult.Close(); err != nil && verbose {
 			logger.Logf(terminal.StyleDim, "summarizer close error (non-fatal): %v", err)
 		}
 	}()
 
-	// Read all output
 	output, err := io.ReadAll(execResult)
 	if err != nil {
-		// Handle context cancellation
+
 		if ctx.Err() != nil {
 			return &Result{
 				ExitCode: -1,
@@ -155,8 +142,6 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 		return nil, err
 	}
 
-	// Close to get exit code and stderr (defer will be a no-op due to sync.Once).
-	// Close errors are non-fatal; they only occur on process cleanup issues.
 	if err := execResult.Close(); err != nil && verbose {
 		logger.Logf(terminal.StyleDim, "summarizer close error (non-fatal): %v", err)
 	}
@@ -184,13 +169,11 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 		}, nil
 	}
 
-	// Create parser for this agent's output format
 	parser, err := agent.NewSummaryParser(agentName)
 	if err != nil {
 		return nil, err
 	}
 
-	// Parse the output
 	grouped, err := parser.Parse(output)
 	if err != nil {
 		parseErr := "failed to parse summarizer output: " + err.Error()

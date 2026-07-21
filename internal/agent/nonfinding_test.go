@@ -7,7 +7,7 @@ func TestIsNonFindingText(t *testing.T) {
 		text     string
 		expected bool
 	}{
-		// Positive cases - should be detected as non-findings
+
 		{"No issues found", true},
 		{"No issues found in this code", true},
 		{"no findings to report", true},
@@ -20,7 +20,6 @@ func TestIsNonFindingText(t *testing.T) {
 		{"Review complete", true},
 		{"Review complete - no issues", true},
 
-		// Negative cases - should NOT be detected as non-findings
 		{"Bug: missing null check", false},
 		{"Error handling needed", false},
 		{"Consider adding validation", false},

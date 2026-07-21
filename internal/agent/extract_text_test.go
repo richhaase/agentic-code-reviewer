@@ -58,7 +58,7 @@ func TestClaudeSummaryParser_ExtractText(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   string
-		wantSub string // substring expected in output
+		wantSub string
 		wantErr bool
 	}{
 		{
@@ -157,7 +157,6 @@ func TestAntigravitySummaryParser_ExtractText(t *testing.T) {
 	}
 }
 
-// Verify Parse still works after refactor (regression test)
 func TestCodexSummaryParser_Parse_StillWorks(t *testing.T) {
 	input := `{"type":"item.completed","item":{"type":"agent_message","text":"{\"findings\":[{\"title\":\"test\",\"summary\":\"s\",\"messages\":[\"m\"],\"reviewer_count\":1,\"sources\":[0]}],\"info\":[]}"}}`
 

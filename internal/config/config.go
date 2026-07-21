@@ -1,4 +1,3 @@
-// Package config provides configuration file support for acr.
 package config
 
 import (
@@ -17,14 +16,10 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/git"
 )
 
-// ConfigFileName is the name of the config file.
 const ConfigFileName = ".acr.yaml"
 
-// Duration is a custom type that handles YAML duration parsing.
-// Supports both Go duration format ("5m", "300s") and numeric seconds.
 type Duration time.Duration
 
-// UnmarshalYAML implements the yaml.Unmarshaler interface.
 func (d *Duration) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	var raw interface{}
 	if err := unmarshal(&raw); err != nil {
@@ -48,7 +43,6 @@ func (d *Duration) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
-// Duration returns the underlying time.Duration.
 func (d Duration) AsDuration() time.Duration {
 	return time.Duration(d)
 }
@@ -86,24 +80,19 @@ type FPFilterConfig struct {
 	Threshold *int  `yaml:"threshold"`
 }
 
-// PRFeedbackConfig holds PR feedback summarization settings.
 type PRFeedbackConfig struct {
 	Enabled *bool   `yaml:"enabled"`
 	Agent   *string `yaml:"agent"`
 }
 
-// FilterConfig holds filter-related configuration.
 type FilterConfig struct {
 	ExcludePatterns []string `yaml:"exclude_patterns"`
 }
 
-// LoadWithWarnings reads .acr.yaml from the git repository root and returns warnings.
-// Returns an empty config (not error) if the file doesn't exist.
-// Returns an error if the file exists but is invalid YAML or contains invalid regex patterns.
 func LoadWithWarnings() (*LoadResult, error) {
 	repoRoot, err := git.GetRoot()
 	if err != nil {
-		// Not in a git repo - return empty config
+
 		return &LoadResult{Config: &Config{}}, nil
 	}
 
@@ -111,24 +100,17 @@ func LoadWithWarnings() (*LoadResult, error) {
 	return LoadFromPathWithWarnings(configPath)
 }
 
-// LoadFromDirWithWarnings reads .acr.yaml from the specified directory and returns warnings.
-// Returns an empty config (not error) if the file doesn't exist.
-// Returns an error if the file exists but is invalid YAML or contains invalid regex patterns.
 func LoadFromDirWithWarnings(dir string) (*LoadResult, error) {
 	configPath := filepath.Join(dir, ConfigFileName)
 	return LoadFromPathWithWarnings(configPath)
 }
 
-// LoadResult contains the loaded config and any warnings encountered.
 type LoadResult struct {
 	Config    *Config
-	ConfigDir string // Directory containing the config file (for resolving relative paths)
+	ConfigDir string
 	Warnings  []string
 }
 
-// LoadFromPathWithWarnings reads a config file and returns warnings for unknown keys.
-// Returns an empty config (not error) if the file doesn't exist.
-// Returns an error if the file exists but is invalid YAML or contains invalid regex patterns.
 func LoadFromPathWithWarnings(path string) (*LoadResult, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -138,7 +120,6 @@ func LoadFromPathWithWarnings(path string) (*LoadResult, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// Check for unknown keys using strict mode
 	warnings := checkUnknownKeys(data)
 
 	var cfg Config
@@ -146,13 +127,10 @@ func LoadFromPathWithWarnings(path string) (*LoadResult, error) {
 		return nil, fmt.Errorf("invalid %s: %w", ConfigFileName, err)
 	}
 
-	// Validate regex patterns
 	if err := cfg.validatePatterns(); err != nil {
 		return nil, err
 	}
 
-	// Check for deprecated fields before validation so warnings are reported
-	// even when the config has semantic errors
 	if cfg.ReviewerAgent != nil {
 		warnings = append(warnings, `"reviewer_agent" is deprecated, use "reviewer_agents" list instead`)
 		if len(cfg.ReviewerAgents) > 0 {
@@ -160,8 +138,6 @@ func LoadFromPathWithWarnings(path string) (*LoadResult, error) {
 		}
 	}
 
-	// Validate config values (return result with warnings even on error so callers
-	// can access the parsed config and unknown-key warnings)
 	if err := cfg.Validate(); err != nil {
 		return &LoadResult{Config: &cfg, ConfigDir: filepath.Dir(path), Warnings: warnings}, fmt.Errorf("%s: %w", ConfigFileName, err)
 	}
@@ -169,7 +145,6 @@ func LoadFromPathWithWarnings(path string) (*LoadResult, error) {
 	return &LoadResult{Config: &cfg, ConfigDir: filepath.Dir(path), Warnings: warnings}, nil
 }
 
-// validatePatterns checks that all exclude patterns are valid regex.
 func (c *Config) validatePatterns() error {
 	for _, pattern := range c.Filters.ExcludePatterns {
 		if _, err := regexp.Compile(pattern); err != nil {
@@ -187,21 +162,17 @@ var knownPRFeedbackKeys = []string{"enabled", "agent"}
 
 var knownWatchKeys = []string{"poll_interval", "settle_time", "max_reviews", "max_duration"}
 
-// knownFilterKeys are the valid keys under the "filters" section.
 var knownFilterKeys = []string{"exclude_patterns"}
 
-// checkUnknownKeys checks for unknown keys in the YAML data and returns warnings.
 func checkUnknownKeys(data []byte) []string {
 	var warnings []string
 
-	// Parse into a generic map to inspect keys
 	var raw map[string]any
 	if err := yaml.Unmarshal(data, &raw); err != nil {
-		// If we can't parse, let the main parser handle the error
+
 		return nil
 	}
 
-	// Check top-level keys
 	for key := range raw {
 		if !slices.Contains(knownTopLevelKeys, key) {
 			warning := fmt.Sprintf("unknown key %q in %s", key, ConfigFileName)
@@ -263,8 +234,6 @@ func checkUnknownKeys(data []byte) []string {
 	return warnings
 }
 
-// findSimilar finds the most similar string from candidates using Levenshtein distance.
-// Returns empty string if no candidate is similar enough (threshold: 3 edits).
 func findSimilar(input string, candidates []string) string {
 	const maxDistance = 3
 	bestMatch := ""
@@ -284,7 +253,6 @@ func findSimilar(input string, candidates []string) string {
 	return ""
 }
 
-// levenshtein calculates the Levenshtein distance between two strings.
 func levenshtein(a, b string) int {
 	ra, rb := []rune(a), []rune(b)
 
@@ -295,7 +263,6 @@ func levenshtein(a, b string) int {
 		return len(ra)
 	}
 
-	// Create matrix
 	matrix := make([][]int, len(ra)+1)
 	for i := range matrix {
 		matrix[i] = make([]int, len(rb)+1)
@@ -305,7 +272,6 @@ func levenshtein(a, b string) int {
 		matrix[0][j] = j
 	}
 
-	// Fill matrix
 	for i := 1; i <= len(ra); i++ {
 		for j := 1; j <= len(rb); j++ {
 			cost := 1
@@ -313,9 +279,9 @@ func levenshtein(a, b string) int {
 				cost = 0
 			}
 			matrix[i][j] = min(
-				matrix[i-1][j]+1,      // deletion
-				matrix[i][j-1]+1,      // insertion
-				matrix[i-1][j-1]+cost, // substitution
+				matrix[i-1][j]+1,
+				matrix[i][j-1]+1,
+				matrix[i-1][j-1]+cost,
 			)
 		}
 	}
@@ -323,9 +289,6 @@ func levenshtein(a, b string) int {
 	return matrix[len(ra)][len(rb)]
 }
 
-// parseCommaSeparated splits a comma-separated string into a slice of trimmed strings.
-// Returns nil if no non-empty parts are found, so callers can distinguish
-// "not set" from "set but empty".
 func parseCommaSeparated(input string) []string {
 	parts := strings.Split(input, ",")
 	result := make([]string, 0, len(parts))
@@ -341,8 +304,6 @@ func parseCommaSeparated(input string) []string {
 	return result
 }
 
-// Merge combines config file patterns with CLI patterns.
-// CLI patterns are appended after config patterns (both are applied).
 func Merge(cfg *Config, cliPatterns []string) []string {
 	if cfg == nil {
 		return cliPatterns
@@ -350,9 +311,6 @@ func Merge(cfg *Config, cliPatterns []string) []string {
 	return append(cfg.Filters.ExcludePatterns, cliPatterns...)
 }
 
-// Validate checks that all config file values are semantically valid.
-// Delegates to ResolvedConfig.ValidateAll() by resolving config-only values against defaults,
-// so validation rules are defined in one place.
 func (c *Config) Validate() error {
 	resolved := Resolve(c, EnvState{}, FlagState{}, Defaults)
 	errs := resolved.ValidateAll()
@@ -362,8 +320,6 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// ValidateAll checks that all resolved config values are semantically valid.
-// Returns individual error strings so callers can count and report them accurately.
 func (r *ResolvedConfig) ValidateAll() []string {
 	var errs []string
 	if r.Reviewers < 1 {
@@ -416,8 +372,6 @@ func (r *ResolvedConfig) ValidateAll() []string {
 	return errs
 }
 
-// Validate checks that all resolved config values are semantically valid.
-// Returns a single error summarizing all issues, or nil if valid.
 func (r *ResolvedConfig) Validate() error {
 	errs := r.ValidateAll()
 	if len(errs) == 0 {
@@ -440,7 +394,7 @@ var Defaults = ResolvedConfig{
 	FPFilterEnabled:   true,
 	FPThreshold:       75,
 	PRFeedbackEnabled: true,
-	PRFeedbackAgent:   "", // empty means use summarizer agent
+	PRFeedbackAgent:   "",
 	WatchPollInterval: time.Minute,
 	WatchSettleTime:   10 * time.Minute,
 	WatchMaxReviews:   10,
@@ -537,8 +491,6 @@ type EnvState struct {
 	PRFeedbackAgentSet   bool
 }
 
-// LoadEnvState reads environment variables and returns their state.
-// Returns warnings for any environment variables that are set but have invalid values.
 func LoadEnvState() (EnvState, []string) {
 	var state EnvState
 	var warnings []string
@@ -688,12 +640,9 @@ func LoadEnvState() (EnvState, []string) {
 	return state, warnings
 }
 
-// Resolve merges config file values with env vars and flags.
-// Precedence: flags > env vars > config file > defaults
 func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues ResolvedConfig) ResolvedConfig {
 	result := Defaults
 
-	// Apply config file values (if set)
 	if cfg != nil {
 		if cfg.Reviewers != nil {
 			result.Reviewers = *cfg.Reviewers
@@ -713,7 +662,7 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 		if cfg.Fetch != nil {
 			result.Fetch = *cfg.Fetch
 		}
-		// reviewer_agents array takes precedence over reviewer_agent scalar
+
 		if len(cfg.ReviewerAgents) > 0 {
 			result.ReviewerAgents = cfg.ReviewerAgents
 		} else if cfg.ReviewerAgent != nil {
@@ -760,7 +709,6 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 		}
 	}
 
-	// Apply env var values (if set)
 	if envState.ReviewersSet {
 		result.Reviewers = envState.Reviewers
 	}
@@ -874,16 +822,6 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	return result
 }
 
-// ResolveGuidance resolves the review guidance with custom precedence logic.
-// Guidance is steering context appended to the built-in prompt, not a replacement.
-//
-// Precedence (highest to lowest):
-// 1. --guidance flag
-// 2. --guidance-file flag
-// 3. ACR_GUIDANCE env var
-// 4. ACR_GUIDANCE_FILE env var
-// 5. guidance_file config field
-// 6. Empty string (no guidance)
 func ResolveGuidance(cfg *Config, envState EnvState, flagState FlagState, flagValues ResolvedConfig, configDir string) (string, error) {
 	if flagState.GuidanceSet && flagValues.Guidance != "" {
 		return flagValues.Guidance, nil

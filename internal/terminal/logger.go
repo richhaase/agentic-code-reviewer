@@ -5,7 +5,6 @@ import (
 	"os"
 )
 
-// Style represents a log message style.
 type Style string
 
 const (
@@ -17,22 +16,18 @@ const (
 	StylePhase   Style = "phase"
 )
 
-// clearLine is the ANSI escape sequence to clear the entire line.
 const clearLine = "\033[2K"
 
-// Logger provides styled logging to stderr.
 type Logger struct {
 	isTTY bool
 }
 
-// NewLogger creates a new logger.
 func NewLogger() *Logger {
 	return &Logger{
 		isTTY: IsStderrTTY(),
 	}
 }
 
-// Log prints a styled log message to stderr.
 func (l *Logger) Log(msg string, style Style) {
 	styleColor := Cyan
 	symbol := "I"
@@ -57,7 +52,6 @@ func (l *Logger) Log(msg string, style Style) {
 		symbol = "▸"
 	}
 
-	// Clear line if TTY (to overwrite any spinner output)
 	if l.isTTY {
 		fmt.Fprint(os.Stderr, clearLine+"\r")
 	}
@@ -67,7 +61,6 @@ func (l *Logger) Log(msg string, style Style) {
 	fmt.Fprintf(os.Stderr, "%s %s\n", tag, msg)
 }
 
-// Logf prints a formatted styled log message to stderr.
 func (l *Logger) Logf(style Style, format string, args ...any) {
 	l.Log(fmt.Sprintf(format, args...), style)
 }

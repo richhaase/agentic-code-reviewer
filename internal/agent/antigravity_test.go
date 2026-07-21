@@ -218,7 +218,7 @@ func TestAntigravityAgent_ExecuteReview_RefFileMode(t *testing.T) {
 	initTestRepo(t, tmpDir)
 
 	testFile := filepath.Join(tmpDir, "test.go")
-	bigContent := strings.Repeat("// line of code\n", RefFileSizeThreshold/16+1)
+	bigContent := strings.Repeat("var value = 1\n", RefFileSizeThreshold/14+1)
 	if err := os.WriteFile(testFile, []byte(bigContent), 0644); err != nil {
 		t.Fatal(err)
 	}

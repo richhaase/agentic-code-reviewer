@@ -15,7 +15,6 @@ func TestAddRemote_Success(t *testing.T) {
 		t.Fatalf("AddRemote failed: %v", err)
 	}
 
-	// Verify remote was added
 	cmd := exec.Command("git", "remote", "-v")
 	cmd.Dir = repoDir
 	out, err := cmd.Output()
@@ -30,13 +29,11 @@ func TestAddRemote_Success(t *testing.T) {
 func TestAddRemote_AlreadyExists(t *testing.T) {
 	repoDir := setupTestRepo(t)
 
-	// Add remote first time
 	err := AddRemote(repoDir, "fork-testuser", "https://github.com/testuser/repo.git")
 	if err != nil {
 		t.Fatalf("first AddRemote failed: %v", err)
 	}
 
-	// Add same remote again should fail
 	err = AddRemote(repoDir, "fork-testuser", "https://github.com/testuser/repo.git")
 	if err == nil {
 		t.Error("expected error when adding duplicate remote")
@@ -46,19 +43,16 @@ func TestAddRemote_AlreadyExists(t *testing.T) {
 func TestRemoveRemote_Success(t *testing.T) {
 	repoDir := setupTestRepo(t)
 
-	// Add remote first
 	err := AddRemote(repoDir, "fork-testuser", "https://github.com/testuser/repo.git")
 	if err != nil {
 		t.Fatalf("AddRemote failed: %v", err)
 	}
 
-	// Remove it
 	err = RemoveRemote(repoDir, "fork-testuser")
 	if err != nil {
 		t.Fatalf("RemoveRemote failed: %v", err)
 	}
 
-	// Verify remote was removed
 	cmd := exec.Command("git", "remote", "-v")
 	cmd.Dir = repoDir
 	out, _ := cmd.Output()
@@ -70,7 +64,6 @@ func TestRemoveRemote_Success(t *testing.T) {
 func TestRemoveRemote_NotExists(t *testing.T) {
 	repoDir := setupTestRepo(t)
 
-	// Remove non-existent remote should fail
 	err := RemoveRemote(repoDir, "nonexistent-remote")
 	if err == nil {
 		t.Error("expected error when removing non-existent remote")
