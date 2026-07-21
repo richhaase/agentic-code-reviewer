@@ -12,18 +12,26 @@ import (
 var ErrPathNotFoundAtRevision = errors.New("path not found at revision")
 
 func RemoteExists(ctx context.Context, repoRoot, remote string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "git", "remote")
-	cmd.Dir = repoRoot
-	out, err := cmd.Output()
+	remotes, err := Remotes(ctx, repoRoot)
 	if err != nil {
-		return false, fmt.Errorf("failed to list git remotes: %w", err)
+		return false, err
 	}
-	for _, name := range strings.Fields(string(out)) {
+	for _, name := range remotes {
 		if name == remote {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+func Remotes(ctx context.Context, repoRoot string) ([]string, error) {
+	cmd := exec.CommandContext(ctx, "git", "remote")
+	cmd.Dir = repoRoot
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list git remotes: %w", err)
+	}
+	return strings.Fields(string(out)), nil
 }
 
 func RefExists(ctx context.Context, repoRoot, ref string) (bool, error) {
@@ -76,11 +84,16 @@ func ResolveCommit(ctx context.Context, repoRoot, ref string) (string, error) {
 	if strings.TrimSpace(ref) == "" || strings.HasPrefix(ref, "-") {
 		return "", fmt.Errorf("trusted ref %q is invalid", ref)
 	}
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--verify", ref+"^{commit}")
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--verify", "--end-of-options", ref+"^{commit}")
 	cmd.Dir = repoRoot
-	out, err := cmd.CombinedOutput()
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		message := strings.TrimSpace(string(out))
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		message := strings.TrimSpace(stderr.String())
 		if message != "" {
 			return "", fmt.Errorf("failed to resolve trusted ref %q (%s): %w", ref, message, err)
 		}

@@ -391,7 +391,7 @@ func loadAndResolveConfig(ctx context.Context, cmd *cobra.Command, wt worktreeRe
 
 	if wt.prRemote != "" && git.ShouldQualifyBaseRef(resolved.Base, wt.baseAutoDetected) {
 
-		if err := git.FetchBaseRef(wt.prRepoRoot, wt.prRemote, resolved.Base); err != nil {
+		if err := git.FetchBaseRef(ctx, wt.prRepoRoot, wt.prRemote, resolved.Base); err != nil {
 			logger.Logf(terminal.StyleWarning, "Could not fetch base ref: %v", err)
 
 		} else {

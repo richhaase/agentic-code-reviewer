@@ -1,6 +1,8 @@
 package git
 
 import (
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -370,7 +372,7 @@ func TestFetchBaseRef_CommandFormat(t *testing.T) {
 	}
 	defer os.Chdir(origDir)
 
-	err = FetchBaseRef(repoDir, "origin", "main")
+	err = FetchBaseRef(context.Background(), repoDir, "origin", "main")
 
 	if err == nil {
 		t.Error("expected error when fetching from non-existent remote")
@@ -394,7 +396,7 @@ func TestFetchBaseRef_UsesRemoteParameter(t *testing.T) {
 	}
 	defer os.Chdir(origDir)
 
-	err = FetchBaseRef(repoDir, "upstream", "develop")
+	err = FetchBaseRef(context.Background(), repoDir, "upstream", "develop")
 
 	if err == nil {
 		t.Error("expected error when fetching from non-existent remote")
@@ -403,6 +405,66 @@ func TestFetchBaseRef_UsesRemoteParameter(t *testing.T) {
 	if !strings.Contains(err.Error(), "develop") {
 		t.Errorf("expected error to mention 'develop', got: %v", err)
 	}
+}
+
+func TestFetchBaseRefHonorsCancellation(t *testing.T) {
+	repoDir := setupTestRepo(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := FetchBaseRef(ctx, repoDir, "origin", "main")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("FetchBaseRef() error = %v", err)
+	}
+}
+
+func TestFetchBaseRefAcceptsForcedRemoteUpdate(t *testing.T) {
+	seedRoot := setupTestRepo(t)
+	runWorktreeGit(t, seedRoot, "branch", "-M", "main")
+	initialRevision := strings.TrimSpace(runWorktreeGit(t, seedRoot, "rev-parse", "HEAD"))
+	remoteRoot := filepath.Join(t.TempDir(), "origin.git")
+	workingRoot := filepath.Join(t.TempDir(), "working")
+	runWorktreeGit(t, t.TempDir(), "clone", "--bare", seedRoot, remoteRoot)
+	runWorktreeGit(t, t.TempDir(), "clone", remoteRoot, workingRoot)
+	runWorktreeGit(t, seedRoot, "remote", "add", "origin", remoteRoot)
+
+	if err := os.WriteFile(filepath.Join(seedRoot, "test.txt"), []byte("second"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runWorktreeGit(t, seedRoot, "add", "test.txt")
+	runWorktreeGit(t, seedRoot, "commit", "-m", "second")
+	runWorktreeGit(t, seedRoot, "push", "origin", "main")
+	if err := FetchBaseRef(context.Background(), workingRoot, "origin", "main"); err != nil {
+		t.Fatal(err)
+	}
+
+	runWorktreeGit(t, seedRoot, "reset", "--hard", initialRevision)
+	if err := os.WriteFile(filepath.Join(seedRoot, "test.txt"), []byte("replacement"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runWorktreeGit(t, seedRoot, "add", "test.txt")
+	runWorktreeGit(t, seedRoot, "commit", "-m", "replacement")
+	runWorktreeGit(t, seedRoot, "push", "--force", "origin", "main")
+
+	if err := FetchBaseRef(context.Background(), workingRoot, "origin", "main"); err != nil {
+		t.Fatal(err)
+	}
+	want := strings.TrimSpace(runWorktreeGit(t, seedRoot, "rev-parse", "HEAD"))
+	got := strings.TrimSpace(runWorktreeGit(t, workingRoot, "rev-parse", "refs/remotes/origin/main"))
+	if got != want {
+		t.Fatalf("remote-tracking revision = %s, want %s", got, want)
+	}
+}
+
+func runWorktreeGit(t *testing.T, directory string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = directory
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, out)
+	}
+	return string(out)
 }
 
 func TestQualifyBaseRef_AddsRemote(t *testing.T) {

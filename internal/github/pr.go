@@ -80,11 +80,19 @@ func ValidatePR(ctx context.Context, prNumber string) error {
 }
 
 func GetRepoRemote(ctx context.Context) string {
-
-	cmd := exec.CommandContext(ctx, "gh", "repo", "view", "--json", "url,sshUrl")
-	out, err := cmd.Output()
+	remote, err := FindRepoRemote(ctx, "")
 	if err != nil {
 		return "origin"
+	}
+	return remote
+}
+
+func FindRepoRemote(ctx context.Context, repositoryRoot string) (string, error) {
+	cmd := exec.CommandContext(ctx, "gh", "repo", "view", "--json", "url,sshUrl")
+	cmd.Dir = repositoryRoot
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to identify repository through gh: %w", err)
 	}
 
 	var repoInfo struct {
@@ -92,13 +100,14 @@ func GetRepoRemote(ctx context.Context) string {
 		SSHUrl string `json:"sshUrl"`
 	}
 	if err := json.Unmarshal(out, &repoInfo); err != nil {
-		return "origin"
+		return "", fmt.Errorf("failed to parse repository identity: %w", err)
 	}
 
 	remoteCmd := exec.CommandContext(ctx, "git", "remote", "-v")
+	remoteCmd.Dir = repositoryRoot
 	remoteOut, err := remoteCmd.Output()
 	if err != nil {
-		return "origin"
+		return "", fmt.Errorf("failed to list repository remotes: %w", err)
 	}
 
 	lines := strings.Split(string(remoteOut), "\n")
@@ -111,11 +120,11 @@ func GetRepoRemote(ctx context.Context) string {
 		remoteURL := fields[1]
 
 		if urlMatches(remoteURL, repoInfo.URL) || urlMatches(remoteURL, repoInfo.SSHUrl) {
-			return remoteName
+			return remoteName, nil
 		}
 	}
 
-	return "origin"
+	return "", fmt.Errorf("no configured remote matches the GitHub repository")
 }
 
 func urlMatches(url1, url2 string) bool {

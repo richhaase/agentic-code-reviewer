@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -187,16 +188,19 @@ func CreateWorktree(branch string) (*Worktree, error) {
 	}, nil
 }
 
-func FetchBaseRef(repoRoot, remote, baseRef string) error {
+func FetchBaseRef(ctx context.Context, repoRoot, remote, baseRef string) error {
 
 	if strings.HasPrefix(baseRef, remote+"/") {
 		return nil
 	}
 
-	refSpec := fmt.Sprintf("refs/heads/%s:refs/remotes/%s/%s", baseRef, remote, baseRef)
-	cmd := exec.Command("git", "fetch", remote, refSpec)
+	refSpec := fmt.Sprintf("+refs/heads/%s:refs/remotes/%s/%s", baseRef, remote, baseRef)
+	cmd := exec.CommandContext(ctx, "git", "fetch", remote, refSpec)
 	cmd.Dir = repoRoot
 	if out, err := cmd.CombinedOutput(); err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("failed to fetch base ref '%s': %w", baseRef, ctx.Err())
+		}
 		output := strings.TrimSpace(string(out))
 		if output != "" {
 			return fmt.Errorf("failed to fetch base ref '%s' (%s): %w", baseRef, output, err)

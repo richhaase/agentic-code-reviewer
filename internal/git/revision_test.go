@@ -18,6 +18,25 @@ func TestResolveCommitRejectsUnsafeRefs(t *testing.T) {
 	}
 }
 
+func TestResolveCommitIgnoresSuccessfulStderr(t *testing.T) {
+	repositoryRoot := setupTestRepo(t)
+	for _, args := range [][]string{{"branch", "ambiguous"}, {"tag", "ambiguous"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repositoryRoot
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
+	}
+
+	revision, err := ResolveCommit(context.Background(), repositoryRoot, "ambiguous")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isObjectID(revision) {
+		t.Fatalf("ResolveCommit() = %q", revision)
+	}
+}
+
 func TestReadFileAtCommitUsesImmutableObjectID(t *testing.T) {
 	ctx := context.Background()
 	repositoryRoot := setupTestRepo(t)

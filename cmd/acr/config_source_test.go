@@ -10,7 +10,7 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/config"
 )
 
-func TestResolveTrustedReviewConfigSourceUsesRemoteDefaultBranch(t *testing.T) {
+func TestResolveTrustedReviewConfigSourceUsesSoleConfiguredRemoteDefaultBranch(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	originRoot := filepath.Join(root, "origin.git")
@@ -28,6 +28,7 @@ func TestResolveTrustedReviewConfigSourceUsesRemoteDefaultBranch(t *testing.T) {
 	runConfigSourceGit(t, seedRoot, "commit", "-m", "trusted")
 	runConfigSourceGit(t, root, "clone", "--bare", seedRoot, originRoot)
 	runConfigSourceGit(t, root, "clone", originRoot, workingRoot)
+	runConfigSourceGit(t, workingRoot, "remote", "rename", "origin", "upstream")
 	runConfigSourceGit(t, workingRoot, "checkout", "-b", "incoming")
 	writeReviewConfigSourceFile(t, workingRoot, config.ConfigFileName, "reviewers: [broken\n")
 	writeReviewConfigSourceFile(t, workingRoot, "guidance/review.md", "target guidance")
@@ -60,7 +61,7 @@ func TestResolveTrustedReviewConfigSourceUsesRemoteDefaultBranch(t *testing.T) {
 	if guidance != "trusted guidance" {
 		t.Fatalf("guidance = %q", guidance)
 	}
-	if result.Source.Ref != "origin/main" {
+	if result.Source.Ref != "upstream/main" {
 		t.Fatalf("source ref = %q", result.Source.Ref)
 	}
 }

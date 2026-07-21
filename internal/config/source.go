@@ -127,7 +127,7 @@ func ResolveTrustedSource(ctx context.Context, request TrustedSourceRequest) (So
 }
 
 func resolveRemoteBranchSource(ctx context.Context, repositoryRoot, remote, branch string) (Source, error) {
-	if err := gitpkg.FetchBaseRef(repositoryRoot, remote, branch); err != nil {
+	if err := gitpkg.FetchBaseRef(ctx, repositoryRoot, remote, branch); err != nil {
 		return nil, fmt.Errorf("failed to refresh trusted review configuration: %w", err)
 	}
 	ref := gitpkg.QualifyBaseRef(remote, branch)
