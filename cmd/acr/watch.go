@@ -122,7 +122,12 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 
 	prNumber = watchPR
 
-	cfgResult, err := loadAndResolveConfig(cmd, worktreeResult{}, logger)
+	configSource, err := resolveTrustedReviewConfigSource(ctx, noConfig)
+	if err != nil {
+		logger.Logf(terminal.StyleError, "%v", err)
+		return exitCode(domain.ExitError)
+	}
+	cfgResult, err := loadAndResolveConfig(ctx, cmd, worktreeResult{}, configSource, logger)
 	if err != nil {
 		return err
 	}
@@ -190,6 +195,10 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 }
 
 func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode watch.PostMode, logger *terminal.Logger) (watch.Cycle, error) {
+	configSource, err := resolveTrustedReviewConfigSource(ctx, noConfig)
+	if err != nil {
+		return watch.Cycle{Result: watch.CycleError}, err
+	}
 	wt, err := setupWorktree(ctx, cmd, logger)
 	if err != nil {
 		return watch.Cycle{Result: watch.CycleError}, err
@@ -208,9 +217,7 @@ func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode
 		}
 	}
 
-	cfgSource := wt
-	cfgSource.workDir = ""
-	cfgResult, err := loadAndResolveConfig(cmd, cfgSource, logger)
+	cfgResult, err := loadAndResolveConfig(ctx, cmd, wt, configSource, logger)
 	if err != nil {
 		return watch.Cycle{Result: watch.CycleError}, err
 	}

@@ -117,7 +117,7 @@ func registerSharedReviewFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&fetch, "fetch", true,
 		"Fetch latest base ref from origin before diff (default: true, env: ACR_FETCH)")
 	cmd.Flags().BoolVar(&noFetch, "no-fetch", false,
-		"Disable fetching base ref from origin (use local state)")
+		"Disable fetching the review base ref; trusted config refresh still runs")
 	cmd.Flags().StringVar(&guidance, "guidance", "",
 		"Steering context appended to the review prompt (env: ACR_GUIDANCE)")
 	cmd.Flags().StringVar(&guidanceFile, "guidance-file", "",
@@ -130,7 +130,7 @@ func registerSharedReviewFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArrayVar(&excludePatterns, "exclude-pattern", nil,
 		"Exclude findings matching regex pattern (repeatable)")
 	cmd.Flags().BoolVar(&noConfig, "no-config", false,
-		"Skip loading .acr.yaml config file")
+		"Disable trusted repository .acr.yaml for this review")
 	cmd.Flags().StringVarP(&agentName, "reviewer-agent", "a", "codex",
 		"Agent(s) for reviews (comma-separated): agy, codex, claude, gemini (env: ACR_REVIEWER_AGENT)")
 	cmd.Flags().StringVarP(&summarizerAgentName, "summarizer-agent", "s", "codex",
@@ -298,30 +298,30 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 type configResult struct {
 	resolved        config.ResolvedConfig
 	excludePatterns []string
+	source          config.SourceIdentity
 }
 
-func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *terminal.Logger) (configResult, error) {
+func loadAndResolveConfig(ctx context.Context, cmd *cobra.Command, wt worktreeResult, source config.Source, logger *terminal.Logger) (configResult, error) {
 
 	var cfg *config.Config
-	var configDir string
-	if !noConfig {
-		var result *config.LoadResult
-		var err error
-		if wt.workDir != "" {
-			result, err = config.LoadFromDirWithWarnings(wt.workDir)
-		} else {
-			result, err = config.LoadWithWarnings()
-		}
-		if err != nil {
-			logger.Logf(terminal.StyleError, "Config error: %v", err)
-			return configResult{}, exitCode(domain.ExitError)
-		}
-		cfg = result.Config
-		configDir = result.ConfigDir
+	var loadResult *config.LoadResult
+	if source == nil {
+		logger.Log("Config error: no trusted review configuration source was selected", terminal.StyleError)
+		return configResult{}, exitCode(domain.ExitError)
+	}
+	loaded, err := source.LoadWithWarnings(ctx)
+	if err != nil {
+		logger.Logf(terminal.StyleError, "Config error: %v", err)
+		return configResult{}, exitCode(domain.ExitError)
+	}
+	loadResult = loaded
+	cfg = loaded.Config
 
-		for _, warning := range result.Warnings {
-			logger.Logf(terminal.StyleWarning, "Warning: %s", warning)
-		}
+	for _, warning := range loaded.Warnings {
+		logger.Logf(terminal.StyleWarning, "Warning: %s", warning)
+	}
+	if verbose {
+		logger.Logf(terminal.StyleDim, "Review configuration source: %s %s %s", loaded.Source.Kind, loaded.Source.Ref, loaded.Source.Revision)
 	}
 
 	fetchFlagSet := cmd.Flags().Changed("fetch") || cmd.Flags().Changed("no-fetch")
@@ -414,17 +414,19 @@ func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *termina
 
 	allExcludePatterns := config.Merge(cfg, excludePatterns)
 
-	resolvedGuidance, err := config.ResolveGuidance(cfg, envState, flagState, flagValues, configDir)
+	resolvedGuidance, err := config.ResolveGuidanceFromLoadResult(ctx, loadResult, envState, flagState, flagValues)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Failed to resolve guidance: %v", err)
 		return configResult{}, exitCode(domain.ExitError)
 	}
 	resolved.Guidance = resolvedGuidance
 
-	return configResult{
+	result := configResult{
 		resolved:        resolved,
 		excludePatterns: allExcludePatterns,
-	}, nil
+	}
+	result.source = loadResult.Source
+	return result, nil
 }
 
 func runReview(cmd *cobra.Command, _ []string) error {
@@ -451,6 +453,12 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		cancel()
 	}()
 
+	configSource, err := resolveTrustedReviewConfigSource(ctx, noConfig)
+	if err != nil {
+		logger.Logf(terminal.StyleError, "%v", err)
+		return exitCode(domain.ExitError)
+	}
+
 	wt, err := setupWorktree(ctx, cmd, logger)
 	if err != nil {
 		return err
@@ -459,7 +467,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		defer wt.cleanup()
 	}
 
-	cfgResult, err := loadAndResolveConfig(cmd, wt, logger)
+	cfgResult, err := loadAndResolveConfig(ctx, cmd, wt, configSource, logger)
 	if err != nil {
 		return err
 	}

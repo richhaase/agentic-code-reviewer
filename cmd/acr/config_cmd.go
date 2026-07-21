@@ -30,8 +30,8 @@ func newConfigCmd() *cobra.Command {
 func newConfigShowCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "show",
-		Short: "Display resolved configuration",
-		Long:  "Show the fully resolved configuration from defaults, config file, and environment variables.",
+		Short: "Display resolved working-checkout configuration",
+		Long:  "Show configuration-management state from defaults, the working checkout, and environment variables. Review commands independently snapshot canonical-branch configuration.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := config.LoadWithWarnings()
 			if err != nil {
@@ -42,7 +42,7 @@ func newConfigShowCmd() *cobra.Command {
 
 			resolved := config.Resolve(result.Config, envState, config.FlagState{}, config.Defaults)
 
-			fmt.Println("Resolved configuration:")
+			fmt.Println("Resolved working-checkout configuration:")
 			fmt.Println()
 			fmt.Printf("  %-22s %d\n", "reviewers:", resolved.Reviewers)
 			fmt.Printf("  %-22s %d\n", "concurrency:", resolved.Concurrency)
