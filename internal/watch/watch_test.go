@@ -533,6 +533,31 @@ func TestRetryablePreparationFailureSettlesChangedHead(t *testing.T) {
 	}
 }
 
+func TestRetryablePreparationFailuresResetWhenHeadChanges(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa"), open("bbb")}
+	deps := h.deps()
+	attempts := 0
+	deps.RunCycle = func(_ context.Context, _ int, trigger string) (Cycle, error) {
+		attempts++
+		h.triggers = append(h.triggers, trigger)
+		if attempts <= maxConsecutivePollErrors {
+			return Cycle{Result: CycleError}, fmt.Errorf("%w: network unavailable", ErrRetryableCycle)
+		}
+		return Cycle{Result: CycleLGTMApproved}, nil
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if attempts != maxConsecutivePollErrors+1 {
+		t.Fatalf("attempts = %d, want %d", attempts, maxConsecutivePollErrors+1)
+	}
+	if h.triggers[1] != "commits settled" {
+		t.Fatalf("triggers = %v", h.triggers)
+	}
+}
+
 func TestParsePostMode(t *testing.T) {
 	for _, valid := range []string{"interactive", "comment", "approve"} {
 		if _, err := ParsePostMode(valid); err != nil {

@@ -215,6 +215,7 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 			} else {
 				l.retryPending = false
 				l.retryHead = ""
+				l.cycleErrors = 0
 			}
 		}
 
