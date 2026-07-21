@@ -122,9 +122,46 @@ func TestReadFileAtCommitFollowsSymlinkWithinRevision(t *testing.T) {
 	}
 }
 
+func TestReadFileAtCommitFollowsIntermediateSymlinkWithinRevision(t *testing.T) {
+	ctx := context.Background()
+	repositoryRoot := setupTestRepo(t)
+	versionRoot := filepath.Join(repositoryRoot, "config", "v1")
+	if err := os.MkdirAll(versionRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(versionRoot, "acr.yaml"), []byte("reviewers: 8"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("v1", filepath.Join(repositoryRoot, "config", "current")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("config/current/acr.yaml", filepath.Join(repositoryRoot, ".acr.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	commitRevisionFiles(t, repositoryRoot)
+
+	commit, err := ResolveCommit(ctx, repositoryRoot, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, repositoryPath := range []string{"config/current/acr.yaml", ".acr.yaml"} {
+		content, err := ReadFileAtCommit(ctx, repositoryRoot, commit, repositoryPath)
+		if err != nil {
+			t.Fatalf("ReadFileAtCommit(%q) error = %v", repositoryPath, err)
+		}
+		if string(content) != "reviewers: 8" {
+			t.Fatalf("ReadFileAtCommit(%q) = %q", repositoryPath, content)
+		}
+	}
+}
+
 func TestReadFileAtCommitRejectsEscapingAndCyclicSymlinks(t *testing.T) {
 	ctx := context.Background()
 	repositoryRoot := setupTestRepo(t)
+	configRoot := filepath.Join(repositoryRoot, "config")
+	if err := os.MkdirAll(configRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Symlink("../outside.md", filepath.Join(repositoryRoot, "escaping.md")); err != nil {
 		t.Fatal(err)
 	}
@@ -132,6 +169,15 @@ func TestReadFileAtCommitRejectsEscapingAndCyclicSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.Symlink("cycle-a.md", filepath.Join(repositoryRoot, "cycle-b.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../../outside", filepath.Join(configRoot, "escaping")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("cycle-b", filepath.Join(configRoot, "cycle-a")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("cycle-a", filepath.Join(configRoot, "cycle-b")); err != nil {
 		t.Fatal(err)
 	}
 	commitRevisionFiles(t, repositoryRoot)
@@ -145,6 +191,12 @@ func TestReadFileAtCommitRejectsEscapingAndCyclicSymlinks(t *testing.T) {
 	}
 	if _, err := ReadFileAtCommit(ctx, repositoryRoot, commit, "cycle-a.md"); err == nil || !strings.Contains(err.Error(), "symlink cycle") {
 		t.Fatalf("cyclic symlink error = %v", err)
+	}
+	if _, err := ReadFileAtCommit(ctx, repositoryRoot, commit, "config/escaping/acr.yaml"); err == nil || !strings.Contains(err.Error(), "escapes the repository") {
+		t.Fatalf("intermediate escaping symlink error = %v", err)
+	}
+	if _, err := ReadFileAtCommit(ctx, repositoryRoot, commit, "config/cycle-a/acr.yaml"); err == nil || !strings.Contains(err.Error(), "symlink cycle") {
+		t.Fatalf("intermediate cyclic symlink error = %v", err)
 	}
 }
 

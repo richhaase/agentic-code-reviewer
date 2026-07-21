@@ -125,6 +125,55 @@ func readFileAtCommit(ctx context.Context, repoRoot, commit, repositoryPath stri
 	}
 	visited[repositoryPath] = struct{}{}
 
+	components := strings.Split(repositoryPath, "/")
+	for index := range components {
+		candidate := path.Join(components[:index+1]...)
+		entry, err := treeEntryAtCommit(ctx, repoRoot, commit, candidate)
+		if err != nil {
+			return nil, err
+		}
+		mode, err := treeEntryMode(entry)
+		if err != nil {
+			return nil, fmt.Errorf("failed to inspect %s at %s: %w", candidate, commit, err)
+		}
+		if mode == "120000" {
+			targetBytes, err := readBlobAtCommit(ctx, repoRoot, commit, candidate)
+			if err != nil {
+				return nil, err
+			}
+			target := string(targetBytes)
+			if target == "" {
+				return nil, fmt.Errorf("repository symlink %q at %s has an empty target", candidate, commit)
+			}
+			normalizedTarget := strings.ReplaceAll(target, "\\", "/")
+			if isAbsoluteRepositoryPath(normalizedTarget) {
+				return nil, fmt.Errorf("repository symlink %q at %s has an absolute target %q", candidate, commit, target)
+			}
+			resolvedPath := path.Join(path.Dir(candidate), normalizedTarget)
+			if index+1 < len(components) {
+				resolvedPath = path.Join(resolvedPath, path.Join(components[index+1:]...))
+			}
+			resolvedPath, err = cleanRepositoryPath(resolvedPath)
+			if err != nil {
+				return nil, fmt.Errorf("repository symlink %q at %s is invalid: %w", candidate, commit, err)
+			}
+			return readFileAtCommit(ctx, repoRoot, commit, resolvedPath, depth+1, visited)
+		}
+		if index+1 < len(components) {
+			if mode != "040000" {
+				return nil, fmt.Errorf("repository path %q at %s is not a directory", candidate, commit)
+			}
+			continue
+		}
+		if mode != "100644" && mode != "100755" {
+			return nil, fmt.Errorf("repository path %q at %s is not a regular file or symlink", repositoryPath, commit)
+		}
+		return readBlobAtCommit(ctx, repoRoot, commit, repositoryPath)
+	}
+	return nil, fmt.Errorf("%w: %s at %s", ErrPathNotFoundAtRevision, repositoryPath, commit)
+}
+
+func treeEntryAtCommit(ctx context.Context, repoRoot, commit, repositoryPath string) ([]byte, error) {
 	check := exec.CommandContext(ctx, "git", "ls-tree", "-z", commit, "--", repositoryPath)
 	check.Dir = repoRoot
 	entry, err := check.Output()
@@ -137,15 +186,10 @@ func readFileAtCommit(ctx context.Context, repoRoot, commit, repositoryPath stri
 	if len(entry) == 0 {
 		return nil, fmt.Errorf("%w: %s at %s", ErrPathNotFoundAtRevision, repositoryPath, commit)
 	}
+	return entry, nil
+}
 
-	mode, err := treeEntryMode(entry)
-	if err != nil {
-		return nil, fmt.Errorf("failed to inspect %s at %s: %w", repositoryPath, commit, err)
-	}
-	if mode != "100644" && mode != "100755" && mode != "120000" {
-		return nil, fmt.Errorf("repository path %q at %s is not a regular file or symlink", repositoryPath, commit)
-	}
-
+func readBlobAtCommit(ctx context.Context, repoRoot, commit, repositoryPath string) ([]byte, error) {
 	object := commit + ":" + repositoryPath
 	cmd := exec.CommandContext(ctx, "git", "cat-file", "blob", object)
 	cmd.Dir = repoRoot
@@ -156,23 +200,7 @@ func readFileAtCommit(ctx context.Context, repoRoot, commit, repositoryPath stri
 		}
 		return nil, fmt.Errorf("failed to read %s at %s: %w", repositoryPath, commit, err)
 	}
-	if mode != "120000" {
-		return out, nil
-	}
-
-	target := string(out)
-	if target == "" {
-		return nil, fmt.Errorf("repository symlink %q at %s has an empty target", repositoryPath, commit)
-	}
-	normalizedTarget := strings.ReplaceAll(target, "\\", "/")
-	if isAbsoluteRepositoryPath(normalizedTarget) {
-		return nil, fmt.Errorf("repository symlink %q at %s has an absolute target %q", repositoryPath, commit, target)
-	}
-	resolvedTarget, err := cleanRepositoryPath(path.Join(path.Dir(repositoryPath), normalizedTarget))
-	if err != nil {
-		return nil, fmt.Errorf("repository symlink %q at %s is invalid: %w", repositoryPath, commit, err)
-	}
-	return readFileAtCommit(ctx, repoRoot, commit, resolvedTarget, depth+1, visited)
+	return out, nil
 }
 
 func treeEntryMode(entry []byte) (string, error) {
@@ -185,7 +213,7 @@ func treeEntryMode(entry []byte) (string, error) {
 		return "", fmt.Errorf("unexpected git ls-tree output")
 	}
 	fields := bytes.Fields(metadata)
-	if len(fields) != 3 || string(fields[1]) != "blob" {
+	if len(fields) != 3 {
 		return "", fmt.Errorf("unexpected git ls-tree entry")
 	}
 	return string(fields[0]), nil

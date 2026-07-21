@@ -143,13 +143,16 @@ func TestRepositoryRevisionSourceFailsClosedForMissingTrustedGuidance(t *testing
 func TestRepositoryRevisionSourceResolvesTrustedSymlinksWithinRevision(t *testing.T) {
 	ctx := context.Background()
 	repositoryRoot := newConfigSourceRepository(t, "", map[string]string{
-		"config/trusted.yaml":     "reviewers: 9\nguidance_file: guidance/review.md\n",
-		"guidance/trusted-review": "trusted guidance",
+		"config/v1/trusted.yaml": "reviewers: 9\nguidance_file: guidance/current/review.md\n",
+		"guidance/v1/review.md":  "trusted guidance",
 	})
-	if err := os.Symlink("config/trusted.yaml", filepath.Join(repositoryRoot, ConfigFileName)); err != nil {
+	if err := os.Symlink("v1", filepath.Join(repositoryRoot, "config", "current")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("trusted-review", filepath.Join(repositoryRoot, "guidance", "review.md")); err != nil {
+	if err := os.Symlink("v1", filepath.Join(repositoryRoot, "guidance", "current")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("config/current/trusted.yaml", filepath.Join(repositoryRoot, ConfigFileName)); err != nil {
 		t.Fatal(err)
 	}
 	runConfigGit(t, repositoryRoot, "add", ".")
