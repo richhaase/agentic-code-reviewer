@@ -5,9 +5,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/config"
+	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
 func TestResolveTrustedReviewConfigSourceUsesSoleConfiguredRemoteDefaultBranch(t *testing.T) {
@@ -61,7 +63,7 @@ func TestResolveTrustedReviewConfigSourceUsesSoleConfiguredRemoteDefaultBranch(t
 	if guidance != "trusted guidance" {
 		t.Fatalf("guidance = %q", guidance)
 	}
-	if result.Source.Ref != "refs/remotes/upstream/main" {
+	if result.Source.Ref != "refs/acr/trusted-config/upstream/main" {
 		t.Fatalf("source ref = %q", result.Source.Ref)
 	}
 }
@@ -152,6 +154,39 @@ func TestResolveTrustedReviewConfigSourceAllowsExplicitExclusion(t *testing.T) {
 	}
 }
 
+func TestPrepareReviewBaseDoesNotFetchWhenDisabled(t *testing.T) {
+	root := t.TempDir()
+	seedRoot := filepath.Join(root, "seed")
+	remoteRoot := filepath.Join(root, "origin.git")
+	repositoryRoot := filepath.Join(root, "working")
+	if err := os.MkdirAll(seedRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	runConfigSourceGit(t, seedRoot, "init", "-b", "main")
+	runConfigSourceGit(t, seedRoot, "config", "user.email", "test@example.com")
+	runConfigSourceGit(t, seedRoot, "config", "user.name", "Test User")
+	writeReviewConfigSourceFile(t, seedRoot, "tracked.txt", "initial")
+	runConfigSourceGit(t, seedRoot, "add", ".")
+	runConfigSourceGit(t, seedRoot, "commit", "-m", "initial")
+	runConfigSourceGit(t, root, "clone", "--bare", seedRoot, remoteRoot)
+	runConfigSourceGit(t, root, "clone", remoteRoot, repositoryRoot)
+	trackingRevision := configSourceGitOutput(t, repositoryRoot, "rev-parse", "refs/remotes/origin/main")
+	runConfigSourceGit(t, seedRoot, "remote", "add", "origin", remoteRoot)
+	writeReviewConfigSourceFile(t, seedRoot, "tracked.txt", "updated")
+	runConfigSourceGit(t, seedRoot, "add", "tracked.txt")
+	runConfigSourceGit(t, seedRoot, "commit", "-m", "updated")
+	runConfigSourceGit(t, seedRoot, "push", "origin", "main")
+
+	resolved := config.ResolvedConfig{Base: "main", Fetch: false}
+	prepareReviewBase(context.Background(), worktreeResult{prRemote: "origin", prRepoRoot: repositoryRoot}, &resolved, terminal.NewLogger())
+	if resolved.Base != "main" {
+		t.Fatalf("base = %q", resolved.Base)
+	}
+	if got := configSourceGitOutput(t, repositoryRoot, "rev-parse", "refs/remotes/origin/main"); got != trackingRevision {
+		t.Fatalf("remote-tracking ref moved from %s to %s", trackingRevision, got)
+	}
+}
+
 func runConfigSourceGit(t *testing.T, directory string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -159,6 +194,17 @@ func runConfigSourceGit(t *testing.T, directory string, args ...string) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v failed: %v\n%s", args, err, out)
 	}
+}
+
+func configSourceGitOutput(t *testing.T, directory string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = directory
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func writeReviewConfigSourceFile(t *testing.T, root, relativePath, content string) {

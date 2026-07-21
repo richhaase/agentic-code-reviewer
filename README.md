@@ -53,7 +53,7 @@ Optional:
 
 | Tool | Installation | Purpose |
 |------|--------------|---------|
-| gh CLI | [cli.github.com](https://cli.github.com) | Post reviews to GitHub PRs |
+| gh CLI | [cli.github.com](https://cli.github.com) | GitHub PR operations and canonical selection in multi-remote repositories |
 
 ## How It Works
 
@@ -151,6 +151,13 @@ the canonical remote default branch. When no canonical remote is configured,
 ACR uses the local `main` commit; when neither exists, it uses built-in
 defaults. A `.acr.yaml` from the current target, PR head, or temporary review
 worktree is never allowed to configure the review evaluating that code.
+
+Trusted remote snapshots use an ACR-owned ref namespace, so refreshing review
+configuration cannot advance or rewind the remote-tracking ref used for the
+review diff. In a repository with multiple remotes, ACR uses `gh` repository
+identity to select the matching canonical fetch remote and fails closed when
+that identity is unavailable or ambiguous. Use `--no-config` to run without a
+repository policy source; ACR never guesses among multiple remotes.
 
 Repository-relative inputs such as `guidance_file` are read from the same
 immutable canonical commit. Invalid trusted configuration or an unavailable

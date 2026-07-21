@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -219,5 +220,55 @@ func TestConfigValidate_ValidGuidanceFile(t *testing.T) {
 
 	if err != nil {
 		t.Fatalf("expected valid guidance file to pass, got: %v", err)
+	}
+}
+
+func TestConfigValidateRejectsNonRepositoryGuidancePaths(t *testing.T) {
+	tests := []struct {
+		name string
+		path func(string, string) string
+	}{
+		{
+			name: "absolute",
+			path: func(_ string, guidancePath string) string {
+				return guidancePath
+			},
+		},
+		{
+			name: "escaping",
+			path: func(_ string, _ string) string {
+				return "../guidance.md"
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			repositoryRoot := filepath.Join(root, "repository")
+			if err := os.MkdirAll(repositoryRoot, 0755); err != nil {
+				t.Fatal(err)
+			}
+			chdir(t, repositoryRoot)
+			initGitRepo(t, repositoryRoot)
+			guidancePath := filepath.Join(root, "guidance.md")
+			if err := os.WriteFile(guidancePath, []byte("review carefully"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			configPath := filepath.Join(repositoryRoot, config.ConfigFileName)
+			configData := fmt.Sprintf("guidance_file: %q\n", tt.path(repositoryRoot, guidancePath))
+			if err := os.WriteFile(configPath, []byte(configData), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			cmd := newConfigCmd()
+			buf := new(bytes.Buffer)
+			cmd.SetOut(buf)
+			cmd.SetErr(buf)
+			cmd.SetArgs([]string{"validate"})
+			if err := cmd.Execute(); err == nil {
+				t.Fatal("expected repository guidance path validation error")
+			}
+		})
 	}
 }

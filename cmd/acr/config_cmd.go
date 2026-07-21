@@ -149,6 +149,11 @@ func newConfigValidateCmd() *cobra.Command {
 				configDir = result.ConfigDir
 				warnings = append(warnings, result.Warnings...)
 			}
+			if cfg.GuidanceFile != nil && *cfg.GuidanceFile != "" {
+				if err := git.ValidateRepositoryPath(*cfg.GuidanceFile); err != nil {
+					errors = append(errors, fmt.Sprintf("guidance_file: %v", err))
+				}
+			}
 
 			envState, envWarnings := config.LoadEnvState()
 			errors = append(errors, envWarnings...)

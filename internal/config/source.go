@@ -127,15 +127,19 @@ func ResolveTrustedSource(ctx context.Context, request TrustedSourceRequest) (So
 }
 
 func resolveRemoteBranchSource(ctx context.Context, repositoryRoot, remote, branch string) (Source, error) {
-	if err := gitpkg.FetchRemoteTrackingBranch(ctx, repositoryRoot, remote, branch); err != nil {
+	ref := trustedSnapshotRef(remote, branch)
+	if err := gitpkg.FetchRemoteBranchToRef(ctx, repositoryRoot, remote, branch, ref); err != nil {
 		return nil, fmt.Errorf("failed to refresh trusted review configuration: %w", err)
 	}
-	ref := "refs/remotes/" + remote + "/" + branch
 	source, err := NewRepositoryRevisionSource(ctx, repositoryRoot, ref)
 	if err != nil {
 		return nil, fmt.Errorf("failed to snapshot trusted review configuration: %w", err)
 	}
 	return source, nil
+}
+
+func trustedSnapshotRef(remote, branch string) string {
+	return "refs/acr/trusted-config/" + remote + "/" + branch
 }
 
 func NewRepositoryRevisionSource(ctx context.Context, repositoryRoot, ref string) (RepositoryRevisionSource, error) {

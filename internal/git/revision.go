@@ -116,6 +116,11 @@ func ReadFileAtCommit(ctx context.Context, repoRoot, commit, repositoryPath stri
 	return readFileAtCommit(ctx, repoRoot, commit, cleanPath, 0, make(map[string]struct{}))
 }
 
+func ValidateRepositoryPath(repositoryPath string) error {
+	_, err := cleanRepositoryPath(repositoryPath)
+	return err
+}
+
 func readFileAtCommit(ctx context.Context, repoRoot, commit, repositoryPath string, depth int, visited map[string]struct{}) ([]byte, error) {
 	if depth > maxRepositorySymlinkDepth {
 		return nil, fmt.Errorf("repository path %q exceeds the symlink resolution limit", repositoryPath)

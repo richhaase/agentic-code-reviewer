@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -215,7 +216,7 @@ func TestResolveTrustedSourceUsesExplicitRepositoryOutsideCurrentDirectory(t *te
 	}
 }
 
-func TestResolveTrustedSourceUsesFullyQualifiedRemoteTrackingRef(t *testing.T) {
+func TestResolveTrustedSourceUsesIsolatedSnapshotRef(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	seedRoot := filepath.Join(root, "seed")
@@ -257,7 +258,7 @@ func TestResolveTrustedSourceUsesFullyQualifiedRemoteTrackingRef(t *testing.T) {
 	if resolved.Reviewers != 12 {
 		t.Fatalf("Reviewers = %d", resolved.Reviewers)
 	}
-	if result.Source.Ref != "refs/remotes/origin/main" {
+	if result.Source.Ref != "refs/acr/trusted-config/origin/main" {
 		t.Fatalf("source ref = %q", result.Source.Ref)
 	}
 }
@@ -281,6 +282,7 @@ func TestResolveTrustedSourceRefreshesBranchMatchingRemotePrefix(t *testing.T) {
 	runConfigGit(t, root, "clone", "--bare", seedRoot, remoteRoot)
 	runConfigGit(t, root, "clone", remoteRoot, repositoryRoot)
 	runConfigGit(t, repositoryRoot, "remote", "rename", "origin", "release")
+	trackingRevision := configGitOutput(t, repositoryRoot, "rev-parse", "refs/remotes/release/release/2.x")
 	runConfigGit(t, seedRoot, "remote", "add", "origin", remoteRoot)
 	writeConfigSourceFile(t, seedRoot, ConfigFileName, "reviewers: 13\n")
 	runConfigGit(t, seedRoot, "add", ConfigFileName)
@@ -304,8 +306,14 @@ func TestResolveTrustedSourceRefreshesBranchMatchingRemotePrefix(t *testing.T) {
 	if resolved.Reviewers != 13 {
 		t.Fatalf("Reviewers = %d", resolved.Reviewers)
 	}
-	if result.Source.Ref != "refs/remotes/release/release/2.x" {
+	if result.Source.Ref != "refs/acr/trusted-config/release/release/2.x" {
 		t.Fatalf("source ref = %q", result.Source.Ref)
+	}
+	if got := configGitOutput(t, repositoryRoot, "rev-parse", "refs/remotes/release/release/2.x"); got != trackingRevision {
+		t.Fatalf("remote-tracking ref moved from %s to %s", trackingRevision, got)
+	}
+	if got, want := result.Source.Revision, configGitOutput(t, seedRoot, "rev-parse", "HEAD"); got != want {
+		t.Fatalf("snapshot revision = %s, want %s", got, want)
 	}
 }
 
@@ -367,6 +375,17 @@ func runConfigGit(t *testing.T, repositoryRoot string, args ...string) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v failed: %v\n%s", args, err, out)
 	}
+}
+
+func configGitOutput(t *testing.T, repositoryRoot string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = repositoryRoot
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, out)
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func stringPointer(value string) *string {

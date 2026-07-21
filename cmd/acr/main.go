@@ -388,17 +388,7 @@ func loadAndResolveConfig(ctx context.Context, cmd *cobra.Command, wt worktreeRe
 	}
 
 	resolved := config.Resolve(cfg, envState, flagState, flagValues)
-
-	if wt.prRemote != "" && git.ShouldQualifyBaseRef(resolved.Base, wt.baseAutoDetected) {
-
-		if err := git.FetchBaseRef(ctx, wt.prRepoRoot, wt.prRemote, resolved.Base); err != nil {
-			logger.Logf(terminal.StyleWarning, "Could not fetch base ref: %v", err)
-
-		} else {
-
-			resolved.Base = git.QualifyBaseRef(wt.prRemote, resolved.Base)
-		}
-	}
+	prepareReviewBase(ctx, wt, &resolved, logger)
 
 	if err := resolved.Validate(); err != nil {
 		logger.Logf(terminal.StyleError, "%v", err)
@@ -427,6 +417,20 @@ func loadAndResolveConfig(ctx context.Context, cmd *cobra.Command, wt worktreeRe
 	}
 	result.source = loadResult.Source
 	return result, nil
+}
+
+func prepareReviewBase(ctx context.Context, wt worktreeResult, resolved *config.ResolvedConfig, logger *terminal.Logger) {
+	if wt.prRemote == "" || !resolved.Fetch || !git.ShouldQualifyBaseRef(resolved.Base, wt.baseAutoDetected) {
+		return
+	}
+
+	if err := git.FetchBaseRef(ctx, wt.prRepoRoot, wt.prRemote, resolved.Base); err != nil {
+		logger.Logf(terminal.StyleWarning, "Could not fetch base ref: %v", err)
+
+	} else {
+
+		resolved.Base = git.QualifyBaseRef(wt.prRemote, resolved.Base)
+	}
 }
 
 func runReview(cmd *cobra.Command, _ []string) error {
