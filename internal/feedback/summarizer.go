@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
@@ -27,15 +28,30 @@ func NewSummarizer(agentName, model string, verbose bool, logger *terminal.Logge
 }
 
 func (s *Summarizer) Summarize(ctx context.Context, prNumber string) (string, error) {
+	return s.SummarizeFromDir(ctx, prNumber, "")
+}
+
+func (s *Summarizer) SummarizeFromDir(ctx context.Context, prNumber, workDir string) (string, error) {
 	if prNumber == "" {
 		return "", fmt.Errorf("PR number is required")
 	}
 
-	prCtx, err := FetchPRContext(ctx, prNumber)
+	prCtx, err := FetchPRContextFromDir(ctx, prNumber, workDir)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch PR context: %w", err)
 	}
+	return s.summarizeContext(ctx, prCtx)
+}
 
+func (s *Summarizer) SummarizePullRequest(ctx context.Context, key domain.PullRequestKey, workDir string) (string, error) {
+	prCtx, err := FetchPRContextForPullRequest(ctx, key, workDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch PR context: %w", err)
+	}
+	return s.summarizeContext(ctx, prCtx)
+}
+
+func (s *Summarizer) summarizeContext(ctx context.Context, prCtx *PRContext) (string, error) {
 	if !prCtx.HasContent() {
 		return "", nil
 	}

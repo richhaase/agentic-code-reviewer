@@ -75,7 +75,6 @@ type inputItem struct {
 
 func Summarize(ctx context.Context, agentName, model string, aggregated []domain.AggregatedFinding, verbose bool, logger *terminal.Logger) (*Result, error) {
 	start := time.Now()
-
 	if len(aggregated) == 0 {
 		return &Result{
 			Grouped:  domain.GroupedFindings{},
@@ -87,6 +86,23 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 	if err != nil {
 		return nil, err
 	}
+	return summarize(ctx, ag, aggregated, verbose, logger)
+}
+
+func SummarizeWithAgent(ctx context.Context, ag agent.Agent, aggregated []domain.AggregatedFinding) (*Result, error) {
+	start := time.Now()
+	if len(aggregated) == 0 {
+		return &Result{Grouped: domain.GroupedFindings{}, Duration: time.Since(start)}, nil
+	}
+	if ag == nil {
+		return nil, fmt.Errorf("summarizer agent is required")
+	}
+	return summarize(ctx, ag, aggregated, false, nil)
+}
+
+func summarize(ctx context.Context, ag agent.Agent, aggregated []domain.AggregatedFinding, verbose bool, logger *terminal.Logger) (*Result, error) {
+	start := time.Now()
+	agentName := ag.Name()
 
 	items := make([]inputItem, len(aggregated))
 	for i, a := range aggregated {
@@ -124,7 +140,7 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 	}
 
 	defer func() {
-		if err := execResult.Close(); err != nil && verbose {
+		if err := execResult.Close(); err != nil && verbose && logger != nil {
 			logger.Logf(terminal.StyleDim, "summarizer close error (non-fatal): %v", err)
 		}
 	}()
@@ -142,7 +158,7 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 		return nil, err
 	}
 
-	if err := execResult.Close(); err != nil && verbose {
+	if err := execResult.Close(); err != nil && verbose && logger != nil {
 		logger.Logf(terminal.StyleDim, "summarizer close error (non-fatal): %v", err)
 	}
 	exitCode := execResult.ExitCode()

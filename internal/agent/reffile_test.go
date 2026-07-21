@@ -71,7 +71,9 @@ func TestWriteDiffToTempFile(t *testing.T) {
 		t.Errorf("WriteDiffToTempFile() path = %s, want absolute path", absPath)
 	}
 
-	CleanupTempFile(absPath)
+	if err := CleanupTempFile(absPath); err != nil {
+		t.Fatalf("CleanupTempFile() error = %v", err)
+	}
 	if _, err := os.Stat(absPath); !os.IsNotExist(err) {
 		t.Errorf("CleanupTempFile() failed to remove file")
 	}
@@ -102,7 +104,9 @@ func TestWriteInputToTempFile(t *testing.T) {
 		t.Errorf("WriteInputToTempFile() path = %s, want absolute path", absPath)
 	}
 
-	CleanupTempFile(absPath)
+	if err := CleanupTempFile(absPath); err != nil {
+		t.Fatalf("CleanupTempFile() error = %v", err)
+	}
 }
 
 func TestCleanupTempFile(t *testing.T) {
@@ -113,7 +117,9 @@ func TestCleanupTempFile(t *testing.T) {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 
-		CleanupTempFile(tmpFile)
+		if err := CleanupTempFile(tmpFile); err != nil {
+			t.Fatalf("CleanupTempFile() error = %v", err)
+		}
 
 		if _, err := os.Stat(tmpFile); !os.IsNotExist(err) {
 			t.Error("CleanupTempFile() failed to remove existing file")
@@ -122,12 +128,48 @@ func TestCleanupTempFile(t *testing.T) {
 
 	t.Run("cleanup non-existent file does not panic", func(t *testing.T) {
 
-		CleanupTempFile("/nonexistent/path/file.txt")
+		if err := CleanupTempFile("/nonexistent/path/file.txt"); err != nil {
+			t.Fatalf("CleanupTempFile() error = %v", err)
+		}
 	})
 
 	t.Run("cleanup empty path does nothing", func(t *testing.T) {
 
-		CleanupTempFile("")
+		if err := CleanupTempFile(""); err != nil {
+			t.Fatalf("CleanupTempFile() error = %v", err)
+		}
+	})
+
+	t.Run("cleanup failure returns error without stderr", func(t *testing.T) {
+		cleanupPath := filepath.Join(t.TempDir(), "not-empty")
+		if err := os.Mkdir(cleanupPath, 0700); err != nil {
+			t.Fatalf("create cleanup directory: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(cleanupPath, "child"), []byte("data"), 0600); err != nil {
+			t.Fatalf("create cleanup child: %v", err)
+		}
+		stderrPath := filepath.Join(t.TempDir(), "stderr")
+		stderr, err := os.Create(stderrPath)
+		if err != nil {
+			t.Fatalf("create stderr capture: %v", err)
+		}
+		originalStderr := os.Stderr
+		os.Stderr = stderr
+		cleanupErr := CleanupTempFile(cleanupPath)
+		os.Stderr = originalStderr
+		if err := stderr.Close(); err != nil {
+			t.Fatalf("close stderr capture: %v", err)
+		}
+		if cleanupErr == nil || !strings.Contains(cleanupErr.Error(), "failed to clean up temp file") {
+			t.Fatalf("CleanupTempFile() error = %v", cleanupErr)
+		}
+		captured, err := os.ReadFile(stderrPath)
+		if err != nil {
+			t.Fatalf("read stderr capture: %v", err)
+		}
+		if len(captured) != 0 {
+			t.Fatalf("CleanupTempFile() wrote stderr: %q", captured)
+		}
 	})
 }
 

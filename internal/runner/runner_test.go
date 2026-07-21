@@ -2,6 +2,9 @@ package runner
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -18,6 +21,15 @@ type stringReadCloser struct {
 
 func (s *stringReadCloser) Close() error {
 	return nil
+}
+
+type errorReadCloser struct {
+	*strings.Reader
+	err error
+}
+
+func (r *errorReadCloser) Close() error {
+	return r.err
 }
 
 func TestBuildStats_CategorizesResults(t *testing.T) {
@@ -41,6 +53,21 @@ func TestBuildStats_CategorizesResults(t *testing.T) {
 	}
 	if stats.ParseErrors != 2 {
 		t.Errorf("expected 2 parse errors, got %d", stats.ParseErrors)
+	}
+}
+
+func TestFinishRunReportsCancellationAfterResultsWereCollected(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	want := []domain.ReviewerResult{{ReviewerID: 1, ExitCode: 0}}
+
+	got, _, err := finishRun(ctx, want, time.Now())
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("finishRun error = %v, want context cancellation", err)
+	}
+	if len(got) != 1 || got[0].ReviewerID != 1 {
+		t.Fatalf("collected reviewer results were lost: %#v", got)
 	}
 }
 
@@ -268,6 +295,29 @@ type mockStreamingAgent struct {
 	output string
 }
 
+type cleanupWarningAgent struct {
+	name     string
+	output   string
+	closeErr error
+}
+
+func (a *cleanupWarningAgent) Name() string {
+	return a.name
+}
+
+func (a *cleanupWarningAgent) IsAvailable() error {
+	return nil
+}
+
+func (a *cleanupWarningAgent) ExecuteReview(context.Context, *agent.ReviewConfig) (*agent.ExecutionResult, error) {
+	reader := &errorReadCloser{Reader: strings.NewReader(a.output), err: a.closeErr}
+	return agent.NewExecutionResult(reader, func() int { return 0 }, func() string { return "" }), nil
+}
+
+func (a *cleanupWarningAgent) ExecuteSummary(context.Context, string, []byte) (*agent.ExecutionResult, error) {
+	return nil, nil
+}
+
 func (m *mockStreamingAgent) Name() string {
 	if m.name == "" {
 		return "codex"
@@ -310,6 +360,150 @@ invalid json line here
 	}
 	if result.ParseErrors != 1 {
 		t.Errorf("expected 1 parse error, got %d", result.ParseErrors)
+	}
+}
+
+func TestRunReviewerCleanupFailureIsNonfatalWarning(t *testing.T) {
+	mock := &cleanupWarningAgent{
+		name:     "codex",
+		output:   `{"item":{"type":"agent_message","text":"finding"}}`,
+		closeErr: errors.New("temporary file cleanup failed"),
+	}
+	r := &Runner{
+		config:    Config{Reviewers: 1, Timeout: time.Second},
+		agents:    []agent.Agent{mock},
+		completed: new(atomic.Int32),
+	}
+
+	result := r.runReviewer(context.Background(), 1)
+
+	if result.ExitCode != 0 || result.Failure != nil || len(result.Findings) != 1 {
+		t.Fatalf("cleanup failure changed reviewer outcome: %#v", result)
+	}
+	if len(result.Warnings) != 1 || result.Warnings[0].Kind != domain.ReviewerWarningCleanup {
+		t.Fatalf("cleanup warning missing: %#v", result.Warnings)
+	}
+}
+
+func TestHeadlessRunnerEmitsEarlyReturnCleanupWarningWithoutStderr(t *testing.T) {
+	mock := &cleanupWarningAgent{
+		name:     "unsupported",
+		output:   "ignored",
+		closeErr: errors.New("temporary file cleanup failed"),
+	}
+	var completed domain.ReviewerResult
+	r, err := NewHeadless(Config{
+		Reviewers:   1,
+		Concurrency: 1,
+		Timeout:     time.Second,
+		Events: Events{
+			ReviewerCompleted: func(result domain.ReviewerResult) {
+				completed = result
+			},
+		},
+	}, []agent.Agent{mock})
+	if err != nil {
+		t.Fatalf("create headless runner: %v", err)
+	}
+	stderrPath := filepath.Join(t.TempDir(), "stderr")
+	stderr, err := os.Create(stderrPath)
+	if err != nil {
+		t.Fatalf("create stderr capture: %v", err)
+	}
+	originalStderr := os.Stderr
+	os.Stderr = stderr
+	t.Cleanup(func() { os.Stderr = originalStderr })
+
+	results, _, runErr := r.Run(context.Background())
+	os.Stderr = originalStderr
+	if err := stderr.Close(); err != nil {
+		t.Fatalf("close stderr capture: %v", err)
+	}
+
+	if runErr != nil {
+		t.Fatalf("run headless reviewer: %v", runErr)
+	}
+	if len(results) != 1 || results[0].Failure == nil || results[0].Failure.Kind != domain.ReviewerFailureParser {
+		t.Fatalf("early return outcome missing: %#v", results)
+	}
+	if len(results[0].Warnings) != 1 || results[0].Warnings[0].Kind != domain.ReviewerWarningCleanup {
+		t.Fatalf("early-return cleanup warning missing: %#v", results[0])
+	}
+	if len(completed.Warnings) != 1 || completed.Warnings[0] != results[0].Warnings[0] {
+		t.Fatalf("ReviewerCompleted did not receive cleanup warning: completed=%#v result=%#v", completed, results[0])
+	}
+	captured, err := os.ReadFile(stderrPath)
+	if err != nil {
+		t.Fatalf("read stderr capture: %v", err)
+	}
+	if len(captured) != 0 {
+		t.Fatalf("headless cleanup failure wrote stderr: %q", captured)
+	}
+}
+
+func TestVerboseRunnerLogsCleanupWarningOnce(t *testing.T) {
+	mock := &cleanupWarningAgent{
+		name:     "codex",
+		output:   `{"item":{"type":"agent_message","text":"finding"}}`,
+		closeErr: errors.New("temporary file cleanup failed"),
+	}
+	stderrPath := filepath.Join(t.TempDir(), "stderr")
+	stderr, err := os.Create(stderrPath)
+	if err != nil {
+		t.Fatalf("create stderr capture: %v", err)
+	}
+	originalStderr := os.Stderr
+	os.Stderr = stderr
+	t.Cleanup(func() { os.Stderr = originalStderr })
+	r := &Runner{
+		config:    Config{Reviewers: 1, Timeout: time.Second, Verbose: true},
+		agents:    []agent.Agent{mock},
+		logger:    terminal.NewLogger(),
+		completed: new(atomic.Int32),
+	}
+
+	result := r.runReviewer(context.Background(), 1)
+	os.Stderr = originalStderr
+	if err := stderr.Close(); err != nil {
+		t.Fatalf("close stderr capture: %v", err)
+	}
+
+	if len(result.Warnings) != 1 || result.Warnings[0].Kind != domain.ReviewerWarningCleanup {
+		t.Fatalf("typed cleanup warning missing: %#v", result.Warnings)
+	}
+	captured, err := os.ReadFile(stderrPath)
+	if err != nil {
+		t.Fatalf("read stderr capture: %v", err)
+	}
+	if strings.Count(string(captured), "close error (non-fatal)") != 1 {
+		t.Fatalf("verbose cleanup warning output = %q", captured)
+	}
+}
+
+func TestRunReviewerParentCancellationTakesPriority(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	mock := &mockStreamingAgent{
+		output: `{"item":{"type":"agent_message","text":"finding"}}`,
+	}
+	r := &Runner{
+		config: Config{
+			Reviewers: 1,
+			Timeout:   time.Minute,
+			Events: Events{
+				ReviewerStarted: func(int, string) { cancel() },
+			},
+		},
+		agents:    []agent.Agent{mock},
+		completed: new(atomic.Int32),
+	}
+
+	result := r.runReviewer(ctx, 1)
+
+	if result.Failure == nil || result.Failure.Kind != domain.ReviewerFailureInterrupted {
+		t.Fatalf("reviewer cancellation was not classified as interrupted: %#v", result)
+	}
+	if result.TimedOut || result.AuthFailed || result.ExitCode != -1 {
+		t.Fatalf("reviewer cancellation was misclassified: %#v", result)
 	}
 }
 

@@ -32,6 +32,7 @@ type Result struct {
 type Filter struct {
 	agentName string
 	model     string
+	agent     agent.Agent
 	threshold int
 	verbose   bool
 	logger    *terminal.Logger
@@ -47,6 +48,16 @@ func New(agentName, model string, threshold int, verbose bool, logger *terminal.
 		threshold: threshold,
 		logger:    logger,
 		verbose:   verbose,
+	}
+}
+
+func NewWithAgent(ag agent.Agent, threshold int) *Filter {
+	if threshold < 1 || threshold > 100 {
+		threshold = DefaultThreshold
+	}
+	return &Filter{
+		agent:     ag,
+		threshold: threshold,
 	}
 }
 
@@ -108,9 +119,13 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 		}
 	}
 
-	ag, err := agent.NewAgentWithModel(f.agentName, f.model)
-	if err != nil {
-		return skippedResult(grouped, start, "agent creation failed: "+err.Error())
+	ag := f.agent
+	if ag == nil {
+		var err error
+		ag, err = agent.NewAgentWithModel(f.agentName, f.model)
+		if err != nil {
+			return skippedResult(grouped, start, "agent creation failed: "+err.Error())
+		}
 	}
 
 	req := evaluationRequest{
@@ -141,7 +156,7 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 	}
 
 	defer func() {
-		if err := execResult.Close(); err != nil && f.verbose {
+		if err := execResult.Close(); err != nil && f.verbose && f.logger != nil {
 			f.logger.Logf(terminal.StyleDim, "fp-filter close error (non-fatal): %v", err)
 		}
 	}()
@@ -154,7 +169,7 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 		return skippedResult(grouped, start, "response read failed: "+err.Error())
 	}
 
-	parser, err := agent.NewSummaryParser(f.agentName)
+	parser, err := agent.NewSummaryParser(ag.Name())
 	if err != nil {
 		return skippedResult(grouped, start, "parser creation failed: "+err.Error())
 	}

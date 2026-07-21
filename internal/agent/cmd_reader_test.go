@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -131,6 +133,27 @@ func TestCmdReader_Close_Idempotent(t *testing.T) {
 	}
 	if err := reader.Close(); err != nil {
 		t.Errorf("Second Close() error = %v, want nil", err)
+	}
+}
+
+func TestCmdReader_CloseReturnsStoredCleanupError(t *testing.T) {
+	cleanupPath := filepath.Join(t.TempDir(), "not-empty")
+	if err := os.Mkdir(cleanupPath, 0700); err != nil {
+		t.Fatalf("create cleanup directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cleanupPath, "child"), []byte("data"), 0600); err != nil {
+		t.Fatalf("create cleanup child: %v", err)
+	}
+	reader := &cmdReader{Reader: strings.NewReader(""), tempFilePath: cleanupPath}
+
+	firstErr := reader.Close()
+	secondErr := reader.Close()
+
+	if firstErr == nil || !strings.Contains(firstErr.Error(), "failed to clean up temp file") {
+		t.Fatalf("first Close() error = %v", firstErr)
+	}
+	if secondErr == nil || secondErr.Error() != firstErr.Error() {
+		t.Fatalf("second Close() error = %v, want %v", secondErr, firstErr)
 	}
 }
 
