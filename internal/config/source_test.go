@@ -223,6 +223,53 @@ func TestResolveTrustedSourceUsesFullyQualifiedRemoteTrackingRef(t *testing.T) {
 	}
 }
 
+func TestResolveTrustedSourceRefreshesBranchMatchingRemotePrefix(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	seedRoot := filepath.Join(root, "seed")
+	remoteRoot := filepath.Join(root, "release.git")
+	repositoryRoot := filepath.Join(root, "working")
+	if err := os.MkdirAll(seedRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	runConfigGit(t, seedRoot, "init", "-b", "main")
+	runConfigGit(t, seedRoot, "config", "user.email", "test@example.com")
+	runConfigGit(t, seedRoot, "config", "user.name", "Test User")
+	writeConfigSourceFile(t, seedRoot, ConfigFileName, "reviewers: 12\n")
+	runConfigGit(t, seedRoot, "add", ".")
+	runConfigGit(t, seedRoot, "commit", "-m", "initial")
+	runConfigGit(t, seedRoot, "checkout", "-b", "release/2.x")
+	runConfigGit(t, root, "clone", "--bare", seedRoot, remoteRoot)
+	runConfigGit(t, root, "clone", remoteRoot, repositoryRoot)
+	runConfigGit(t, repositoryRoot, "remote", "rename", "origin", "release")
+	runConfigGit(t, seedRoot, "remote", "add", "origin", remoteRoot)
+	writeConfigSourceFile(t, seedRoot, ConfigFileName, "reviewers: 13\n")
+	runConfigGit(t, seedRoot, "add", ConfigFileName)
+	runConfigGit(t, seedRoot, "commit", "-m", "updated")
+	runConfigGit(t, seedRoot, "push", "origin", "release/2.x")
+
+	source, err := ResolveTrustedSource(ctx, TrustedSourceRequest{
+		RepositoryRoot: repositoryRoot,
+		Remote:         "release",
+		Branch:         "release/2.x",
+		Policy:         CanonicalNamedBranch,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := source.LoadWithWarnings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved := Resolve(result.Config, EnvState{}, FlagState{}, ResolvedConfig{})
+	if resolved.Reviewers != 13 {
+		t.Fatalf("Reviewers = %d", resolved.Reviewers)
+	}
+	if result.Source.Ref != "refs/remotes/release/release/2.x" {
+		t.Fatalf("source ref = %q", result.Source.Ref)
+	}
+}
+
 func TestResolveTrustedSourceDisabledIdentity(t *testing.T) {
 	ctx := context.Background()
 	source, err := ResolveTrustedSource(ctx, TrustedSourceRequest{

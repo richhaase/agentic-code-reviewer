@@ -198,6 +198,11 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		if reason, done := l.checkOpen(st); done {
 			return reason
 		}
+		if l.retryPending && st.HeadSHA != l.retryHead {
+			l.retryPending = false
+			l.retryHead = ""
+			l.cycleErrors = 0
+		}
 
 		if !st.ReviewRequested {
 			l.requestArmed = true
@@ -210,13 +215,7 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		}
 
 		if trigger == "" && l.retryPending {
-			if st.HeadSHA == l.retryHead {
-				trigger = "retry after transient preparation failure"
-			} else {
-				l.retryPending = false
-				l.retryHead = ""
-				l.cycleErrors = 0
-			}
+			trigger = "retry after transient preparation failure"
 		}
 
 		if trigger == "" && l.pendingApproval != "" {

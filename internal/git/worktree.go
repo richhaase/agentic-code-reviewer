@@ -193,19 +193,22 @@ func FetchBaseRef(ctx context.Context, repoRoot, remote, baseRef string) error {
 	if strings.HasPrefix(baseRef, remote+"/") {
 		return nil
 	}
+	return FetchRemoteTrackingBranch(ctx, repoRoot, remote, baseRef)
+}
 
-	refSpec := fmt.Sprintf("+refs/heads/%s:refs/remotes/%s/%s", baseRef, remote, baseRef)
+func FetchRemoteTrackingBranch(ctx context.Context, repoRoot, remote, branch string) error {
+	refSpec := fmt.Sprintf("+refs/heads/%s:refs/remotes/%s/%s", branch, remote, branch)
 	cmd := exec.CommandContext(ctx, "git", "fetch", remote, refSpec)
 	cmd.Dir = repoRoot
 	if out, err := cmd.CombinedOutput(); err != nil {
 		if ctx.Err() != nil {
-			return fmt.Errorf("failed to fetch base ref '%s': %w", baseRef, ctx.Err())
+			return fmt.Errorf("failed to fetch base ref '%s': %w", branch, ctx.Err())
 		}
 		output := strings.TrimSpace(string(out))
 		if output != "" {
-			return fmt.Errorf("failed to fetch base ref '%s' (%s): %w", baseRef, output, err)
+			return fmt.Errorf("failed to fetch base ref '%s' (%s): %w", branch, output, err)
 		}
-		return fmt.Errorf("failed to fetch base ref '%s': %w", baseRef, err)
+		return fmt.Errorf("failed to fetch base ref '%s': %w", branch, err)
 	}
 	return nil
 }
