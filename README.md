@@ -220,6 +220,8 @@ Every cycle fetches the PR head into a fresh temporary worktree, so local
 branch state never goes stale mid-watch. Review configuration is independently
 refreshed and snapshotted from the canonical remote default branch; neither the
 launch checkout nor the PR worktree supplies `.acr.yaml` or relative guidance.
+Trusted-configuration preparation failures are retried on the watch poll
+interval up to five consecutive attempts and do not consume the review budget.
 If the PR head moves while a review is running, the result is discarded instead
 of posted, and the new head is re-reviewed after the settle period.
 

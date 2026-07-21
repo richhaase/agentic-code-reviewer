@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
@@ -43,4 +44,11 @@ func exitCode(code domain.ExitCode) error {
 		return nil
 	}
 	return exitCodeError{code: code}
+}
+
+func contextualExit(ctx context.Context, fallback error) error {
+	if ctx.Err() != nil {
+		return exitCode(domain.ExitInterrupted)
+	}
+	return fallback
 }

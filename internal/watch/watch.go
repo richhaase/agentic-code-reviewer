@@ -2,9 +2,12 @@ package watch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
+
+var ErrRetryableCycle = errors.New("retryable watch cycle failure")
 
 type PostMode string
 
@@ -114,6 +117,8 @@ type loop struct {
 	requestArmed    bool
 	pendingApproval string
 	ciErrors        int
+	cycleErrors     int
+	retryPending    bool
 }
 
 func (l *loop) logf(format string, args ...any) {
@@ -215,6 +220,10 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 			if reason, done := l.checkMaxReviews(); done {
 				return reason
 			}
+		}
+
+		if trigger == "" && l.retryPending {
+			trigger = "retry after transient preparation failure"
 		}
 
 		if trigger == "" {
@@ -328,6 +337,7 @@ func (l *loop) tryApprove(ctx context.Context) (ExitReason, bool) {
 }
 
 func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, bool) {
+	l.retryPending = false
 	l.reviews++
 	l.logf("Review #%d/%d starting (%s)", l.reviews, l.cfg.MaxReviews, trigger)
 
@@ -343,9 +353,20 @@ func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, boo
 			l.logf("Reached maximum duration (%s) during review #%d; stopping.", l.cfg.MaxDuration, l.reviews)
 			return ReasonMaxDuration, true
 		}
+		if errors.Is(err, ErrRetryableCycle) {
+			l.reviews--
+			l.cycleErrors++
+			l.logf("Review preparation failed (%d/%d); will retry: %v", l.cycleErrors, maxConsecutivePollErrors, err)
+			if l.cycleErrors >= maxConsecutivePollErrors {
+				return ReasonError, true
+			}
+			l.retryPending = true
+			return 0, false
+		}
 		l.logf("Review #%d failed: %v", l.reviews, err)
 		return ReasonError, true
 	}
+	l.cycleErrors = 0
 
 	if c.Result != CycleStaleHead {
 		l.lastHead = head

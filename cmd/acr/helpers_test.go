@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -126,6 +127,20 @@ func TestExitCode_ReturnsErrorForOtherCodes(t *testing.T) {
 		if exitErr.code != code {
 			t.Errorf("expected code %d, got %d", code, exitErr.code)
 		}
+	}
+}
+
+func TestContextualExitUsesInterruptedCodeAfterCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := contextualExit(ctx, exitCode(domain.ExitError))
+	exitErr, ok := err.(exitCodeError)
+	if !ok {
+		t.Fatalf("error type = %T, want exitCodeError", err)
+	}
+	if exitErr.code != domain.ExitInterrupted {
+		t.Fatalf("exit code = %d, want %d", exitErr.code, domain.ExitInterrupted)
 	}
 }
 

@@ -3,6 +3,7 @@ package watch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -430,6 +431,49 @@ func TestStateErrorsAreToleratedThenFatal(t *testing.T) {
 	}
 	if stateCalls != 1+maxConsecutivePollErrors {
 		t.Errorf("state calls = %d, want %d", stateCalls, 1+maxConsecutivePollErrors)
+	}
+}
+
+func TestRetryableCycleFailureDoesNotConsumeReviewBudget(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa")}
+	deps := h.deps()
+	var reviewNumbers []int
+	deps.RunCycle = func(_ context.Context, reviewNum int, trigger string) (Cycle, error) {
+		reviewNumbers = append(reviewNumbers, reviewNum)
+		h.triggers = append(h.triggers, trigger)
+		if len(reviewNumbers) == 1 {
+			return Cycle{Result: CycleError}, fmt.Errorf("%w: network unavailable", ErrRetryableCycle)
+		}
+		return Cycle{Result: CycleLGTMApproved}, nil
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if len(reviewNumbers) != 2 || reviewNumbers[0] != 1 || reviewNumbers[1] != 1 {
+		t.Fatalf("review numbers = %v, want [1 1]", reviewNumbers)
+	}
+	if len(h.triggers) != 2 || h.triggers[1] != "retry after transient preparation failure" {
+		t.Fatalf("triggers = %v", h.triggers)
+	}
+}
+
+func TestRetryableCycleFailuresBecomeFatalAfterLimit(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa")}
+	deps := h.deps()
+	attempts := 0
+	deps.RunCycle = func(_ context.Context, _ int, _ string) (Cycle, error) {
+		attempts++
+		return Cycle{Result: CycleError}, fmt.Errorf("%w: network unavailable", ErrRetryableCycle)
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeComment), deps); reason != ReasonError {
+		t.Fatalf("reason = %v, want ReasonError", reason)
+	}
+	if attempts != maxConsecutivePollErrors {
+		t.Fatalf("attempts = %d, want %d", attempts, maxConsecutivePollErrors)
 	}
 }
 

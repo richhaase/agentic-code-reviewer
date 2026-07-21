@@ -125,11 +125,11 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 	configSource, err := resolveTrustedReviewConfigSource(ctx, noConfig)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "%v", err)
-		return exitCode(domain.ExitError)
+		return contextualExit(ctx, exitCode(domain.ExitError))
 	}
 	cfgResult, err := loadAndResolveConfig(ctx, cmd, worktreeResult{}, configSource, logger)
 	if err != nil {
-		return err
+		return contextualExit(ctx, err)
 	}
 	wcfg := watch.Config{
 		Mode:         mode,
@@ -197,7 +197,10 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode watch.PostMode, logger *terminal.Logger) (watch.Cycle, error) {
 	configSource, err := resolveTrustedReviewConfigSource(ctx, noConfig)
 	if err != nil {
-		return watch.Cycle{Result: watch.CycleError}, err
+		if ctx.Err() != nil {
+			return watch.Cycle{Result: watch.CycleError}, ctx.Err()
+		}
+		return watch.Cycle{Result: watch.CycleError}, fmt.Errorf("%w: trusted configuration refresh failed: %v", watch.ErrRetryableCycle, err)
 	}
 	wt, err := setupWorktree(ctx, cmd, logger)
 	if err != nil {
@@ -219,7 +222,10 @@ func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode
 
 	cfgResult, err := loadAndResolveConfig(ctx, cmd, wt, configSource, logger)
 	if err != nil {
-		return watch.Cycle{Result: watch.CycleError}, err
+		if ctx.Err() != nil {
+			return watch.Cycle{Result: watch.CycleError}, ctx.Err()
+		}
+		return watch.Cycle{Result: watch.CycleError}, fmt.Errorf("%w: trusted configuration load failed: %v", watch.ErrRetryableCycle, err)
 	}
 
 	outcome := &CycleOutcome{}

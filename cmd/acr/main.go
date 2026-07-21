@@ -456,7 +456,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 	configSource, err := resolveTrustedReviewConfigSource(ctx, noConfig)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "%v", err)
-		return exitCode(domain.ExitError)
+		return contextualExit(ctx, exitCode(domain.ExitError))
 	}
 
 	wt, err := setupWorktree(ctx, cmd, logger)
@@ -469,7 +469,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 
 	cfgResult, err := loadAndResolveConfig(ctx, cmd, wt, configSource, logger)
 	if err != nil {
-		return err
+		return contextualExit(ctx, err)
 	}
 
 	detectedPR := prNumber
