@@ -218,6 +218,15 @@ func (r *Runner) runReviewerWithRetry(ctx context.Context, reviewerID int) domai
 		if result.ExitCode == 0 {
 			return result
 		}
+		if ctx.Err() != nil || (result.Failure != nil && result.Failure.Kind == domain.ReviewerFailureInterrupted) {
+			if ctx.Err() != nil {
+				result.ExitCode = -1
+				result.TimedOut = false
+				result.AuthFailed = false
+				result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureInterrupted, Message: ctx.Err().Error()}
+			}
+			return result
+		}
 
 		if result.AuthFailed {
 			if r.logger != nil {

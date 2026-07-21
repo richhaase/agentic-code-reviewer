@@ -26,7 +26,9 @@ func TestNewSummarizer(t *testing.T) {
 
 func TestSummarizerCloseErrorWithNilLoggerDoesNotPanic(t *testing.T) {
 	s := NewSummarizer("codex", "", true, nil)
-	s.logCloseError(errors.New("cleanup failed"))
+	if err := s.handleCloseError(errors.New("cleanup failed")); err == nil {
+		t.Fatal("handleCloseError succeeded")
+	}
 }
 
 func TestBuildInput_DescriptionOnly(t *testing.T) {

@@ -74,7 +74,7 @@ type inputItem struct {
 	Reviewers []int  `json:"reviewers"`
 }
 
-func Summarize(ctx context.Context, agentName, model string, aggregated []domain.AggregatedFinding, verbose bool, logger *terminal.Logger) (*Result, error) {
+func Summarize(ctx context.Context, agentName, model string, aggregated []domain.AggregatedFinding, workDir string, verbose bool, logger *terminal.Logger) (*Result, error) {
 	start := time.Now()
 	if len(aggregated) == 0 {
 		return &Result{
@@ -87,10 +87,10 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 	if err != nil {
 		return nil, err
 	}
-	return summarize(ctx, ag, aggregated, verbose, logger)
+	return summarize(ctx, ag, aggregated, workDir, verbose, logger)
 }
 
-func SummarizeWithAgent(ctx context.Context, ag agent.Agent, aggregated []domain.AggregatedFinding) (*Result, error) {
+func SummarizeWithAgent(ctx context.Context, ag agent.Agent, aggregated []domain.AggregatedFinding, workDir string) (*Result, error) {
 	start := time.Now()
 	if len(aggregated) == 0 {
 		return &Result{Grouped: domain.GroupedFindings{}, Duration: time.Since(start)}, nil
@@ -98,10 +98,10 @@ func SummarizeWithAgent(ctx context.Context, ag agent.Agent, aggregated []domain
 	if ag == nil {
 		return nil, fmt.Errorf("summarizer agent is required")
 	}
-	return summarize(ctx, ag, aggregated, false, nil)
+	return summarize(ctx, ag, aggregated, workDir, false, nil)
 }
 
-func summarize(ctx context.Context, ag agent.Agent, aggregated []domain.AggregatedFinding, verbose bool, logger *terminal.Logger) (*Result, error) {
+func summarize(ctx context.Context, ag agent.Agent, aggregated []domain.AggregatedFinding, workDir string, verbose bool, logger *terminal.Logger) (*Result, error) {
 	start := time.Now()
 	agentName := ag.Name()
 
@@ -127,7 +127,7 @@ func summarize(ctx context.Context, ag agent.Agent, aggregated []domain.Aggregat
 		}, nil
 	}
 
-	execResult, err := ag.ExecuteSummary(ctx, groupPrompt, payload)
+	execResult, err := ag.ExecuteSummary(ctx, &agent.SummaryConfig{Prompt: groupPrompt, Input: payload, WorkDir: workDir})
 	if err != nil {
 
 		if ctx.Err() != nil {
@@ -168,7 +168,10 @@ func summarize(ctx context.Context, ag agent.Agent, aggregated []domain.Aggregat
 				Warnings: append([]string(nil), warnings...),
 			}, nil
 		}
-		return nil, err
+		return &Result{
+			Duration: time.Since(start),
+			Warnings: append([]string(nil), warnings...),
+		}, err
 	}
 
 	closeExecution()

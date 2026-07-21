@@ -19,12 +19,14 @@ import (
 )
 
 type mockReviewAgent struct {
-	name         string
-	review       func(context.Context, *agent.ReviewConfig) (string, int, string, error)
-	summary      func(context.Context, int64, string, []byte) (string, int, string, error)
-	reviewClose  error
-	summaryClose error
-	summaryCalls atomic.Int64
+	name                string
+	review              func(context.Context, *agent.ReviewConfig) (string, int, string, error)
+	summary             func(context.Context, int64, string, []byte) (string, int, string, error)
+	reviewClose         error
+	summaryClose        error
+	summaryCloseForCall func(int64) error
+	summaryConfigs      chan agent.SummaryConfig
+	summaryCalls        atomic.Int64
 }
 
 type reviewErrorReadCloser struct {
@@ -62,20 +64,27 @@ func (m *mockReviewAgent) ExecuteReview(ctx context.Context, config *agent.Revie
 	return executionResult(output, exitCode, stderr), nil
 }
 
-func (m *mockReviewAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (*agent.ExecutionResult, error) {
+func (m *mockReviewAgent) ExecuteSummary(ctx context.Context, config *agent.SummaryConfig) (*agent.ExecutionResult, error) {
 	call := m.summaryCalls.Add(1)
+	if m.summaryConfigs != nil {
+		m.summaryConfigs <- *config
+	}
 	output := codexSummaryOutput(`{"findings":[{"title":"Missing validation","summary":"Input is not checked.","messages":["src/service.go:10: missing validation"],"reviewer_count":2,"sources":[0]}],"info":[]}`)
 	exitCode := 0
 	stderr := ""
 	if m.summary != nil {
 		var err error
-		output, exitCode, stderr, err = m.summary(ctx, call, prompt, input)
+		output, exitCode, stderr, err = m.summary(ctx, call, config.Prompt, config.Input)
 		if err != nil {
 			return nil, err
 		}
 	}
-	if m.summaryClose != nil {
-		reader := &reviewErrorReadCloser{Reader: strings.NewReader(output), err: m.summaryClose}
+	closeErr := m.summaryClose
+	if m.summaryCloseForCall != nil {
+		closeErr = m.summaryCloseForCall(call)
+	}
+	if closeErr != nil {
+		reader := &reviewErrorReadCloser{Reader: strings.NewReader(output), err: closeErr}
 		return agent.NewExecutionResult(reader, func() int { return exitCode }, func() string { return stderr }), nil
 	}
 	return executionResult(output, exitCode, stderr), nil
@@ -302,6 +311,47 @@ func TestServicePinsEveryReviewerToCapturedRevisionAndDiff(t *testing.T) {
 		config := <-configs
 		if config.BaseRef != "base-object" || !config.DiffPrecomputed || config.Diff != "captured diff" {
 			t.Fatalf("reviewer received mutable review input: %#v", config)
+		}
+	}
+}
+
+func TestServiceScopesSummaryAndFalsePositiveExecutionToReviewTarget(t *testing.T) {
+	root := t.TempDir()
+	summaryConfigs := make(chan agent.SummaryConfig, 2)
+	reviewAgent := &mockReviewAgent{
+		name:           "codex",
+		summaryConfigs: summaryConfigs,
+		summary: func(_ context.Context, call int64, _ string, _ []byte) (string, int, string, error) {
+			if call == 1 {
+				return codexSummaryOutput(`{"findings":[{"title":"Maybe bug","summary":"Maybe.","messages":["src/service.go:10: missing validation"],"reviewer_count":2,"sources":[0]}],"info":[]}`), 0, "", nil
+			}
+			return codexSummaryOutput(`{"evaluations":[{"id":0,"fp_score":0,"reasoning":"actionable"}]}`), 0, "", nil
+		},
+	}
+	request := validRequest(t, root)
+	values := request.Configuration.Values()
+	values.FPFilterEnabled = true
+	configuration, err := domain.NewReviewConfiguration(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Configuration = configuration
+	service := serviceForTest(t, reviewAgent, "diff")
+
+	run, err := service.Run(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != domain.ReviewStatusCompleted {
+		t.Fatalf("run status = %q", run.Status)
+	}
+	if len(summaryConfigs) != 2 {
+		t.Fatalf("summary calls = %d, want 2", len(summaryConfigs))
+	}
+	for range 2 {
+		config := <-summaryConfigs
+		if config.WorkDir != root {
+			t.Fatalf("summary workdir = %q, want %q", config.WorkDir, root)
 		}
 	}
 }
@@ -740,9 +790,11 @@ func TestServiceCancelsAndJoinsPriorFeedbackOnEarlyFailure(t *testing.T) {
 		},
 	}
 	var feedbackStopped atomic.Bool
+	var completionClock atomic.Int64
 	feedbackProvider := func(ctx context.Context, _ domain.ReviewTarget, _, _ string) (string, error) {
 		<-ctx.Done()
 		feedbackStopped.Store(true)
+		completionClock.Store(2)
 		return "", ctx.Err()
 	}
 	request := validRequest(t, t.TempDir())
@@ -763,7 +815,13 @@ func TestServiceCancelsAndJoinsPriorFeedbackOnEarlyFailure(t *testing.T) {
 			completionBeforeFeedbackStopped.Store(true)
 		}
 	})
-	service := serviceForTest(t, reviewAgent, "diff", WithPriorFeedbackProvider(feedbackProvider))
+	service := serviceForTest(
+		t,
+		reviewAgent,
+		"diff",
+		WithPriorFeedbackProvider(feedbackProvider),
+		WithClock(func() time.Time { return time.Unix(completionClock.Load(), 0) }),
+	)
 
 	run, err := service.Run(context.Background(), request)
 	if err != nil {
@@ -777,6 +835,9 @@ func TestServiceCancelsAndJoinsPriorFeedbackOnEarlyFailure(t *testing.T) {
 	}
 	if completionBeforeFeedbackStopped.Load() {
 		t.Fatal("run completion was emitted before prior-feedback worker stopped")
+	}
+	if run.CompletedAt.Before(time.Unix(2, 0)) {
+		t.Fatalf("run completed at %s before feedback joined", run.CompletedAt)
 	}
 	feedbackStarted := -1
 	feedbackCompleted := -1
@@ -794,6 +855,59 @@ func TestServiceCancelsAndJoinsPriorFeedbackOnEarlyFailure(t *testing.T) {
 	}
 	if feedbackStarted < 0 || feedbackCompleted <= feedbackStarted || runCompleted <= feedbackCompleted {
 		t.Fatalf("feedback phase lifecycle is unbalanced: %#v", events)
+	}
+}
+
+func TestServiceRetainsPriorFeedbackWhenCleanupWarns(t *testing.T) {
+	var feedbackUsed atomic.Bool
+	reviewAgent := &mockReviewAgent{
+		name: "codex",
+		summary: func(_ context.Context, call int64, prompt string, _ []byte) (string, int, string, error) {
+			if call == 1 {
+				return codexSummaryOutput(`{"findings":[{"title":"Maybe bug","summary":"Maybe.","messages":["src/service.go:10: missing validation"],"reviewer_count":2,"sources":[0]}],"info":[]}`), 0, "", nil
+			}
+			if strings.Contains(prompt, "trusted prior feedback") {
+				feedbackUsed.Store(true)
+			}
+			return codexSummaryOutput(`{"evaluations":[{"id":0,"fp_score":0,"reasoning":"actionable"}]}`), 0, "", nil
+		},
+	}
+	request := validRequest(t, t.TempDir())
+	values := request.Configuration.Values()
+	values.FPFilterEnabled = true
+	values.PRFeedbackEnabled = true
+	configuration, err := domain.NewReviewConfiguration(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Configuration = configuration
+	request.Target.PullRequest = &domain.PullRequestKey{Host: "github.com", Owner: "owner", Repository: "repo", Number: 42}
+	var events []Event
+	request.Events = EventSinkFunc(func(event Event) { events = append(events, event) })
+	service := serviceForTest(
+		t,
+		reviewAgent,
+		"diff",
+		WithPriorFeedbackProvider(func(context.Context, domain.ReviewTarget, string, string) (string, error) {
+			return "trusted prior feedback", errors.New("feedback cleanup failed")
+		}),
+	)
+
+	run, err := service.Run(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != domain.ReviewStatusCompleted || !feedbackUsed.Load() {
+		t.Fatalf("prior feedback was discarded: status=%q used=%v", run.Status, feedbackUsed.Load())
+	}
+	found := false
+	for _, event := range events {
+		if event.Kind == EventWarning && event.Phase == domain.ReviewPhaseFeedback && strings.Contains(event.Message, "feedback cleanup failed") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("feedback cleanup warning event was not emitted")
 	}
 }
 
@@ -997,6 +1111,52 @@ func TestServiceRecordsFalsePositiveDisposition(t *testing.T) {
 	removed := run.FalsePositiveFilter.Removed[0]
 	if removed.ID != "finding-001" || removed.Disposition.FPScore != 95 || removed.Disposition.Reasoning != "not actionable" {
 		t.Fatalf("false-positive disposition incomplete: %#v", removed)
+	}
+}
+
+func TestServiceRetainsFalsePositiveCleanupWarningsHeadlessly(t *testing.T) {
+	reviewAgent := &mockReviewAgent{
+		name: "codex",
+		summary: func(_ context.Context, call int64, _ string, _ []byte) (string, int, string, error) {
+			if call == 1 {
+				return codexSummaryOutput(`{"findings":[{"title":"Maybe bug","summary":"Maybe.","messages":["src/service.go:10: missing validation"],"reviewer_count":2,"sources":[0]}],"info":[]}`), 0, "", nil
+			}
+			return codexSummaryOutput(`{"evaluations":[{"id":0,"fp_score":0,"reasoning":"actionable"}]}`), 0, "", nil
+		},
+		summaryCloseForCall: func(call int64) error {
+			if call == 2 {
+				return errors.New("FP temp cleanup failed")
+			}
+			return nil
+		},
+	}
+	request := validRequest(t, t.TempDir())
+	values := request.Configuration.Values()
+	values.FPFilterEnabled = true
+	configuration, err := domain.NewReviewConfiguration(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Configuration = configuration
+	var events []Event
+	request.Events = EventSinkFunc(func(event Event) { events = append(events, event) })
+	service := serviceForTest(t, reviewAgent, "diff")
+
+	run, err := service.Run(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(run.FalsePositiveFilter.Warnings) != 1 || !strings.Contains(run.FalsePositiveFilter.Warnings[0], "FP temp cleanup failed") {
+		t.Fatalf("FP cleanup warnings = %#v", run.FalsePositiveFilter.Warnings)
+	}
+	found := false
+	for _, event := range events {
+		if event.Kind == EventWarning && event.Phase == domain.ReviewPhaseFalsePositiveFilter && strings.Contains(event.Message, "FP temp cleanup failed") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("FP cleanup warning event was not emitted")
 	}
 }
 

@@ -344,6 +344,7 @@ type FalsePositiveFilterOutcome struct {
 	SkipReason string
 	EvalErrors int
 	Duration   time.Duration
+	Warnings   []string
 	Removed    []ReviewFinding
 }
 

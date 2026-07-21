@@ -253,7 +253,7 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 
 	emitter.emit(Event{Kind: EventPhaseStarted, Phase: domain.ReviewPhaseSummarization})
 	summaryCtx, summaryCancel := context.WithTimeout(ctx, values.SummarizerTimeout)
-	summaryResult, err := summarizer.SummarizeWithAgent(summaryCtx, summarizerAgent, run.AggregatedFindings)
+	summaryResult, err := summarizer.SummarizeWithAgent(summaryCtx, summarizerAgent, run.AggregatedFindings, run.Target.WorktreeRoot)
 	summaryCancel()
 	if summaryResult != nil {
 		run.Stats.SummarizerDuration = summaryResult.Duration
@@ -308,7 +308,7 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	if values.FPFilterEnabled && len(finalGrouped.Findings) > 0 {
 		emitter.emit(Event{Kind: EventPhaseStarted, Phase: domain.ReviewPhaseFalsePositiveFilter})
 		fpCtx, fpCancel := context.WithTimeout(ctx, values.FPFilterTimeout)
-		fpResult := fpfilter.NewWithAgent(summarizerAgent, values.FPThreshold).Apply(fpCtx, finalGrouped, priorFeedback, run.Stats.SuccessfulReviewers)
+		fpResult := fpfilter.NewWithAgent(summarizerAgent, values.FPThreshold, run.Target.WorktreeRoot).Apply(fpCtx, finalGrouped, priorFeedback, run.Stats.SuccessfulReviewers)
 		fpCancel()
 		if fpResult != nil {
 			finalGrouped = cloneGroupedFindings(fpResult.Grouped)
@@ -317,6 +317,11 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 			run.FalsePositiveFilter.SkipReason = fpResult.SkipReason
 			run.FalsePositiveFilter.EvalErrors = fpResult.EvalErrors
 			run.FalsePositiveFilter.Duration = fpResult.Duration
+			for _, warning := range fpResult.Warnings {
+				message := boundedSummaryEvidence(warning)
+				run.FalsePositiveFilter.Warnings = append(run.FalsePositiveFilter.Warnings, message)
+				emitter.emit(Event{Kind: EventWarning, Phase: domain.ReviewPhaseFalsePositiveFilter, Message: message})
+			}
 			run.Stats.FPFilterDuration = fpResult.Duration
 			run.Stats.FPFilteredCount = fpResult.RemovedCount
 			for _, removed := range fpResult.Removed {
@@ -492,8 +497,12 @@ func (t *priorFeedbackTask) receive(ctx context.Context, emitter *eventEmitter) 
 	}
 	emitter.emit(Event{Kind: EventPhaseCompleted, Phase: domain.ReviewPhaseFeedback})
 	if feedbackResult.err != nil {
-		emitter.emit(Event{Kind: EventWarning, Phase: domain.ReviewPhaseFeedback, Message: "prior feedback unavailable: " + feedbackResult.err.Error()})
-		return "", nil
+		message := "prior feedback unavailable: " + feedbackResult.err.Error()
+		if feedbackResult.summary != "" {
+			message = "prior feedback warning: " + feedbackResult.err.Error()
+		}
+		emitter.emit(Event{Kind: EventWarning, Phase: domain.ReviewPhaseFeedback, Message: message})
+		return feedbackResult.summary, nil
 	}
 	return feedbackResult.summary, nil
 }
@@ -524,6 +533,7 @@ func (s *Service) emitReviewerWarnings(stats domain.ReviewStats, emitter *eventE
 func (s *Service) complete(run *domain.ReviewRun, conclusion domain.ReviewConclusion, emitter *eventEmitter) *domain.ReviewRun {
 	run.Status = domain.ReviewStatusCompleted
 	run.Conclusion = conclusion
+	emitter.runBeforeCompletion()
 	run.CompletedAt = s.dependencies.now()
 	emitter.emit(Event{Kind: EventRunCompleted, Phase: domain.ReviewPhaseComplete, Status: run.Status, Conclusion: run.Conclusion})
 	emitter.close()
@@ -534,6 +544,7 @@ func (s *Service) fail(run *domain.ReviewRun, phase domain.ReviewPhase, err erro
 	run.Status = domain.ReviewStatusFailed
 	run.Conclusion = domain.ReviewConclusionNone
 	run.Failure = &domain.ReviewFailure{Phase: phase, Message: err.Error()}
+	emitter.runBeforeCompletion()
 	run.CompletedAt = s.dependencies.now()
 	emitter.emit(Event{Kind: EventRunCompleted, Phase: phase, Message: err.Error(), Status: run.Status})
 	emitter.close()
@@ -544,6 +555,7 @@ func (s *Service) interrupt(run *domain.ReviewRun, phase domain.ReviewPhase, err
 	run.Status = domain.ReviewStatusInterrupted
 	run.Conclusion = domain.ReviewConclusionNone
 	run.Failure = &domain.ReviewFailure{Phase: phase, Message: err.Error()}
+	emitter.runBeforeCompletion()
 	run.CompletedAt = s.dependencies.now()
 	emitter.emit(Event{Kind: EventRunCompleted, Phase: phase, Message: err.Error(), Status: run.Status})
 	emitter.close()

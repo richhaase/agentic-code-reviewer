@@ -11,5 +11,5 @@ type Agent interface {
 
 	ExecuteReview(ctx context.Context, config *ReviewConfig) (*ExecutionResult, error)
 
-	ExecuteSummary(ctx context.Context, prompt string, input []byte) (*ExecutionResult, error)
+	ExecuteSummary(ctx context.Context, config *SummaryConfig) (*ExecutionResult, error)
 }

@@ -87,7 +87,7 @@ func TestClaudeAgent_ExecuteSummary_ClaudeNotAvailable(t *testing.T) {
 	agent := NewClaudeAgent("")
 	ctx := context.Background()
 
-	result, err := agent.ExecuteSummary(ctx, "test prompt", []byte(`{"findings":[]}`))
+	result, err := agent.ExecuteSummary(ctx, &SummaryConfig{Prompt: "test prompt", Input: []byte(`{"findings":[]}`)})
 	if err == nil {
 		if result != nil {
 			result.Close()
@@ -329,7 +329,7 @@ func TestClaudeAgent_ExecuteSummary_Args(t *testing.T) {
 	agent := NewClaudeAgent("")
 	ctx := context.Background()
 
-	result, err := agent.ExecuteSummary(ctx, "summarize", []byte(`{"findings":[]}`))
+	result, err := agent.ExecuteSummary(ctx, &SummaryConfig{Prompt: "summarize", Input: []byte(`{"findings":[]}`), WorkDir: tmpDir})
 	if err != nil {
 		t.Fatalf("ExecuteSummary() error: %v", err)
 	}
@@ -353,5 +353,45 @@ func TestClaudeAgent_ExecuteSummary_Args(t *testing.T) {
 
 	if strings.Contains(outputStr, "ARG:--json-schema") {
 		t.Errorf("unexpected --json-schema in args — ExecuteSummary must not constrain output format")
+	}
+}
+
+func TestClaudeAgentExecuteSummaryUsesWorkDirForLargeInput(t *testing.T) {
+	workDir := t.TempDir()
+	binDir := t.TempDir()
+	mockScript := filepath.Join(binDir, "claude")
+	if err := os.WriteFile(mockScript, []byte("#!/bin/sh\ncat\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	originalPath := os.Getenv("PATH")
+	defer os.Setenv("PATH", originalPath)
+	os.Setenv("PATH", binDir+":"+originalPath)
+
+	claudeAgent := NewClaudeAgent("")
+	result, err := claudeAgent.ExecuteSummary(context.Background(), &SummaryConfig{
+		Prompt:  "summarize",
+		Input:   []byte(strings.Repeat("x", RefFileSizeThreshold+1)),
+		WorkDir: workDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := io.ReadAll(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(output), workDir) {
+		t.Fatalf("summary prompt did not reference workdir temp file: %q", output)
+	}
+	if err := result.Close(); err != nil {
+		t.Fatal(err)
+	}
+	matches, err := filepath.Glob(filepath.Join(workDir, ".acr-summary-input.json-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("summary temp files remain: %v", matches)
 	}
 }

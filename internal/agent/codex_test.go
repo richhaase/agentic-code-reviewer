@@ -87,7 +87,7 @@ func TestCodexAgent_ExecuteSummary_CodexNotAvailable(t *testing.T) {
 	agent := NewCodexAgent("")
 	ctx := context.Background()
 
-	result, err := agent.ExecuteSummary(ctx, "test prompt", []byte(`{"findings":[]}`))
+	result, err := agent.ExecuteSummary(ctx, &SummaryConfig{Prompt: "test prompt", Input: []byte(`{"findings":[]}`)})
 	if err == nil {
 		if result != nil {
 			result.Close()
@@ -103,7 +103,7 @@ func TestCodexAgent_ExecuteSummary_CodexNotAvailable(t *testing.T) {
 func TestCodexAgent_ExecuteReview_ArgsWithoutGuidance(t *testing.T) {
 	tmpDir := t.TempDir()
 	mockScript := filepath.Join(tmpDir, "codex")
-	err := os.WriteFile(mockScript, []byte("#!/bin/sh\nfor arg in \"$@\"; do echo \"$arg\"; done\n"), 0755)
+	err := os.WriteFile(mockScript, []byte("#!/bin/sh\npwd -P\nfor arg in \"$@\"; do echo \"$arg\"; done\n"), 0755)
 	if err != nil {
 		t.Fatalf("failed to write mock script: %v", err)
 	}
@@ -130,7 +130,15 @@ func TestCodexAgent_ExecuteReview_ArgsWithoutGuidance(t *testing.T) {
 		t.Fatalf("failed to read output: %v", err)
 	}
 
-	args := strings.Split(strings.TrimSpace(string(output)), "\n")
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	wantWorkDir, err := filepath.EvalSymlinks(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) == 0 || lines[0] != wantWorkDir {
+		t.Fatalf("summary workdir = %q, want %q", lines[0], wantWorkDir)
+	}
+	args := lines[1:]
 	expected := []string{"exec", "--json", "--color", "never", "review", "--base", "main"}
 	if len(args) != len(expected) {
 		t.Fatalf("got %d args %v, want %d args %v", len(args), args, len(expected), expected)
@@ -261,7 +269,7 @@ func TestCodexAgent_ExecuteSummary_Args(t *testing.T) {
 	agent := NewCodexAgent("")
 	ctx := context.Background()
 
-	result, err := agent.ExecuteSummary(ctx, "summarize this", []byte(`{"findings":[]}`))
+	result, err := agent.ExecuteSummary(ctx, &SummaryConfig{Prompt: "summarize this", Input: []byte(`{"findings":[]}`), WorkDir: tmpDir})
 	if err != nil {
 		t.Fatalf("ExecuteSummary() error: %v", err)
 	}

@@ -142,7 +142,10 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 			feedbackCtx, feedbackCancel := context.WithTimeout(ctx, opts.SummarizerTimeout)
 			defer feedbackCancel()
 
-			summary, err := summarizer.Summarize(feedbackCtx, opts.DetectedPR)
+			summary, err := summarizer.SummarizeFromDir(feedbackCtx, opts.DetectedPR, opts.WorkDir)
+			if summary != "" {
+				priorFeedback = summary
+			}
 			if err != nil {
 
 				if ctx.Err() != nil {
@@ -161,11 +164,17 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 			} else {
 				logger.Log("No relevant PR feedback found", terminal.StyleDim)
 			}
-			priorFeedback = summary
 		}()
 	}
 
 	results, wallClock, err := r.Run(ctx)
+	if !opts.Verbose {
+		for _, result := range results {
+			for _, warning := range result.Warnings {
+				logger.Logf(terminal.StyleWarning, "Reviewer #%d: %s", result.ReviewerID, warning.Message)
+			}
+		}
+	}
 	if err != nil {
 		if ctx.Err() != nil {
 			return domain.ExitInterrupted
@@ -194,9 +203,14 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 
 	summarizerCtx, summarizerCancel := context.WithTimeout(ctx, opts.SummarizerTimeout)
 	defer summarizerCancel()
-	summaryResult, err := summarizer.Summarize(summarizerCtx, opts.SummarizerAgent, opts.SummarizerModel, aggregated, opts.Verbose, logger)
+	summaryResult, err := summarizer.Summarize(summarizerCtx, opts.SummarizerAgent, opts.SummarizerModel, aggregated, opts.WorkDir, opts.Verbose, logger)
 	spinnerCancel()
 	<-spinnerDone
+	if summaryResult != nil && !opts.Verbose {
+		for _, warning := range summaryResult.Warnings {
+			logger.Log(warning, terminal.StyleWarning)
+		}
+	}
 
 	if err != nil {
 		if ctx.Err() != nil {
@@ -227,7 +241,7 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 
 		fpCtx, fpCancel := context.WithTimeout(ctx, opts.FPFilterTimeout)
 		defer fpCancel()
-		fpFilter := fpfilter.New(opts.SummarizerAgent, opts.SummarizerModel, opts.FPThreshold, opts.Verbose, logger)
+		fpFilter := fpfilter.New(opts.SummarizerAgent, opts.SummarizerModel, opts.FPThreshold, opts.WorkDir, opts.Verbose, logger)
 		fpResult := fpFilter.Apply(fpCtx, summaryResult.Grouped, priorFeedback, stats.SuccessfulReviewers)
 		fpSpinnerCancel()
 		<-fpSpinnerDone
@@ -236,6 +250,11 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 			logger.Logf(terminal.StyleWarning, "FP filter skipped (%s): showing all findings", fpResult.SkipReason)
 		}
 		if fpResult != nil {
+			if !opts.Verbose {
+				for _, warning := range fpResult.Warnings {
+					logger.Log(warning, terminal.StyleWarning)
+				}
+			}
 			summaryResult.Grouped = fpResult.Grouped
 			fpFilteredCount = fpResult.RemovedCount
 			stats.FPFilterDuration = fpResult.Duration

@@ -290,7 +290,7 @@ func (m *mockAgent) ExecuteReview(_ context.Context, _ *agent.ReviewConfig) (*ag
 	return nil, nil
 }
 
-func (m *mockAgent) ExecuteSummary(_ context.Context, _ string, _ []byte) (*agent.ExecutionResult, error) {
+func (m *mockAgent) ExecuteSummary(_ context.Context, _ *agent.SummaryConfig) (*agent.ExecutionResult, error) {
 	return nil, nil
 }
 
@@ -319,7 +319,7 @@ func (a *cleanupWarningAgent) ExecuteReview(context.Context, *agent.ReviewConfig
 	return agent.NewExecutionResult(reader, func() int { return 0 }, func() string { return "" }), nil
 }
 
-func (a *cleanupWarningAgent) ExecuteSummary(context.Context, string, []byte) (*agent.ExecutionResult, error) {
+func (a *cleanupWarningAgent) ExecuteSummary(context.Context, *agent.SummaryConfig) (*agent.ExecutionResult, error) {
 	return nil, nil
 }
 
@@ -339,7 +339,7 @@ func (m *mockStreamingAgent) ExecuteReview(_ context.Context, _ *agent.ReviewCon
 	return agent.NewExecutionResult(reader, func() int { return 0 }, func() string { return "" }), nil
 }
 
-func (m *mockStreamingAgent) ExecuteSummary(_ context.Context, _ string, _ []byte) (*agent.ExecutionResult, error) {
+func (m *mockStreamingAgent) ExecuteSummary(_ context.Context, _ *agent.SummaryConfig) (*agent.ExecutionResult, error) {
 	return nil, nil
 }
 
@@ -619,6 +619,7 @@ type mockAuthFailAgent struct {
 	exitCode  int
 	stdout    string
 	stderr    string
+	onReview  func()
 	callCount atomic.Int32
 }
 
@@ -627,13 +628,16 @@ func (m *mockAuthFailAgent) IsAvailable() error { return nil }
 
 func (m *mockAuthFailAgent) ExecuteReview(_ context.Context, _ *agent.ReviewConfig) (*agent.ExecutionResult, error) {
 	m.callCount.Add(1)
+	if m.onReview != nil {
+		m.onReview()
+	}
 	reader := &stringReadCloser{strings.NewReader(m.stdout)}
 	exitCode := m.exitCode
 	stderr := m.stderr
 	return agent.NewExecutionResult(reader, func() int { return exitCode }, func() string { return stderr }), nil
 }
 
-func (m *mockAuthFailAgent) ExecuteSummary(_ context.Context, _ string, _ []byte) (*agent.ExecutionResult, error) {
+func (m *mockAuthFailAgent) ExecuteSummary(_ context.Context, _ *agent.SummaryConfig) (*agent.ExecutionResult, error) {
 	return nil, nil
 }
 
@@ -733,5 +737,32 @@ func TestRunReviewerWithRetryMarksBackoffCancellationInterrupted(t *testing.T) {
 	}
 	if result.TimedOut || result.AuthFailed || result.ExitCode != -1 {
 		t.Fatalf("backoff cancellation was misclassified: %#v", result)
+	}
+}
+
+func TestRunReviewerWithRetrySkipsRetryEventAfterInterruption(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	retryEvents := 0
+	mock := &mockAuthFailAgent{name: "codex", exitCode: 1, stderr: "some error", onReview: cancel}
+	r := &Runner{
+		config: Config{
+			Reviewers: 1,
+			Retries:   1,
+			Timeout:   10 * time.Second,
+			Events: Events{
+				ReviewerRetrying: func(int, string, int, int, time.Duration) { retryEvents++ },
+			},
+		},
+		agents:    []agent.Agent{mock},
+		completed: new(atomic.Int32),
+	}
+
+	result := r.runReviewerWithRetry(ctx, 1)
+
+	if mock.callCount.Load() != 1 || retryEvents != 0 {
+		t.Fatalf("interrupted review retried: calls=%d retry-events=%d", mock.callCount.Load(), retryEvents)
+	}
+	if result.Failure == nil || result.Failure.Kind != domain.ReviewerFailureInterrupted || result.ExitCode != -1 {
+		t.Fatalf("interrupted result = %#v", result)
 	}
 }

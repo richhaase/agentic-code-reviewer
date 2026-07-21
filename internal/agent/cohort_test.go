@@ -322,6 +322,6 @@ func (m *mockAgent) ExecuteReview(_ context.Context, _ *ReviewConfig) (*Executio
 	return nil, nil
 }
 
-func (m *mockAgent) ExecuteSummary(_ context.Context, _ string, _ []byte) (*ExecutionResult, error) {
+func (m *mockAgent) ExecuteSummary(_ context.Context, _ *SummaryConfig) (*ExecutionResult, error) {
 	return nil, nil
 }

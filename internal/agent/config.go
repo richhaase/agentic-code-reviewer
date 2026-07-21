@@ -21,3 +21,9 @@ type ReviewConfig struct {
 
 	DiffPrecomputed bool
 }
+
+type SummaryConfig struct {
+	Prompt  string
+	Input   []byte
+	WorkDir string
+}
