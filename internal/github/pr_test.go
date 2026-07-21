@@ -442,6 +442,20 @@ func TestUrlMatches_DifferentRepos(t *testing.T) {
 	}
 }
 
+func TestMatchingFetchRemoteIgnoresCanonicalPushURLOnForkRemote(t *testing.T) {
+	remotes := []byte(strings.Join([]string{
+		"aaa-fork\thttps://github.com/user/fork.git (fetch)",
+		"aaa-fork\thttps://github.com/org/canonical.git (push)",
+		"zzz-canonical\thttps://github.com/org/canonical.git (fetch)",
+		"zzz-canonical\thttps://github.com/org/canonical.git (push)",
+	}, "\n"))
+
+	remote := matchingFetchRemote(remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")
+	if remote != "zzz-canonical" {
+		t.Fatalf("remote = %q, want zzz-canonical", remote)
+	}
+}
+
 func TestUrlMatches_CaseInsensitive(t *testing.T) {
 	result := urlMatches("https://github.com/OWNER/REPO", "https://github.com/owner/repo")
 	if !result {

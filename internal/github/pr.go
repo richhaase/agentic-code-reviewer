@@ -110,21 +110,29 @@ func FindRepoRemote(ctx context.Context, repositoryRoot string) (string, error) 
 		return "", fmt.Errorf("failed to list repository remotes: %w", err)
 	}
 
+	remote := matchingFetchRemote(remoteOut, repoInfo.URL, repoInfo.SSHUrl)
+	if remote != "" {
+		return remote, nil
+	}
+
+	return "", fmt.Errorf("no configured remote matches the GitHub repository")
+}
+
+func matchingFetchRemote(remoteOut []byte, repositoryURL, repositorySSHURL string) string {
 	lines := strings.Split(string(remoteOut), "\n")
 	for _, line := range lines {
 		fields := strings.Fields(line)
-		if len(fields) < 2 {
+		if len(fields) < 3 || fields[2] != "(fetch)" {
 			continue
 		}
 		remoteName := fields[0]
 		remoteURL := fields[1]
 
-		if urlMatches(remoteURL, repoInfo.URL) || urlMatches(remoteURL, repoInfo.SSHUrl) {
-			return remoteName, nil
+		if urlMatches(remoteURL, repositoryURL) || urlMatches(remoteURL, repositorySSHURL) {
+			return remoteName
 		}
 	}
-
-	return "", fmt.Errorf("no configured remote matches the GitHub repository")
+	return ""
 }
 
 func urlMatches(url1, url2 string) bool {
