@@ -155,8 +155,10 @@ worktree is never allowed to configure the review evaluating that code.
 Repository-relative inputs such as `guidance_file` are read from the same
 immutable canonical commit. Invalid trusted configuration or an unavailable
 trusted relative input stops the review rather than falling back to target
-files. Use `--no-config` to explicitly disable repository configuration while
-retaining CLI and environment overrides.
+files. Paths declared by repository configuration must remain relative to that
+repository; absolute and escaping paths are rejected. Repository symlinks are
+resolved only within the same immutable commit. Use `--no-config` to explicitly
+disable repository configuration while retaining CLI and environment overrides.
 
 `--no-fetch` controls fetching the base ref used to produce the review diff.
 It does not disable the independent refresh that selects and snapshots trusted
@@ -222,6 +224,8 @@ refreshed and snapshotted from the canonical remote default branch; neither the
 launch checkout nor the PR worktree supplies `.acr.yaml` or relative guidance.
 Trusted-configuration preparation failures are retried on the watch poll
 interval up to five consecutive attempts and do not consume the review budget.
+Startup uses the explicit `--poll-interval`, or the default interval until the
+trusted configuration snapshot is available.
 If the PR head moves while a review is running, the result is discarded instead
 of posted, and the new head is re-reviewed after the settle period.
 

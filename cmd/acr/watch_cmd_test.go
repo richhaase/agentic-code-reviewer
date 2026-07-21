@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"testing"
+	"time"
 
+	"github.com/richhaase/agentic-code-reviewer/internal/config"
 	"github.com/richhaase/agentic-code-reviewer/internal/watch"
 )
 
@@ -66,5 +70,94 @@ func TestWatchRejectsPositionalArgs(t *testing.T) {
 	cmd := newWatchCmd()
 	if err := cmd.ValidateArgs([]string{"123"}); err == nil {
 		t.Error("watch must reject positional args; a bare PR number would be silently ignored")
+	}
+}
+
+func TestInitialTrustedConfigPreparationRetries(t *testing.T) {
+	attempts := 0
+	sleeps := 0
+	pollInterval := 30 * time.Second
+
+	source, err := resolveInitialTrustedReviewConfigSource(
+		context.Background(),
+		pollInterval,
+		func(context.Context) (config.Source, error) {
+			attempts++
+			if attempts < 3 {
+				return nil, errors.New("remote unavailable")
+			}
+			return config.DefaultsSource{Reason: "test"}, nil
+		},
+		func(_ context.Context, duration time.Duration) error {
+			if duration != pollInterval {
+				t.Fatalf("sleep duration = %s", duration)
+			}
+			sleeps++
+			return nil
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 3 || sleeps != 2 {
+		t.Fatalf("attempts = %d, sleeps = %d", attempts, sleeps)
+	}
+	result, err := source.LoadWithWarnings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Source.Kind != config.SourceKindDefaults {
+		t.Fatalf("source = %+v", result.Source)
+	}
+}
+
+func TestInitialTrustedConfigPreparationStopsAfterLimit(t *testing.T) {
+	attempts := 0
+	sleeps := 0
+
+	_, err := resolveInitialTrustedReviewConfigSource(
+		context.Background(),
+		time.Second,
+		func(context.Context) (config.Source, error) {
+			attempts++
+			return nil, errors.New("remote unavailable")
+		},
+		func(context.Context, time.Duration) error {
+			sleeps++
+			return nil
+		},
+		nil,
+	)
+	if err == nil {
+		t.Fatal("resolveInitialTrustedReviewConfigSource succeeded")
+	}
+	if attempts != maxInitialTrustedConfigAttempts || sleeps != maxInitialTrustedConfigAttempts-1 {
+		t.Fatalf("attempts = %d, sleeps = %d", attempts, sleeps)
+	}
+}
+
+func TestInitialTrustedConfigPreparationHonorsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	attempts := 0
+
+	_, err := resolveInitialTrustedReviewConfigSource(
+		ctx,
+		time.Second,
+		func(context.Context) (config.Source, error) {
+			attempts++
+			return nil, errors.New("remote unavailable")
+		},
+		func(ctx context.Context, _ time.Duration) error {
+			cancel()
+			return ctx.Err()
+		},
+		nil,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v", err)
+	}
+	if attempts != 1 {
+		t.Fatalf("attempts = %d", attempts)
 	}
 }

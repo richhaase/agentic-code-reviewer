@@ -140,6 +140,42 @@ func TestRepositoryRevisionSourceFailsClosedForMissingTrustedGuidance(t *testing
 	}
 }
 
+func TestRepositoryRevisionSourceResolvesTrustedSymlinksWithinRevision(t *testing.T) {
+	ctx := context.Background()
+	repositoryRoot := newConfigSourceRepository(t, "", map[string]string{
+		"config/trusted.yaml":     "reviewers: 9\nguidance_file: guidance/review.md\n",
+		"guidance/trusted-review": "trusted guidance",
+	})
+	if err := os.Symlink("config/trusted.yaml", filepath.Join(repositoryRoot, ConfigFileName)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("trusted-review", filepath.Join(repositoryRoot, "guidance", "review.md")); err != nil {
+		t.Fatal(err)
+	}
+	runConfigGit(t, repositoryRoot, "add", ".")
+	runConfigGit(t, repositoryRoot, "commit", "-m", "trusted symlinks")
+
+	source, err := NewRepositoryRevisionSource(ctx, repositoryRoot, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := source.LoadWithWarnings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved := Resolve(result.Config, EnvState{}, FlagState{}, ResolvedConfig{})
+	if resolved.Reviewers != 9 {
+		t.Fatalf("Reviewers = %d", resolved.Reviewers)
+	}
+	guidance, err := ResolveGuidanceFromLoadResult(ctx, result, EnvState{}, FlagState{}, ResolvedConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if guidance != "trusted guidance" {
+		t.Fatalf("guidance = %q", guidance)
+	}
+}
+
 func TestResolveTrustedSourceUsesExplicitRepositoryOutsideCurrentDirectory(t *testing.T) {
 	ctx := context.Background()
 	repositoryRoot := newConfigSourceRepository(t, "reviewers: 11\n", nil)

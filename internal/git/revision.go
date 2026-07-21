@@ -1,6 +1,7 @@
 package git
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 )
 
 var ErrPathNotFoundAtRevision = errors.New("path not found at revision")
+
+const maxRepositorySymlinkDepth = 32
 
 func RemoteExists(ctx context.Context, repoRoot, remote string) (bool, error) {
 	remotes, err := Remotes(ctx, repoRoot)
@@ -110,28 +113,82 @@ func ReadFileAtCommit(ctx context.Context, repoRoot, commit, repositoryPath stri
 	if err != nil {
 		return nil, err
 	}
+	return readFileAtCommit(ctx, repoRoot, commit, cleanPath, 0, make(map[string]struct{}))
+}
 
-	object := commit + ":" + cleanPath
-	check := exec.CommandContext(ctx, "git", "ls-tree", "-z", commit, "--", cleanPath)
+func readFileAtCommit(ctx context.Context, repoRoot, commit, repositoryPath string, depth int, visited map[string]struct{}) ([]byte, error) {
+	if depth > maxRepositorySymlinkDepth {
+		return nil, fmt.Errorf("repository path %q exceeds the symlink resolution limit", repositoryPath)
+	}
+	if _, exists := visited[repositoryPath]; exists {
+		return nil, fmt.Errorf("repository path %q contains a symlink cycle", repositoryPath)
+	}
+	visited[repositoryPath] = struct{}{}
+
+	check := exec.CommandContext(ctx, "git", "ls-tree", "-z", commit, "--", repositoryPath)
 	check.Dir = repoRoot
 	entry, err := check.Output()
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, fmt.Errorf("failed to inspect %s at %s: %w", cleanPath, commit, err)
+		return nil, fmt.Errorf("failed to inspect %s at %s: %w", repositoryPath, commit, err)
 	}
 	if len(entry) == 0 {
-		return nil, fmt.Errorf("%w: %s at %s", ErrPathNotFoundAtRevision, cleanPath, commit)
+		return nil, fmt.Errorf("%w: %s at %s", ErrPathNotFoundAtRevision, repositoryPath, commit)
 	}
 
+	mode, err := treeEntryMode(entry)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect %s at %s: %w", repositoryPath, commit, err)
+	}
+	if mode != "100644" && mode != "100755" && mode != "120000" {
+		return nil, fmt.Errorf("repository path %q at %s is not a regular file or symlink", repositoryPath, commit)
+	}
+
+	object := commit + ":" + repositoryPath
 	cmd := exec.CommandContext(ctx, "git", "cat-file", "blob", object)
 	cmd.Dir = repoRoot
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("failed to read %s at %s: %w", cleanPath, commit, err)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("failed to read %s at %s: %w", repositoryPath, commit, err)
 	}
-	return out, nil
+	if mode != "120000" {
+		return out, nil
+	}
+
+	target := string(out)
+	if target == "" {
+		return nil, fmt.Errorf("repository symlink %q at %s has an empty target", repositoryPath, commit)
+	}
+	normalizedTarget := strings.ReplaceAll(target, "\\", "/")
+	if isAbsoluteRepositoryPath(normalizedTarget) {
+		return nil, fmt.Errorf("repository symlink %q at %s has an absolute target %q", repositoryPath, commit, target)
+	}
+	resolvedTarget, err := cleanRepositoryPath(path.Join(path.Dir(repositoryPath), normalizedTarget))
+	if err != nil {
+		return nil, fmt.Errorf("repository symlink %q at %s is invalid: %w", repositoryPath, commit, err)
+	}
+	return readFileAtCommit(ctx, repoRoot, commit, resolvedTarget, depth+1, visited)
+}
+
+func treeEntryMode(entry []byte) (string, error) {
+	if len(entry) == 0 || entry[len(entry)-1] != 0 || bytes.Count(entry, []byte{0}) != 1 {
+		return "", fmt.Errorf("unexpected git ls-tree output")
+	}
+	record := entry[:len(entry)-1]
+	metadata, _, found := bytes.Cut(record, []byte{'\t'})
+	if !found {
+		return "", fmt.Errorf("unexpected git ls-tree output")
+	}
+	fields := bytes.Fields(metadata)
+	if len(fields) != 3 || string(fields[1]) != "blob" {
+		return "", fmt.Errorf("unexpected git ls-tree entry")
+	}
+	return string(fields[0]), nil
 }
 
 func isObjectID(value string) bool {
@@ -157,13 +214,26 @@ func cleanRepositoryPath(repositoryPath string) (string, error) {
 	if repositoryPath == "" {
 		return "", fmt.Errorf("repository path must not be empty")
 	}
-	if strings.HasPrefix(repositoryPath, "/") {
+	normalizedPath := strings.ReplaceAll(repositoryPath, "\\", "/")
+	if isAbsoluteRepositoryPath(normalizedPath) {
 		return "", fmt.Errorf("repository path %q must be relative", repositoryPath)
 	}
 
-	cleanPath := path.Clean(strings.ReplaceAll(repositoryPath, "\\", "/"))
+	cleanPath := path.Clean(normalizedPath)
 	if cleanPath == "." || cleanPath == ".." || strings.HasPrefix(cleanPath, "../") {
 		return "", fmt.Errorf("repository path %q escapes the repository", repositoryPath)
 	}
 	return cleanPath, nil
+}
+
+func isAbsoluteRepositoryPath(repositoryPath string) bool {
+	return strings.HasPrefix(repositoryPath, "/") || hasWindowsVolumePrefix(repositoryPath)
+}
+
+func hasWindowsVolumePrefix(repositoryPath string) bool {
+	if len(repositoryPath) < 2 || repositoryPath[1] != ':' {
+		return false
+	}
+	letter := repositoryPath[0]
+	return letter >= 'a' && letter <= 'z' || letter >= 'A' && letter <= 'Z'
 }

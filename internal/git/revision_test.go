@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -92,6 +93,83 @@ func TestReadFileAtCommitDoesNotTreatRepositoryFailureAsMissingPath(t *testing.T
 	}
 	if errors.Is(err, ErrPathNotFoundAtRevision) {
 		t.Fatalf("ReadFileAtCommit error = %v", err)
+	}
+}
+
+func TestReadFileAtCommitFollowsSymlinkWithinRevision(t *testing.T) {
+	ctx := context.Background()
+	repositoryRoot := setupTestRepo(t)
+	guidancePath := filepath.Join(repositoryRoot, "guidance.md")
+	linkPath := filepath.Join(repositoryRoot, "review-guidance.md")
+	if err := os.WriteFile(guidancePath, []byte("trusted guidance"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("guidance.md", linkPath); err != nil {
+		t.Fatal(err)
+	}
+	commitRevisionFiles(t, repositoryRoot)
+
+	commit, err := ResolveCommit(ctx, repositoryRoot, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := ReadFileAtCommit(ctx, repositoryRoot, commit, "review-guidance.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "trusted guidance" {
+		t.Fatalf("ReadFileAtCommit() = %q", content)
+	}
+}
+
+func TestReadFileAtCommitRejectsEscapingAndCyclicSymlinks(t *testing.T) {
+	ctx := context.Background()
+	repositoryRoot := setupTestRepo(t)
+	if err := os.Symlink("../outside.md", filepath.Join(repositoryRoot, "escaping.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("cycle-b.md", filepath.Join(repositoryRoot, "cycle-a.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("cycle-a.md", filepath.Join(repositoryRoot, "cycle-b.md")); err != nil {
+		t.Fatal(err)
+	}
+	commitRevisionFiles(t, repositoryRoot)
+
+	commit, err := ResolveCommit(ctx, repositoryRoot, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadFileAtCommit(ctx, repositoryRoot, commit, "escaping.md"); err == nil || !strings.Contains(err.Error(), "escapes the repository") {
+		t.Fatalf("escaping symlink error = %v", err)
+	}
+	if _, err := ReadFileAtCommit(ctx, repositoryRoot, commit, "cycle-a.md"); err == nil || !strings.Contains(err.Error(), "symlink cycle") {
+		t.Fatalf("cyclic symlink error = %v", err)
+	}
+}
+
+func TestReadFileAtCommitRejectsCrossPlatformAbsolutePaths(t *testing.T) {
+	ctx := context.Background()
+	repositoryRoot := setupTestRepo(t)
+	commit, err := ResolveCommit(ctx, repositoryRoot, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, repositoryPath := range []string{"/tmp/guidance.md", `C:\guidance.md`, `d:/guidance.md`} {
+		if _, err := ReadFileAtCommit(ctx, repositoryRoot, commit, repositoryPath); err == nil || !strings.Contains(err.Error(), "must be relative") {
+			t.Errorf("ReadFileAtCommit(%q) error = %v", repositoryPath, err)
+		}
+	}
+}
+
+func commitRevisionFiles(t *testing.T, repositoryRoot string) {
+	t.Helper()
+	for _, args := range [][]string{{"add", "."}, {"commit", "-m", "revision files"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repositoryRoot
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v failed: %v\n%s", args, err, out)
+		}
 	}
 }
 
