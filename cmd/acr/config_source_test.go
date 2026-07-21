@@ -154,7 +154,7 @@ func TestResolveTrustedReviewConfigSourceAllowsExplicitExclusion(t *testing.T) {
 	}
 }
 
-func TestPrepareReviewBaseDoesNotFetchWhenDisabled(t *testing.T) {
+func TestPrepareReviewBaseQualifiesWithoutFetchingWhenDisabled(t *testing.T) {
 	root := t.TempDir()
 	seedRoot := filepath.Join(root, "seed")
 	remoteRoot := filepath.Join(root, "origin.git")
@@ -178,8 +178,8 @@ func TestPrepareReviewBaseDoesNotFetchWhenDisabled(t *testing.T) {
 	runConfigSourceGit(t, seedRoot, "push", "origin", "main")
 
 	resolved := config.ResolvedConfig{Base: "main", Fetch: false}
-	prepareReviewBase(context.Background(), worktreeResult{prRemote: "origin", prRepoRoot: repositoryRoot}, &resolved, terminal.NewLogger())
-	if resolved.Base != "main" {
+	prepareReviewBase(context.Background(), worktreeResult{prRemote: "origin", prRepoRoot: repositoryRoot, baseAutoDetected: true}, &resolved, terminal.NewLogger())
+	if resolved.Base != "origin/main" {
 		t.Fatalf("base = %q", resolved.Base)
 	}
 	if got := configSourceGitOutput(t, repositoryRoot, "rev-parse", "refs/remotes/origin/main"); got != trackingRevision {
