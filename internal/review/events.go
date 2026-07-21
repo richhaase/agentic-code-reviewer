@@ -46,13 +46,14 @@ func (f EventSinkFunc) HandleReviewEvent(event Event) {
 }
 
 type eventEmitter struct {
-	mu       sync.Mutex
-	sink     EventSink
-	now      func() time.Time
-	runID    string
-	sequence uint64
-	closed   bool
-	open     []domain.ReviewPhase
+	mu               sync.Mutex
+	sink             EventSink
+	now              func() time.Time
+	runID            string
+	sequence         uint64
+	closed           bool
+	open             []domain.ReviewPhase
+	beforeCompletion func()
 }
 
 func newEventEmitter(sink EventSink, now func() time.Time, runID string) *eventEmitter {
@@ -60,7 +61,13 @@ func newEventEmitter(sink EventSink, now func() time.Time, runID string) *eventE
 }
 
 func (e *eventEmitter) emit(event Event) {
-	if e == nil || e.sink == nil {
+	if e == nil {
+		return
+	}
+	if event.Kind == EventRunCompleted {
+		e.runBeforeCompletion()
+	}
+	if e.sink == nil {
 		return
 	}
 	e.mu.Lock()
@@ -74,6 +81,25 @@ func (e *eventEmitter) emit(event Event) {
 		}
 	}
 	e.emitLocked(event)
+}
+
+func (e *eventEmitter) setBeforeCompletion(fn func()) {
+	if e == nil {
+		return
+	}
+	e.mu.Lock()
+	e.beforeCompletion = fn
+	e.mu.Unlock()
+}
+
+func (e *eventEmitter) runBeforeCompletion() {
+	e.mu.Lock()
+	fn := e.beforeCompletion
+	e.beforeCompletion = nil
+	e.mu.Unlock()
+	if fn != nil {
+		fn()
+	}
 }
 
 func (e *eventEmitter) emitLocked(event Event) {

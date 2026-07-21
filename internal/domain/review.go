@@ -320,6 +320,7 @@ type SummarizerOutcome struct {
 	Stderr           string
 	DiagnosticOutput string
 	Duration         time.Duration
+	Warnings         []string
 }
 
 type ReviewFindingKind string

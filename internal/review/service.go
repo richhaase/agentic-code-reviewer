@@ -179,6 +179,13 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	if err != nil {
 		return s.finishFromError(run, domain.ReviewPhaseDiff, err, ctx, emitter), nil
 	}
+	confirmedRevision, err := s.dependencies.revisions(ctx, run.Target)
+	if err != nil {
+		return s.finishFromError(run, domain.ReviewPhaseDiff, err, ctx, emitter), nil
+	}
+	if err := validateResolvedRevision(run.Target.Revision, confirmedRevision); err != nil {
+		return s.fail(run, domain.ReviewPhaseDiff, err, emitter), nil
+	}
 	emitter.emit(Event{Kind: EventPhaseCompleted, Phase: domain.ReviewPhaseDiff})
 	if err := ctx.Err(); err != nil {
 		return s.interrupt(run, domain.ReviewPhaseDiff, err, emitter), nil
@@ -189,7 +196,7 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 
 	feedbackTask := s.startPriorFeedback(ctx, run.Target, values, emitter)
 	if feedbackTask != nil {
-		defer feedbackTask.stop()
+		emitter.setBeforeCompletion(feedbackTask.stop)
 	}
 
 	emitter.emit(Event{Kind: EventPhaseStarted, Phase: domain.ReviewPhaseReviewers})
@@ -254,6 +261,11 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 			ExitCode: summaryResult.ExitCode,
 			Stderr:   boundedSummaryEvidence(summaryResult.Stderr),
 			Duration: summaryResult.Duration,
+		}
+		for _, warning := range summaryResult.Warnings {
+			message := boundedSummaryEvidence(warning)
+			run.Summarizer.Warnings = append(run.Summarizer.Warnings, message)
+			emitter.emit(Event{Kind: EventWarning, Phase: domain.ReviewPhaseSummarization, Message: message})
 		}
 		if summaryResult.ExitCode != 0 {
 			run.Summarizer.DiagnosticOutput = boundedSummaryEvidence(summaryResult.RawOut)

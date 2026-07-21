@@ -71,9 +71,7 @@ func (s *Summarizer) summarizeContext(ctx context.Context, prCtx *PRContext) (st
 		return "", fmt.Errorf("agent execution failed: %w", err)
 	}
 	defer func() {
-		if err := execResult.Close(); err != nil && s.verbose {
-			s.logger.Logf(terminal.StyleDim, "feedback close error (non-fatal): %v", err)
-		}
+		s.logCloseError(execResult.Close())
 	}()
 
 	output, err := io.ReadAll(execResult)
@@ -93,6 +91,12 @@ func (s *Summarizer) summarizeContext(ctx context.Context, prCtx *PRContext) (st
 	}
 
 	return summary, nil
+}
+
+func (s *Summarizer) logCloseError(err error) {
+	if err != nil && s.verbose && s.logger != nil {
+		s.logger.Logf(terminal.StyleDim, "feedback close error (non-fatal): %v", err)
+	}
 }
 
 func (s *Summarizer) buildInput(prCtx *PRContext) string {

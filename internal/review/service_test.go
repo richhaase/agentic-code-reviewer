@@ -23,6 +23,7 @@ type mockReviewAgent struct {
 	review       func(context.Context, *agent.ReviewConfig) (string, int, string, error)
 	summary      func(context.Context, int64, string, []byte) (string, int, string, error)
 	reviewClose  error
+	summaryClose error
 	summaryCalls atomic.Int64
 }
 
@@ -72,6 +73,10 @@ func (m *mockReviewAgent) ExecuteSummary(ctx context.Context, prompt string, inp
 		if err != nil {
 			return nil, err
 		}
+	}
+	if m.summaryClose != nil {
+		reader := &reviewErrorReadCloser{Reader: strings.NewReader(output), err: m.summaryClose}
+		return agent.NewExecutionResult(reader, func() int { return exitCode }, func() string { return stderr }), nil
 	}
 	return executionResult(output, exitCode, stderr), nil
 }
@@ -360,6 +365,34 @@ func TestServiceEmitsReviewerCleanupWarningsHeadlessly(t *testing.T) {
 	}
 }
 
+func TestServiceRetainsSummarizerCleanupWarningsHeadlessly(t *testing.T) {
+	reviewAgent := &mockReviewAgent{name: "codex", summaryClose: errors.New("temporary summary cleanup failed")}
+	service := serviceForTest(t, reviewAgent, "diff")
+	request := validRequest(t, t.TempDir())
+	var events []Event
+	request.Events = EventSinkFunc(func(event Event) { events = append(events, event) })
+
+	run, err := service.Run(context.Background(), request)
+	if err != nil {
+		t.Fatalf("run review: %v", err)
+	}
+	if run.Status != domain.ReviewStatusCompleted || run.Conclusion != domain.ReviewConclusionFindings {
+		t.Fatalf("cleanup warning changed run outcome: %#v", run)
+	}
+	if len(run.Summarizer.Warnings) != 1 || !strings.Contains(run.Summarizer.Warnings[0], "summary cleanup failed") {
+		t.Fatalf("summarizer cleanup warning missing: %#v", run.Summarizer)
+	}
+	warningEvents := 0
+	for _, event := range events {
+		if event.Kind == EventWarning && event.Phase == domain.ReviewPhaseSummarization && event.Message == run.Summarizer.Warnings[0] {
+			warningEvents++
+		}
+	}
+	if warningEvents != 1 {
+		t.Fatalf("summarizer cleanup warning events = %d, events=%#v", warningEvents, events)
+	}
+}
+
 func TestServiceDefaultDiffIncludesStagedAndUnstagedChanges(t *testing.T) {
 	root := t.TempDir()
 	runGitForServiceTest(t, root, "init")
@@ -401,6 +434,35 @@ func TestServiceDefaultDiffIncludesStagedAndUnstagedChanges(t *testing.T) {
 	}
 	if run.Status != domain.ReviewStatusCompleted || run.Conclusion != domain.ReviewConclusionFindings {
 		t.Fatalf("staged and unstaged changes were not reviewed: status=%q conclusion=%q failure=%#v", run.Status, run.Conclusion, run.Failure)
+	}
+}
+
+func TestServiceFailsWhenHeadMovesDuringDiffCapture(t *testing.T) {
+	reviewAgent := &mockReviewAgent{name: "codex"}
+	var revisionCalls atomic.Int32
+	service := serviceForTest(t, reviewAgent, "diff", WithRevisionProvider(func(_ context.Context, target domain.ReviewTarget) (domain.RevisionEvidence, error) {
+		revision := target.Revision
+		revision.BaseObjectID = "base-object"
+		if revisionCalls.Add(1) == 1 {
+			revision.HeadObjectID = "head-a"
+		} else {
+			revision.HeadObjectID = "head-b"
+		}
+		return revision, nil
+	}))
+
+	run, err := service.Run(context.Background(), validRequest(t, t.TempDir()))
+	if err != nil {
+		t.Fatalf("run review: %v", err)
+	}
+	if run.Status != domain.ReviewStatusFailed || run.Failure == nil || run.Failure.Phase != domain.ReviewPhaseDiff {
+		t.Fatalf("moving head was accepted: %#v", run)
+	}
+	if !strings.Contains(run.Failure.Message, "review head changed") {
+		t.Fatalf("failure = %#v", run.Failure)
+	}
+	if len(run.ReviewerResults) != 0 || reviewAgent.summaryCalls.Load() != 0 {
+		t.Fatalf("review continued after head movement: %#v", run)
 	}
 }
 
@@ -694,7 +756,13 @@ func TestServiceCancelsAndJoinsPriorFeedbackOnEarlyFailure(t *testing.T) {
 	request.Configuration = configuration
 	request.Target.PullRequest = &domain.PullRequestKey{Host: "github.com", Owner: "owner", Repository: "repo", Number: 42}
 	var events []Event
-	request.Events = EventSinkFunc(func(event Event) { events = append(events, event) })
+	var completionBeforeFeedbackStopped atomic.Bool
+	request.Events = EventSinkFunc(func(event Event) {
+		events = append(events, event)
+		if event.Kind == EventRunCompleted && !feedbackStopped.Load() {
+			completionBeforeFeedbackStopped.Store(true)
+		}
+	})
 	service := serviceForTest(t, reviewAgent, "diff", WithPriorFeedbackProvider(feedbackProvider))
 
 	run, err := service.Run(context.Background(), request)
@@ -706,6 +774,9 @@ func TestServiceCancelsAndJoinsPriorFeedbackOnEarlyFailure(t *testing.T) {
 	}
 	if !feedbackStopped.Load() {
 		t.Fatal("prior-feedback worker remained active after service return")
+	}
+	if completionBeforeFeedbackStopped.Load() {
+		t.Fatal("run completion was emitted before prior-feedback worker stopped")
 	}
 	feedbackStarted := -1
 	feedbackCompleted := -1

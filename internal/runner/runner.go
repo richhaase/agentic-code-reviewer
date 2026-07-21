@@ -246,6 +246,10 @@ func (r *Runner) runReviewerWithRetry(ctx context.Context, reviewerID int) domai
 			select {
 			case <-time.After(delay):
 			case <-ctx.Done():
+				result.ExitCode = -1
+				result.TimedOut = false
+				result.AuthFailed = false
+				result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureInterrupted, Message: ctx.Err().Error()}
 				return result
 			}
 		}

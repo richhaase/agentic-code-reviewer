@@ -65,6 +65,7 @@ type Result struct {
 	Stderr   string
 	RawOut   string
 	Duration time.Duration
+	Warnings []string
 }
 
 type inputItem struct {
@@ -139,28 +140,38 @@ func summarize(ctx context.Context, ag agent.Agent, aggregated []domain.Aggregat
 		return nil, err
 	}
 
-	defer func() {
-		if err := execResult.Close(); err != nil && verbose && logger != nil {
-			logger.Logf(terminal.StyleDim, "summarizer close error (non-fatal): %v", err)
+	closed := false
+	var warnings []string
+	closeExecution := func() {
+		if closed {
+			return
 		}
-	}()
+		closed = true
+		if err := execResult.Close(); err != nil {
+			warnings = append(warnings, fmt.Sprintf("summarizer cleanup failed: %v", err))
+			if verbose && logger != nil {
+				logger.Logf(terminal.StyleDim, "summarizer close error (non-fatal): %v", err)
+			}
+		}
+	}
+	defer closeExecution()
 
 	output, err := io.ReadAll(execResult)
 	if err != nil {
+		closeExecution()
 
 		if ctx.Err() != nil {
 			return &Result{
 				ExitCode: -1,
 				Stderr:   "context canceled",
 				Duration: time.Since(start),
+				Warnings: append([]string(nil), warnings...),
 			}, nil
 		}
 		return nil, err
 	}
 
-	if err := execResult.Close(); err != nil && verbose && logger != nil {
-		logger.Logf(terminal.StyleDim, "summarizer close error (non-fatal): %v", err)
-	}
+	closeExecution()
 	exitCode := execResult.ExitCode()
 	stderr := execResult.Stderr()
 	duration := time.Since(start)
@@ -173,6 +184,7 @@ func summarize(ctx context.Context, ag agent.Agent, aggregated []domain.Aggregat
 			Stderr:   fmt.Sprintf("%s authentication failed: %s", agentName, agent.AuthHint(agentName)),
 			RawOut:   rawOut,
 			Duration: duration,
+			Warnings: append([]string(nil), warnings...),
 		}, nil
 	}
 
@@ -182,6 +194,7 @@ func summarize(ctx context.Context, ag agent.Agent, aggregated []domain.Aggregat
 			ExitCode: exitCode,
 			Stderr:   stderr,
 			Duration: duration,
+			Warnings: append([]string(nil), warnings...),
 		}, nil
 	}
 
@@ -202,6 +215,7 @@ func summarize(ctx context.Context, ag agent.Agent, aggregated []domain.Aggregat
 			Stderr:   parseErr,
 			RawOut:   rawOut,
 			Duration: duration,
+			Warnings: append([]string(nil), warnings...),
 		}, nil
 	}
 
@@ -211,5 +225,6 @@ func summarize(ctx context.Context, ag agent.Agent, aggregated []domain.Aggregat
 		Stderr:   stderr,
 		RawOut:   rawOut,
 		Duration: duration,
+		Warnings: append([]string(nil), warnings...),
 	}, nil
 }

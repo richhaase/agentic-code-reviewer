@@ -706,3 +706,32 @@ func TestRunReviewerWithRetry_RetriesNonAuthFailure(t *testing.T) {
 		t.Error("expected AuthFailed to be false for non-auth failure")
 	}
 }
+
+func TestRunReviewerWithRetryMarksBackoffCancellationInterrupted(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	mock := &mockAuthFailAgent{name: "codex", exitCode: 1, stderr: "some error"}
+	r := &Runner{
+		config: Config{
+			Reviewers: 1,
+			Retries:   1,
+			Timeout:   10 * time.Second,
+			Events: Events{
+				ReviewerRetrying: func(int, string, int, int, time.Duration) { cancel() },
+			},
+		},
+		agents:    []agent.Agent{mock},
+		completed: new(atomic.Int32),
+	}
+
+	result := r.runReviewerWithRetry(ctx, 1)
+
+	if mock.callCount.Load() != 1 || result.Attempts != 1 {
+		t.Fatalf("retry started after cancellation: calls=%d result=%#v", mock.callCount.Load(), result)
+	}
+	if result.Failure == nil || result.Failure.Kind != domain.ReviewerFailureInterrupted {
+		t.Fatalf("backoff cancellation was not interrupted: %#v", result)
+	}
+	if result.TimedOut || result.AuthFailed || result.ExitCode != -1 {
+		t.Fatalf("backoff cancellation was misclassified: %#v", result)
+	}
+}
