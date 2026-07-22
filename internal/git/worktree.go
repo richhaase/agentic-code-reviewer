@@ -1,12 +1,16 @@
 package git
 
 import (
+	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -48,17 +52,62 @@ func GetHeadSHA(dir string) (string, error) {
 }
 
 func GetCommonDir() (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--git-common-dir")
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current directory: %w", err)
+	}
+	return GetCommonDirAt(context.Background(), dir)
+}
+
+func GetCommonDirAt(ctx context.Context, dir string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--git-common-dir")
+	cmd.Dir = dir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("failed to get git common dir: %w", err)
+		detail := strings.TrimSpace(stderr.String())
+		if detail != "" {
+			return "", fmt.Errorf("failed to get git common dir for %s (%s): %w", dir, detail, err)
+		}
+		return "", fmt.Errorf("failed to get git common dir for %s: %w", dir, err)
 	}
 	path := strings.TrimSpace(string(out))
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(dir, path)
+	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return "", fmt.Errorf("failed to resolve common dir path: %w", err)
+		return "", fmt.Errorf("failed to resolve common dir path for %s: %w", dir, err)
 	}
-	return abs, nil
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("failed to evaluate common dir path for %s: %w", dir, err)
+	}
+	return filepath.Clean(resolved), nil
+}
+
+func ValidateWorktreeRepository(ctx context.Context, repositoryRoot, worktreeRoot string) error {
+	repositoryCommonDir, err := GetCommonDirAt(ctx, repositoryRoot)
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	worktreeCommonDir, err := GetCommonDirAt(ctx, worktreeRoot)
+	if err != nil {
+		return fmt.Errorf("resolve worktree root: %w", err)
+	}
+	repositoryInfo, err := os.Stat(repositoryCommonDir)
+	if err != nil {
+		return fmt.Errorf("stat repository common dir: %w", err)
+	}
+	worktreeInfo, err := os.Stat(worktreeCommonDir)
+	if err != nil {
+		return fmt.Errorf("stat worktree common dir: %w", err)
+	}
+	if !os.SameFile(repositoryInfo, worktreeInfo) {
+		return fmt.Errorf("repository root %q and worktree root %q belong to different repositories", repositoryRoot, worktreeRoot)
+	}
+	return nil
 }
 
 func ensureWorktreesExcluded(commonDir string) error {
@@ -187,23 +236,87 @@ func CreateWorktree(branch string) (*Worktree, error) {
 	}, nil
 }
 
-func FetchBaseRef(repoRoot, remote, baseRef string) error {
+func FetchBaseRef(ctx context.Context, repoRoot, remote, baseRef string) error {
 
 	if strings.HasPrefix(baseRef, remote+"/") {
 		return nil
 	}
+	return FetchRemoteTrackingBranch(ctx, repoRoot, remote, baseRef)
+}
 
-	refSpec := fmt.Sprintf("refs/heads/%s:refs/remotes/%s/%s", baseRef, remote, baseRef)
-	cmd := exec.Command("git", "fetch", remote, refSpec)
+func FetchRemoteTrackingBranch(ctx context.Context, repoRoot, remote, branch string) error {
+	return FetchRemoteBranchToRef(ctx, repoRoot, remote, branch, "refs/remotes/"+remote+"/"+branch)
+}
+
+func FetchRemoteBranchToRef(ctx context.Context, repoRoot, remote, branch, destinationRef string) error {
+	if !strings.HasPrefix(destinationRef, "refs/") {
+		return fmt.Errorf("destination ref %q must be fully qualified", destinationRef)
+	}
+	if err := requireIsolatedFetchGitVersion(ctx, repoRoot); err != nil {
+		return err
+	}
+	refSpec := fmt.Sprintf("+refs/heads/%s:%s", branch, destinationRef)
+	cmd := exec.CommandContext(ctx, "git", "fetch", "--no-tags", "--no-write-fetch-head", "--refmap=", remote, refSpec)
 	cmd.Dir = repoRoot
 	if out, err := cmd.CombinedOutput(); err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("failed to fetch branch %q: %w", branch, ctx.Err())
+		}
 		output := strings.TrimSpace(string(out))
 		if output != "" {
-			return fmt.Errorf("failed to fetch base ref '%s' (%s): %w", baseRef, output, err)
+			return fmt.Errorf("failed to fetch branch %q (%s): %w", branch, output, err)
 		}
-		return fmt.Errorf("failed to fetch base ref '%s': %w", baseRef, err)
+		return fmt.Errorf("failed to fetch branch %q: %w", branch, err)
 	}
 	return nil
+}
+
+var gitVersionPattern = regexp.MustCompile(`^git version ([0-9]+)\.([0-9]+)`)
+
+func requireIsolatedFetchGitVersion(ctx context.Context, repoRoot string) error {
+	cmd := exec.CommandContext(ctx, "git", "version")
+	cmd.Dir = repoRoot
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		detail := strings.TrimSpace(stderr.String())
+		if detail != "" {
+			return fmt.Errorf("failed to determine git version (%s): %w", detail, err)
+		}
+		return fmt.Errorf("failed to determine git version: %w", err)
+	}
+	major, minor, err := parseGitVersion(string(out))
+	if err != nil {
+		return err
+	}
+	if !gitVersionSupportsIsolatedFetch(major, minor) {
+		return fmt.Errorf("git 2.29 or newer is required for isolated trusted-configuration fetches; found %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func gitVersionSupportsIsolatedFetch(major, minor int) bool {
+	return major > 2 || major == 2 && minor >= 29
+}
+
+func parseGitVersion(output string) (int, int, error) {
+	matches := gitVersionPattern.FindStringSubmatch(strings.TrimSpace(output))
+	if len(matches) != 3 {
+		return 0, 0, fmt.Errorf("unrecognized git version output %q", strings.TrimSpace(output))
+	}
+	major, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid git major version %q: %w", matches[1], err)
+	}
+	minor, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid git minor version %q: %w", matches[2], err)
+	}
+	return major, minor, nil
 }
 
 func QualifyBaseRef(remote, baseRef string) string {

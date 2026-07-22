@@ -7,15 +7,19 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/richhaase/agentic-code-reviewer/internal/config"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/git"
 	"github.com/richhaase/agentic-code-reviewer/internal/github"
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 	"github.com/richhaase/agentic-code-reviewer/internal/watch"
 )
+
+const maxInitialTrustedConfigAttempts = 5
 
 func newWatchCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -122,9 +126,29 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 
 	prNumber = watchPR
 
-	cfgResult, err := loadAndResolveConfig(cmd, worktreeResult{}, logger)
+	initialPollInterval := resolveWatchPollInterval(cmd, nil)
+	if initialPollInterval <= 0 {
+		initialPollInterval = config.Defaults.WatchPollInterval
+	}
+	clock := watch.RealClock{}
+	cfgResult, err := resolveInitialTrustedReviewConfiguration(
+		ctx,
+		initialPollInterval,
+		func(ctx context.Context) (configResult, error) {
+			configSource, err := resolveTrustedReviewConfigSource(ctx, noConfig)
+			if err != nil {
+				return configResult{}, err
+			}
+			return loadAndResolveConfig(ctx, cmd, worktreeResult{}, configSource, logger)
+		},
+		clock.Sleep,
+		func(format string, args ...any) {
+			logger.Logf(terminal.StyleWarning, format, args...)
+		},
+	)
 	if err != nil {
-		return err
+		logger.Logf(terminal.StyleError, "%v", err)
+		return contextualExit(ctx, exitCode(domain.ExitError))
 	}
 	wcfg := watch.Config{
 		Mode:         mode,
@@ -189,7 +213,47 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 	}
 }
 
+func resolveInitialTrustedReviewConfiguration(
+	ctx context.Context,
+	pollInterval time.Duration,
+	load func(context.Context) (configResult, error),
+	sleep func(context.Context, time.Duration) error,
+	logf func(string, ...any),
+) (configResult, error) {
+	var lastErr error
+	for attempt := 1; attempt <= maxInitialTrustedConfigAttempts; attempt++ {
+		result, err := load(ctx)
+		if result.resolved.WatchPollInterval > 0 {
+			pollInterval = result.resolved.WatchPollInterval
+		}
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			return configResult{}, ctx.Err()
+		}
+		if attempt == maxInitialTrustedConfigAttempts {
+			break
+		}
+		if logf != nil {
+			logf("Trusted configuration initialization failed (%d/%d); retrying in %s: %v", attempt, maxInitialTrustedConfigAttempts, pollInterval, err)
+		}
+		if err := sleep(ctx, pollInterval); err != nil {
+			return configResult{}, err
+		}
+	}
+	return configResult{}, fmt.Errorf("trusted configuration initialization failed after %d attempts: %w", maxInitialTrustedConfigAttempts, lastErr)
+}
+
 func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode watch.PostMode, logger *terminal.Logger) (watch.Cycle, error) {
+	configSource, err := resolveTrustedReviewConfigSource(ctx, noConfig)
+	if err != nil {
+		if ctx.Err() != nil {
+			return watch.Cycle{Result: watch.CycleError}, ctx.Err()
+		}
+		return watch.Cycle{Result: watch.CycleError}, fmt.Errorf("%w: trusted configuration refresh failed: %v", watch.ErrRetryableCycle, err)
+	}
 	wt, err := setupWorktree(ctx, cmd, logger)
 	if err != nil {
 		return watch.Cycle{Result: watch.CycleError}, err
@@ -208,11 +272,12 @@ func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode
 		}
 	}
 
-	cfgSource := wt
-	cfgSource.workDir = ""
-	cfgResult, err := loadAndResolveConfig(cmd, cfgSource, logger)
+	cfgResult, err := loadAndResolveConfig(ctx, cmd, wt, configSource, logger)
 	if err != nil {
-		return watch.Cycle{Result: watch.CycleError}, err
+		if ctx.Err() != nil {
+			return watch.Cycle{Result: watch.CycleError}, ctx.Err()
+		}
+		return watch.Cycle{Result: watch.CycleError}, fmt.Errorf("trusted configuration load failed: %w", err)
 	}
 
 	outcome := &CycleOutcome{}

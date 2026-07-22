@@ -2,6 +2,7 @@ package feedback
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -20,6 +21,29 @@ func TestNewSummarizer(t *testing.T) {
 	s := NewSummarizer("claude", "", true, terminal.NewLogger())
 	if s == nil {
 		t.Fatal("NewSummarizer returned nil")
+	}
+}
+
+func TestSummarizerCloseErrorWithNilLoggerIsReported(t *testing.T) {
+	s := NewSummarizer("codex", "", true, nil)
+	err := s.handleCloseError(errors.New("cleanup failed"))
+	if err == nil || !strings.Contains(err.Error(), "feedback cleanup failed") {
+		t.Fatalf("handleCloseError returned %v", err)
+	}
+}
+
+func TestSummarizerCloseErrorIsReportedWhenNotVerbose(t *testing.T) {
+	s := NewSummarizer("codex", "", false, nil)
+	err := s.handleCloseError(errors.New("cleanup failed"))
+	if err == nil || !strings.Contains(err.Error(), "cleanup failed") {
+		t.Fatalf("handleCloseError returned %v", err)
+	}
+}
+
+func TestSummarizerSuccessfulCloseReturnsNil(t *testing.T) {
+	s := NewSummarizer("codex", "", false, nil)
+	if err := s.handleCloseError(nil); err != nil {
+		t.Fatalf("handleCloseError returned %v", err)
 	}
 }
 

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os/exec"
 	"strings"
 )
@@ -79,12 +81,12 @@ func ValidatePR(ctx context.Context, prNumber string) error {
 	return nil
 }
 
-func GetRepoRemote(ctx context.Context) string {
-
+func FindRepoRemote(ctx context.Context, repositoryRoot string) (string, error) {
 	cmd := exec.CommandContext(ctx, "gh", "repo", "view", "--json", "url,sshUrl")
+	cmd.Dir = repositoryRoot
 	out, err := cmd.Output()
 	if err != nil {
-		return "origin"
+		return "", fmt.Errorf("failed to identify repository through gh: %w", err)
 	}
 
 	var repoInfo struct {
@@ -92,54 +94,119 @@ func GetRepoRemote(ctx context.Context) string {
 		SSHUrl string `json:"sshUrl"`
 	}
 	if err := json.Unmarshal(out, &repoInfo); err != nil {
-		return "origin"
+		return "", fmt.Errorf("failed to parse repository identity: %w", err)
 	}
 
 	remoteCmd := exec.CommandContext(ctx, "git", "remote", "-v")
+	remoteCmd.Dir = repositoryRoot
 	remoteOut, err := remoteCmd.Output()
 	if err != nil {
-		return "origin"
+		return "", fmt.Errorf("failed to list repository remotes: %w", err)
 	}
 
+	remote, err := matchingFetchRemote(remoteOut, repoInfo.URL, repoInfo.SSHUrl)
+	if err != nil {
+		return "", err
+	}
+	if remote != "" {
+		return remote, nil
+	}
+
+	return "", fmt.Errorf("no configured remote matches the GitHub repository")
+}
+
+func matchingFetchRemote(remoteOut []byte, repositoryURL, repositorySSHURL string) (string, error) {
 	lines := strings.Split(string(remoteOut), "\n")
+	var matches []string
+	seen := make(map[string]struct{})
 	for _, line := range lines {
 		fields := strings.Fields(line)
-		if len(fields) < 2 {
+		if len(fields) < 3 || fields[2] != "(fetch)" {
 			continue
 		}
 		remoteName := fields[0]
 		remoteURL := fields[1]
 
-		if urlMatches(remoteURL, repoInfo.URL) || urlMatches(remoteURL, repoInfo.SSHUrl) {
-			return remoteName
+		if urlMatches(remoteURL, repositoryURL) || urlMatches(remoteURL, repositorySSHURL) {
+			if _, ok := seen[remoteName]; !ok {
+				seen[remoteName] = struct{}{}
+				matches = append(matches, remoteName)
+			}
 		}
 	}
-
-	return "origin"
+	if len(matches) == 0 {
+		return "", nil
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	return "", fmt.Errorf("multiple configured fetch remotes match the GitHub repository: %s", strings.Join(matches, ", "))
 }
 
 func urlMatches(url1, url2 string) bool {
-
-	normalize := func(url string) string {
-		url = strings.TrimSuffix(url, ".git")
-		url = strings.TrimPrefix(url, "https://")
-		url = strings.TrimPrefix(url, "http://")
-
-		if strings.HasPrefix(url, "ssh://") {
-			url = strings.TrimPrefix(url, "ssh://")
-
-			if idx := strings.Index(url, "@"); idx != -1 {
-				url = url[idx+1:]
-			}
-		}
-
-		if strings.HasPrefix(url, "git@") {
-			url = strings.TrimPrefix(url, "git@")
-			url = strings.Replace(url, ":", "/", 1)
-		}
-		return strings.ToLower(url)
+	if strings.TrimSpace(url1) == "" || strings.TrimSpace(url2) == "" {
+		return strings.TrimSpace(url1) == strings.TrimSpace(url2)
 	}
-	return normalize(url1) == normalize(url2)
+	first, firstHasHost := normalizeRepositoryURL(url1)
+	second, secondHasHost := normalizeRepositoryURL(url2)
+	return firstHasHost && secondHasHost && first == second
+}
+
+func normalizeRepositoryURL(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", false
+	}
+
+	parsed, err := url.Parse(raw)
+	if err == nil && parsed.Host != "" {
+		host := parsed.Hostname()
+		if port := parsed.Port(); port != "" && !isDefaultRepositoryPort(parsed.Scheme, port) {
+			host = net.JoinHostPort(host, port)
+		}
+		return normalizeRepositoryLocation(host, parsed.Path), host != ""
+	}
+
+	colon := strings.Index(raw, ":")
+	slash := strings.Index(raw, "/")
+	if colon > 0 && (slash == -1 || colon < slash) {
+		return normalizeRepositoryLocation(raw[:colon], raw[colon+1:]), true
+	}
+
+	return normalizeRepositoryLocation("", raw), false
+}
+
+func isDefaultRepositoryPort(scheme, port string) bool {
+	switch strings.ToLower(scheme) {
+	case "ssh", "git+ssh", "ssh+git":
+		return port == "22"
+	case "http":
+		return port == "80"
+	case "https":
+		return port == "443"
+	case "git":
+		return port == "9418"
+	default:
+		return false
+	}
+}
+
+func normalizeRepositoryLocation(host, path string) string {
+	host = strings.TrimSpace(host)
+	if at := strings.LastIndex(host, "@"); at != -1 {
+		host = host[at+1:]
+	}
+	path = strings.Trim(strings.TrimSpace(path), "/")
+
+	location := path
+	if host != "" && path != "" {
+		location = host + "/" + path
+	} else if host != "" {
+		location = host
+	}
+
+	location = strings.ToLower(strings.TrimSuffix(location, "/"))
+	return strings.TrimSuffix(location, ".git")
 }
 
 func classifyGHError(err error) error {

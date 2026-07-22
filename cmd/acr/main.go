@@ -117,7 +117,7 @@ func registerSharedReviewFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&fetch, "fetch", true,
 		"Fetch latest base ref from origin before diff (default: true, env: ACR_FETCH)")
 	cmd.Flags().BoolVar(&noFetch, "no-fetch", false,
-		"Disable fetching base ref from origin (use local state)")
+		"Disable fetching the review base ref; trusted config refresh still runs")
 	cmd.Flags().StringVar(&guidance, "guidance", "",
 		"Steering context appended to the review prompt (env: ACR_GUIDANCE)")
 	cmd.Flags().StringVar(&guidanceFile, "guidance-file", "",
@@ -130,7 +130,7 @@ func registerSharedReviewFlags(cmd *cobra.Command) {
 	cmd.Flags().StringArrayVar(&excludePatterns, "exclude-pattern", nil,
 		"Exclude findings matching regex pattern (repeatable)")
 	cmd.Flags().BoolVar(&noConfig, "no-config", false,
-		"Skip loading .acr.yaml config file")
+		"Disable trusted repository .acr.yaml for this review")
 	cmd.Flags().StringVarP(&agentName, "reviewer-agent", "a", "codex",
 		"Agent(s) for reviews (comma-separated): agy, codex, claude, gemini (env: ACR_REVIEWER_AGENT)")
 	cmd.Flags().StringVarP(&summarizerAgentName, "summarizer-agent", "s", "codex",
@@ -208,7 +208,11 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 		}
 		result.prRepoRoot = repoRoot
 
-		remote := github.GetRepoRemote(ctx)
+		remote, err := github.FindRepoRemote(ctx, repoRoot)
+		if err != nil {
+			logger.Logf(terminal.StyleError, "Failed to select PR fetch remote: %v", err)
+			return result, exitCode(domain.ExitError)
+		}
 		result.prRemote = remote
 
 		wt, err := git.CreateWorktreeFromPR(repoRoot, remote, prNumber)
@@ -298,30 +302,37 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 type configResult struct {
 	resolved        config.ResolvedConfig
 	excludePatterns []string
+	source          config.SourceIdentity
 }
 
-func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *terminal.Logger) (configResult, error) {
+func loadAndResolveConfig(ctx context.Context, cmd *cobra.Command, wt worktreeResult, source config.Source, logger *terminal.Logger) (configResult, error) {
 
 	var cfg *config.Config
-	var configDir string
-	if !noConfig {
-		var result *config.LoadResult
-		var err error
-		if wt.workDir != "" {
-			result, err = config.LoadFromDirWithWarnings(wt.workDir)
-		} else {
-			result, err = config.LoadWithWarnings()
-		}
-		if err != nil {
-			logger.Logf(terminal.StyleError, "Config error: %v", err)
-			return configResult{}, exitCode(domain.ExitError)
-		}
-		cfg = result.Config
-		configDir = result.ConfigDir
-
-		for _, warning := range result.Warnings {
+	var loadResult *config.LoadResult
+	result := configResult{}
+	if source == nil {
+		logger.Log("Config error: no trusted review configuration source was selected", terminal.StyleError)
+		return result, exitCode(domain.ExitError)
+	}
+	loaded, err := source.LoadWithWarnings(ctx)
+	if loaded != nil {
+		result.resolved.WatchPollInterval = resolveWatchPollInterval(cmd, loaded.Config)
+		for _, warning := range loaded.Warnings {
 			logger.Logf(terminal.StyleWarning, "Warning: %s", warning)
 		}
+	}
+	if err != nil {
+		logger.Logf(terminal.StyleError, "Config error: %v", err)
+		return result, exitCode(domain.ExitError)
+	}
+	if loaded == nil {
+		logger.Log("Config error: trusted review configuration source returned no result", terminal.StyleError)
+		return result, exitCode(domain.ExitError)
+	}
+	loadResult = loaded
+	cfg = loaded.Config
+	if verbose {
+		logger.Logf(terminal.StyleDim, "Review configuration source: %s %s %s", loaded.Source.Kind, loaded.Source.Ref, loaded.Source.Revision)
 	}
 
 	fetchFlagSet := cmd.Flags().Changed("fetch") || cmd.Flags().Changed("no-fetch")
@@ -388,21 +399,12 @@ func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *termina
 	}
 
 	resolved := config.Resolve(cfg, envState, flagState, flagValues)
-
-	if wt.prRemote != "" && git.ShouldQualifyBaseRef(resolved.Base, wt.baseAutoDetected) {
-
-		if err := git.FetchBaseRef(wt.prRepoRoot, wt.prRemote, resolved.Base); err != nil {
-			logger.Logf(terminal.StyleWarning, "Could not fetch base ref: %v", err)
-
-		} else {
-
-			resolved.Base = git.QualifyBaseRef(wt.prRemote, resolved.Base)
-		}
-	}
+	result.resolved = resolved
+	prepareReviewBase(ctx, wt, &resolved, logger)
 
 	if err := resolved.Validate(); err != nil {
 		logger.Logf(terminal.StyleError, "%v", err)
-		return configResult{}, exitCode(domain.ExitError)
+		return result, exitCode(domain.ExitError)
 	}
 
 	if resolved.Concurrency <= 0 {
@@ -414,17 +416,43 @@ func loadAndResolveConfig(cmd *cobra.Command, wt worktreeResult, logger *termina
 
 	allExcludePatterns := config.Merge(cfg, excludePatterns)
 
-	resolvedGuidance, err := config.ResolveGuidance(cfg, envState, flagState, flagValues, configDir)
+	resolvedGuidance, err := config.ResolveGuidanceFromLoadResult(ctx, loadResult, envState, flagState, flagValues)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Failed to resolve guidance: %v", err)
-		return configResult{}, exitCode(domain.ExitError)
+		result.resolved = resolved
+		return result, exitCode(domain.ExitError)
 	}
 	resolved.Guidance = resolvedGuidance
 
-	return configResult{
-		resolved:        resolved,
-		excludePatterns: allExcludePatterns,
-	}, nil
+	result.resolved = resolved
+	result.excludePatterns = allExcludePatterns
+	result.source = loadResult.Source
+	return result, nil
+}
+
+func resolveWatchPollInterval(cmd *cobra.Command, cfg *config.Config) time.Duration {
+	envState, _ := config.LoadEnvState()
+	return config.Resolve(
+		cfg,
+		envState,
+		config.FlagState{WatchPollIntervalSet: cmd.Flags().Changed("poll-interval")},
+		config.ResolvedConfig{WatchPollInterval: watchPollInterval},
+	).WatchPollInterval
+}
+
+func prepareReviewBase(ctx context.Context, wt worktreeResult, resolved *config.ResolvedConfig, logger *terminal.Logger) {
+	if wt.prRemote == "" || !git.ShouldQualifyBaseRef(resolved.Base, wt.baseAutoDetected) {
+		return
+	}
+
+	if resolved.Fetch {
+		if err := git.FetchBaseRef(ctx, wt.prRepoRoot, wt.prRemote, resolved.Base); err != nil {
+			logger.Logf(terminal.StyleWarning, "Could not fetch base ref: %v", err)
+			return
+		}
+	}
+
+	resolved.Base = git.QualifyBaseRef(wt.prRemote, resolved.Base)
 }
 
 func runReview(cmd *cobra.Command, _ []string) error {
@@ -451,6 +479,12 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		cancel()
 	}()
 
+	configSource, err := resolveTrustedReviewConfigSource(ctx, noConfig)
+	if err != nil {
+		logger.Logf(terminal.StyleError, "%v", err)
+		return contextualExit(ctx, exitCode(domain.ExitError))
+	}
+
 	wt, err := setupWorktree(ctx, cmd, logger)
 	if err != nil {
 		return err
@@ -459,9 +493,9 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		defer wt.cleanup()
 	}
 
-	cfgResult, err := loadAndResolveConfig(cmd, wt, logger)
+	cfgResult, err := loadAndResolveConfig(ctx, cmd, wt, configSource, logger)
 	if err != nil {
-		return err
+		return contextualExit(ctx, err)
 	}
 
 	detectedPR := prNumber

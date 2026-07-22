@@ -2,15 +2,43 @@ package domain
 
 import "time"
 
+type ReviewerFailureKind string
+
+const (
+	ReviewerFailureExecution   ReviewerFailureKind = "execution"
+	ReviewerFailureExit        ReviewerFailureKind = "exit"
+	ReviewerFailureTimeout     ReviewerFailureKind = "timeout"
+	ReviewerFailureAuth        ReviewerFailureKind = "authentication"
+	ReviewerFailureInterrupted ReviewerFailureKind = "interrupted"
+	ReviewerFailureParser      ReviewerFailureKind = "parser"
+)
+
+type ReviewerFailure struct {
+	Kind    ReviewerFailureKind
+	Message string
+}
+
+type ReviewerWarningKind string
+
+const ReviewerWarningCleanup ReviewerWarningKind = "cleanup"
+
+type ReviewerWarning struct {
+	Kind    ReviewerWarningKind
+	Message string
+}
+
 type ReviewerResult struct {
 	ReviewerID  int
 	AgentName   string
 	Findings    []Finding
 	ExitCode    int
+	Attempts    int
 	ParseErrors int
 	TimedOut    bool
 	AuthFailed  bool
 	Duration    time.Duration
+	Failure     *ReviewerFailure
+	Warnings    []ReviewerWarning
 }
 
 type ReviewStats struct {

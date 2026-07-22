@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -30,8 +31,8 @@ func newConfigCmd() *cobra.Command {
 func newConfigShowCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "show",
-		Short: "Display resolved configuration",
-		Long:  "Show the fully resolved configuration from defaults, config file, and environment variables.",
+		Short: "Display resolved working-checkout configuration",
+		Long:  "Show configuration-management state from defaults, the working checkout, and environment variables. Review commands independently snapshot canonical-branch configuration.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			result, err := config.LoadWithWarnings()
 			if err != nil {
@@ -42,7 +43,7 @@ func newConfigShowCmd() *cobra.Command {
 
 			resolved := config.Resolve(result.Config, envState, config.FlagState{}, config.Defaults)
 
-			fmt.Println("Resolved configuration:")
+			fmt.Println("Resolved working-checkout configuration:")
 			fmt.Println()
 			fmt.Printf("  %-22s %d\n", "reviewers:", resolved.Reviewers)
 			fmt.Printf("  %-22s %d\n", "concurrency:", resolved.Concurrency)
@@ -137,7 +138,6 @@ func newConfigValidateCmd() *cobra.Command {
 			var warnings []string
 
 			cfg := &config.Config{}
-			configDir := ""
 			configFileError := false
 			result, err := config.LoadWithWarnings()
 			if err != nil {
@@ -146,8 +146,12 @@ func newConfigValidateCmd() *cobra.Command {
 			}
 			if result != nil {
 				cfg = result.Config
-				configDir = result.ConfigDir
 				warnings = append(warnings, result.Warnings...)
+			}
+			if cfg.GuidanceFile != nil && *cfg.GuidanceFile != "" {
+				if err := git.ValidateRepositoryPath(*cfg.GuidanceFile); err != nil {
+					errors = append(errors, fmt.Sprintf("guidance_file: %v", err))
+				}
 			}
 
 			envState, envWarnings := config.LoadEnvState()
@@ -161,7 +165,7 @@ func newConfigValidateCmd() *cobra.Command {
 			validationErrs := resolved.ValidateAll()
 			errors = append(errors, validationErrs...)
 
-			_, guidanceErr := config.ResolveGuidance(cfg, envState, config.FlagState{}, config.Defaults, configDir)
+			_, guidanceErr := config.ResolveGuidanceFromLoadResult(context.Background(), result, envState, config.FlagState{}, config.Defaults)
 			if guidanceErr != nil {
 				errors = append(errors, guidanceErr.Error())
 			}

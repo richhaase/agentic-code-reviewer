@@ -49,7 +49,7 @@ func (g *GeminiAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 	})
 }
 
-func (g *GeminiAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (*ExecutionResult, error) {
+func (g *GeminiAgent) ExecuteSummary(ctx context.Context, config *SummaryConfig) (*ExecutionResult, error) {
 	if err := g.IsAvailable(); err != nil {
 		return nil, err
 	}
@@ -60,9 +60,9 @@ func (g *GeminiAgent) ExecuteSummary(ctx context.Context, prompt string, input [
 	}
 
 	stdin := io.MultiReader(
-		strings.NewReader(prompt),
+		strings.NewReader(config.Prompt),
 		strings.NewReader("\n\nINPUT JSON:\n"),
-		bytes.NewReader(input),
+		bytes.NewReader(config.Input),
 		strings.NewReader("\n"),
 	)
 
@@ -70,5 +70,6 @@ func (g *GeminiAgent) ExecuteSummary(ctx context.Context, prompt string, input [
 		Command: "gemini",
 		Args:    args,
 		Stdin:   stdin,
+		WorkDir: config.WorkDir,
 	})
 }

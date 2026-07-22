@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
@@ -100,6 +101,13 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 		logger.Logf(terminal.StyleDim, "Diff size: %d bytes", len(diff))
 	}
 
+	postProcessDir, cleanupPostProcessDir, err := agent.NewIsolatedWorkDir()
+	if err != nil {
+		logger.Logf(terminal.StyleError, "Failed to create isolated post-processing workspace: %v", err)
+		return domain.ExitError
+	}
+	defer cleanupPostProcessDir()
+
 	diffPrecomputed := agent.AgentsNeedDiff(reviewAgents)
 
 	if opts.Verbose && opts.UseRefFile {
@@ -126,7 +134,22 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 
 	var priorFeedback string
 	var feedbackWg sync.WaitGroup
+	feedbackParentCtx, feedbackCancel := context.WithCancel(ctx)
+	var cleanupFeedbackDir func()
+	defer func() {
+		feedbackCancel()
+		feedbackWg.Wait()
+		if cleanupFeedbackDir != nil {
+			cleanupFeedbackDir()
+		}
+	}()
 	if opts.PRFeedbackEnabled && opts.DetectedPR != "" && opts.FPFilterEnabled {
+		feedbackDir, cleanup, err := agent.NewIsolatedWorkDir()
+		if err != nil {
+			logger.Logf(terminal.StyleError, "Failed to create isolated feedback workspace: %v", err)
+			return domain.ExitError
+		}
+		cleanupFeedbackDir = cleanup
 		logger.Logf(terminal.StyleInfo, "Summarizing PR #%s feedback %s(in parallel)%s",
 			opts.DetectedPR, terminal.Color(terminal.Dim), terminal.Color(terminal.Reset))
 		feedbackWg.Add(1)
@@ -139,21 +162,18 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 			}
 
 			summarizer := feedback.NewSummarizer(feedbackAgentName, opts.SummarizerModel, opts.Verbose, logger)
-			feedbackCtx, feedbackCancel := context.WithTimeout(ctx, opts.SummarizerTimeout)
-			defer feedbackCancel()
+			feedbackCtx, cancelFeedbackTimeout := context.WithTimeout(feedbackParentCtx, opts.SummarizerTimeout)
+			defer cancelFeedbackTimeout()
 
-			summary, err := summarizer.Summarize(feedbackCtx, opts.DetectedPR)
+			summary, err := summarizer.SummarizeFromDirs(feedbackCtx, opts.DetectedPR, opts.WorkDir, feedbackDir)
+			if summary != "" {
+				priorFeedback = summary
+			}
 			if err != nil {
-
-				if ctx.Err() != nil {
-
-					return
+				warning := priorFeedbackFailureWarning(feedbackParentCtx.Err(), feedbackCtx.Err(), err, opts.SummarizerTimeout)
+				if warning != "" {
+					logger.Log(warning, terminal.StyleWarning)
 				}
-				if feedbackCtx.Err() == context.DeadlineExceeded {
-					logger.Logf(terminal.StyleWarning, "PR feedback summarizer timed out after %s", opts.SummarizerTimeout)
-					return
-				}
-				logger.Logf(terminal.StyleWarning, "PR feedback summarizer failed: %v", err)
 				return
 			}
 			if summary != "" {
@@ -161,11 +181,17 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 			} else {
 				logger.Log("No relevant PR feedback found", terminal.StyleDim)
 			}
-			priorFeedback = summary
 		}()
 	}
 
 	results, wallClock, err := r.Run(ctx)
+	if !opts.Verbose {
+		for _, result := range results {
+			for _, warning := range result.Warnings {
+				logger.Logf(terminal.StyleWarning, "Reviewer #%d: %s", result.ReviewerID, warning.Message)
+			}
+		}
+	}
 	if err != nil {
 		if ctx.Err() != nil {
 			return domain.ExitInterrupted
@@ -194,9 +220,14 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 
 	summarizerCtx, summarizerCancel := context.WithTimeout(ctx, opts.SummarizerTimeout)
 	defer summarizerCancel()
-	summaryResult, err := summarizer.Summarize(summarizerCtx, opts.SummarizerAgent, opts.SummarizerModel, aggregated, opts.Verbose, logger)
+	summaryResult, err := summarizer.Summarize(summarizerCtx, opts.SummarizerAgent, opts.SummarizerModel, aggregated, postProcessDir, opts.Verbose, logger)
 	spinnerCancel()
 	<-spinnerDone
+	if summaryResult != nil && !opts.Verbose {
+		for _, warning := range summaryResult.Warnings {
+			logger.Log(warning, terminal.StyleWarning)
+		}
+	}
 
 	if err != nil {
 		if ctx.Err() != nil {
@@ -227,7 +258,7 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 
 		fpCtx, fpCancel := context.WithTimeout(ctx, opts.FPFilterTimeout)
 		defer fpCancel()
-		fpFilter := fpfilter.New(opts.SummarizerAgent, opts.SummarizerModel, opts.FPThreshold, opts.Verbose, logger)
+		fpFilter := fpfilter.New(opts.SummarizerAgent, opts.SummarizerModel, opts.FPThreshold, postProcessDir, opts.Verbose, logger)
 		fpResult := fpFilter.Apply(fpCtx, summaryResult.Grouped, priorFeedback, stats.SuccessfulReviewers)
 		fpSpinnerCancel()
 		<-fpSpinnerDone
@@ -236,6 +267,11 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 			logger.Logf(terminal.StyleWarning, "FP filter skipped (%s): showing all findings", fpResult.SkipReason)
 		}
 		if fpResult != nil {
+			if !opts.Verbose {
+				for _, warning := range fpResult.Warnings {
+					logger.Log(warning, terminal.StyleWarning)
+				}
+			}
 			summaryResult.Grouped = fpResult.Grouped
 			fpFilteredCount = fpResult.RemovedCount
 			stats.FPFilterDuration = fpResult.Duration
@@ -288,6 +324,16 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 	}
 
 	return handleFindings(ctx, opts, summaryResult.Grouped, aggregated, stats, logger)
+}
+
+func priorFeedbackFailureWarning(parentErr, taskErr, failure error, timeout time.Duration) string {
+	if parentErr != nil {
+		return ""
+	}
+	if taskErr == context.DeadlineExceeded {
+		return fmt.Sprintf("PR feedback summarizer timed out after %s", timeout)
+	}
+	return fmt.Sprintf("PR feedback summarizer failed: %v", failure)
 }
 
 func usesGeminiAgent(opts ReviewOpts) bool {

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -97,7 +98,24 @@ func LoadWithWarnings() (*LoadResult, error) {
 	}
 
 	configPath := filepath.Join(repoRoot, ConfigFileName)
-	return LoadFromPathWithWarnings(configPath)
+	data, err := git.ReadFileWithinRepository(repoRoot, ConfigFileName)
+	if os.IsNotExist(err) {
+		result := newRepositoryFileSystemLoadResult(repoRoot, configPath, nil, false)
+		result.Config = &Config{}
+		return result, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	result, err := loadDataWithWarnings(data)
+	fileSystemResult := newRepositoryFileSystemLoadResult(repoRoot, configPath, data, true)
+	if result != nil {
+		result.ConfigDir = fileSystemResult.ConfigDir
+		result.Source = fileSystemResult.Source
+		result.readConfigRelative = fileSystemResult.readConfigRelative
+	}
+	return result, err
 }
 
 func LoadFromDirWithWarnings(dir string) (*LoadResult, error) {
@@ -106,43 +124,41 @@ func LoadFromDirWithWarnings(dir string) (*LoadResult, error) {
 }
 
 type LoadResult struct {
-	Config    *Config
-	ConfigDir string
-	Warnings  []string
+	Config             *Config
+	ConfigDir          string
+	Warnings           []string
+	Source             SourceIdentity
+	readConfigRelative func(context.Context, string) ([]byte, error)
 }
 
 func LoadFromPathWithWarnings(path string) (*LoadResult, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return &LoadResult{Config: &Config{}}, nil
+		result := newFileSystemLoadResult(path, nil, false)
+		result.Config = &Config{}
+		return result, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	warnings := checkUnknownKeys(data)
-
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("invalid %s: %w", ConfigFileName, err)
+	result, err := loadDataWithWarnings(data)
+	fileSystemResult := newFileSystemLoadResult(path, data, true)
+	if result != nil {
+		result.ConfigDir = fileSystemResult.ConfigDir
+		result.Source = fileSystemResult.Source
+		result.readConfigRelative = fileSystemResult.readConfigRelative
 	}
+	return result, err
+}
 
-	if err := cfg.validatePatterns(); err != nil {
-		return nil, err
+func newRepositoryFileSystemLoadResult(repositoryRoot, path string, data []byte, configPresent bool) *LoadResult {
+	result := newFileSystemLoadResult(path, data, configPresent)
+	result.ConfigDir = repositoryRoot
+	result.readConfigRelative = func(_ context.Context, relativePath string) ([]byte, error) {
+		return git.ReadFileWithinRepository(repositoryRoot, relativePath)
 	}
-
-	if cfg.ReviewerAgent != nil {
-		warnings = append(warnings, `"reviewer_agent" is deprecated, use "reviewer_agents" list instead`)
-		if len(cfg.ReviewerAgents) > 0 {
-			warnings = append(warnings, `both "reviewer_agent" and "reviewer_agents" are set; "reviewer_agents" takes precedence`)
-		}
-	}
-
-	if err := cfg.Validate(); err != nil {
-		return &LoadResult{Config: &cfg, ConfigDir: filepath.Dir(path), Warnings: warnings}, fmt.Errorf("%s: %w", ConfigFileName, err)
-	}
-
-	return &LoadResult{Config: &cfg, ConfigDir: filepath.Dir(path), Warnings: warnings}, nil
+	return result
 }
 
 func (c *Config) validatePatterns() error {
@@ -489,6 +505,8 @@ type EnvState struct {
 	PRFeedbackEnabledSet bool
 	PRFeedbackAgent      string
 	PRFeedbackAgentSet   bool
+	WatchPollInterval    time.Duration
+	WatchPollIntervalSet bool
 }
 
 func LoadEnvState() (EnvState, []string) {
@@ -636,6 +654,17 @@ func LoadEnvState() (EnvState, []string) {
 		state.PRFeedbackAgent = v
 		state.PRFeedbackAgentSet = true
 	}
+	if v := os.Getenv("ACR_WATCH_POLL_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			state.WatchPollInterval = d
+			state.WatchPollIntervalSet = true
+		} else if secs, err := strconv.Atoi(v); err == nil {
+			state.WatchPollInterval = time.Duration(secs) * time.Second
+			state.WatchPollIntervalSet = true
+		} else {
+			warnings = append(warnings, fmt.Sprintf("ACR_WATCH_POLL_INTERVAL=%q is not a valid duration or integer, ignoring", v))
+		}
+	}
 
 	return state, warnings
 }
@@ -757,6 +786,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	if envState.PRFeedbackAgentSet {
 		result.PRFeedbackAgent = envState.PRFeedbackAgent
 	}
+	if envState.WatchPollIntervalSet {
+		result.WatchPollInterval = envState.WatchPollInterval
+	}
 
 	if flagState.ReviewersSet {
 		result.Reviewers = flagValues.Reviewers
@@ -823,6 +855,24 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 }
 
 func ResolveGuidance(cfg *Config, envState EnvState, flagState FlagState, flagValues ResolvedConfig, configDir string) (string, error) {
+	readConfigRelative := func(_ context.Context, relativePath string) ([]byte, error) {
+		guidancePath := relativePath
+		if !filepath.IsAbs(guidancePath) && configDir != "" {
+			guidancePath = filepath.Join(configDir, guidancePath)
+		}
+		return os.ReadFile(guidancePath)
+	}
+	return resolveGuidance(context.Background(), cfg, envState, flagState, flagValues, readConfigRelative)
+}
+
+func ResolveGuidanceFromLoadResult(ctx context.Context, result *LoadResult, envState EnvState, flagState FlagState, flagValues ResolvedConfig) (string, error) {
+	if result == nil {
+		return resolveGuidance(ctx, nil, envState, flagState, flagValues, nil)
+	}
+	return resolveGuidance(ctx, result.Config, envState, flagState, flagValues, result.readConfigRelative)
+}
+
+func resolveGuidance(ctx context.Context, cfg *Config, envState EnvState, flagState FlagState, flagValues ResolvedConfig, readConfigRelative func(context.Context, string) ([]byte, error)) (string, error) {
 	if flagState.GuidanceSet && flagValues.Guidance != "" {
 		return flagValues.Guidance, nil
 	}
@@ -844,11 +894,10 @@ func ResolveGuidance(cfg *Config, envState EnvState, flagState FlagState, flagVa
 		return string(content), nil
 	}
 	if cfg != nil && cfg.GuidanceFile != nil && *cfg.GuidanceFile != "" {
-		guidancePath := *cfg.GuidanceFile
-		if !filepath.IsAbs(guidancePath) && configDir != "" {
-			guidancePath = filepath.Join(configDir, guidancePath)
+		if readConfigRelative == nil {
+			return "", fmt.Errorf("failed to read guidance file %q: no trusted configuration input source", *cfg.GuidanceFile)
 		}
-		content, err := os.ReadFile(guidancePath)
+		content, err := readConfigRelative(ctx, *cfg.GuidanceFile)
 		if err != nil {
 			return "", fmt.Errorf("failed to read guidance file %q: %w", *cfg.GuidanceFile, err)
 		}

@@ -23,6 +23,10 @@ acr
 
 ## Prerequisites
 
+Git 2.29 or newer is required. ACR checks this floor before isolated
+trusted-configuration fetches and reports the installed version when it is too
+old.
+
 You need **at least one** of the following LLM CLIs installed and authenticated:
 
 | Agent | Installation |
@@ -53,7 +57,7 @@ Optional:
 
 | Tool | Installation | Purpose |
 |------|--------------|---------|
-| gh CLI | [cli.github.com](https://cli.github.com) | Post reviews to GitHub PRs |
+| gh CLI | [cli.github.com](https://cli.github.com) | GitHub PR operations and canonical selection in multi-remote repositories |
 
 ## How It Works
 
@@ -127,7 +131,7 @@ acr --verbose
 | `--local`           | `-l`  | false   | Skip posting to GitHub PR                |
 | `--worktree-branch` | `-B`  |         | Review a branch in a temp worktree (supports `user:branch` for forks) |
 | `--yes`             | `-y`  | false   | Auto-submit without prompting            |
-| `--fetch/--no-fetch`|       | true    | Fetch base ref from origin before diff   |
+| `--fetch/--no-fetch`|       | true    | Fetch the review base ref before diffing |
 | `--no-fp-filter`    |       | false   | Disable false positive filtering          |
 | `--fp-threshold`    |       | 75      | False positive confidence threshold 1-100 |
 | `--no-pr-feedback`  |       | false   | Disable PR feedback summarization         |
@@ -137,11 +141,39 @@ acr --verbose
 | `--guidance-file`   |       |         | Path to file containing review guidance (env: ACR_GUIDANCE_FILE) |
 | `--ref-file`        |       | false   | Write diff to temp file instead of embedding in prompt (auto for large diffs) |
 | `--exclude-pattern` |       |         | Exclude findings matching regex (repeat)  |
-| `--no-config`       |       | false   | Skip loading .acr.yaml config file        |
+| `--no-config`       |       | false   | Disable repository `.acr.yaml` for this review |
 | `--reviewer-agent`  | `-a`  | codex   | Agent(s) for reviews, comma-separated (agy, codex, claude, gemini) |
 | `--summarizer-agent`| `-s`  | codex   | Agent for summarization (agy, codex, claude, gemini) |
 | `--reviewer-model`  |       |         | LLM model for review agents (env: ACR_REVIEWER_MODEL) |
 | `--summarizer-model`|       |         | LLM model for summarizer/FP filter agents (env: ACR_SUMMARIZER_MODEL) |
+
+### Trusted Review Configuration
+
+Every review entry point (`acr`, `acr --pr`, `acr --worktree-branch`, and
+`acr watch`) resolves repository configuration from an immutable snapshot of
+the canonical remote default branch. When no canonical remote is configured,
+ACR uses the local `main` commit; when neither exists, it uses built-in
+defaults. A `.acr.yaml` from the current target, PR head, or temporary review
+worktree is never allowed to configure the review evaluating that code.
+
+Trusted remote snapshots use an ACR-owned ref namespace, so refreshing review
+configuration cannot advance or rewind the remote-tracking ref used for the
+review diff. In a repository with multiple remotes, ACR uses `gh` repository
+identity to select the matching canonical fetch remote and fails closed when
+that identity is unavailable or ambiguous. Use `--no-config` to run without a
+repository policy source; ACR never guesses among multiple remotes.
+
+Repository-relative inputs such as `guidance_file` are read from the same
+immutable canonical commit. Invalid trusted configuration or an unavailable
+trusted relative input stops the review rather than falling back to target
+files. Paths declared by repository configuration must remain relative to that
+repository; absolute and escaping paths are rejected. Repository symlinks are
+resolved only within the same immutable commit. Use `--no-config` to explicitly
+disable repository configuration while retaining CLI and environment overrides.
+
+`--no-fetch` controls fetching the base ref used to produce the review diff.
+It does not disable the independent refresh that selects and snapshots trusted
+review configuration.
 
 ### Concurrency Control
 
@@ -198,11 +230,16 @@ A new review cycle starts when:
   once the head stops moving.
 
 Every cycle fetches the PR head into a fresh temporary worktree, so local
-branch state never goes stale mid-watch. Configuration (`.acr.yaml`) is read
-from the checkout the watch is launched from — never from the PR head — so
-run unattended watches from a trusted base-branch checkout. If the PR head
-moves while a review is running, the result is discarded instead of posted,
-and the new head is re-reviewed after the settle period.
+branch state never goes stale mid-watch. Review configuration is independently
+refreshed and snapshotted from the canonical remote default branch; neither the
+launch checkout nor the PR worktree supplies `.acr.yaml` or relative guidance.
+Startup gives trusted-source preparation and trusted config/guidance loading a
+shared five-attempt retry budget. Retry pacing follows `--poll-interval`,
+`ACR_WATCH_POLL_INTERVAL`, a safely parsed canonical config value, then the
+built-in default. During an active watch, transient source-refresh failures are
+retryable without consuming review budget; invalid loaded policy fails fast.
+If the PR head moves while a review is running, the result is discarded instead
+of posted, and the new head is re-reviewed after the settle period.
 
 Post modes control what gets posted:
 
@@ -328,10 +365,12 @@ PR feedback summarization runs in parallel with the reviewers and is enabled by 
 | `ACR_FP_FILTER_TIMEOUT`   | Timeout for false positive filter phase (e.g., "5m" or "300") |
 | `ACR_GUIDANCE`            | Steering context appended to review prompt |
 | `ACR_GUIDANCE_FILE`       | Path to file containing review guidance    |
+| `ACR_WATCH_POLL_INTERVAL` | Watch polling and startup retry interval (e.g., "1m") |
 
 ## Configuration
 
-Create `.acr.yaml` in your repository root to configure persistent settings:
+Create `.acr.yaml` in the root of the canonical branch to configure persistent
+review settings:
 
 ```yaml
 reviewers: 5
@@ -364,17 +403,19 @@ pr_feedback:
 Configuration is resolved with the following precedence (highest to lowest):
 1. CLI flags (e.g., `--reviewers 10`)
 2. Environment variables (e.g., `ACR_REVIEWERS=10`)
-3. Config file (`.acr.yaml`)
+3. Trusted canonical-branch config file (`.acr.yaml`)
 4. Built-in defaults
 
 ### Behavior
 
-- Config file is loaded from the git repository root
+- Review commands load the config file from an immutable canonical/default-branch snapshot, never from the code being reviewed
+- Reviewer agents run in the reviewed checkout, while aggregation, feedback, and false-positive-filter agents run in isolated ACR-owned directories so reviewed instruction files cannot steer post-processing
 - Missing config file is not an error (empty defaults used)
 - Invalid YAML or regex patterns produce an error
 - Unknown keys in config file produce a warning with "did you mean?" suggestions
 - CLI `--exclude-pattern` flags are merged with config patterns (union)
 - Use `--no-config` to skip loading the config file for a single run
+- `acr config show`, `acr config validate`, and `acr config init` operate on the working checkout for configuration management; `config show` is not necessarily the configuration snapshot an immediate review will use
 
 ## Exit Codes
 

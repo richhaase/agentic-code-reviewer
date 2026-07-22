@@ -3,6 +3,7 @@ package fpfilter
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 const DefaultThreshold = 75
 
 type EvaluatedFinding struct {
+	Index     int
 	Finding   domain.FindingGroup
 	FPScore   int
 	Reasoning string
@@ -27,17 +29,20 @@ type Result struct {
 	EvalErrors   int
 	Skipped      bool
 	SkipReason   string
+	Warnings     []string
 }
 
 type Filter struct {
 	agentName string
 	model     string
+	agent     agent.Agent
 	threshold int
+	workDir   string
 	verbose   bool
 	logger    *terminal.Logger
 }
 
-func New(agentName, model string, threshold int, verbose bool, logger *terminal.Logger) *Filter {
+func New(agentName, model string, threshold int, workDir string, verbose bool, logger *terminal.Logger) *Filter {
 	if threshold < 1 || threshold > 100 {
 		threshold = DefaultThreshold
 	}
@@ -45,9 +50,26 @@ func New(agentName, model string, threshold int, verbose bool, logger *terminal.
 		agentName: agentName,
 		model:     model,
 		threshold: threshold,
+		workDir:   workDir,
 		logger:    logger,
 		verbose:   verbose,
 	}
+}
+
+func NewWithAgent(ag agent.Agent, threshold int, workDir string) *Filter {
+	if threshold < 1 || threshold > 100 {
+		threshold = DefaultThreshold
+	}
+	return &Filter{
+		agent:     ag,
+		threshold: threshold,
+		workDir:   workDir,
+	}
+}
+
+func withWarnings(result *Result, warnings []string) *Result {
+	result.Warnings = append([]string(nil), warnings...)
+	return result
 }
 
 func skippedResult(grouped domain.GroupedFindings, start time.Time, reason string) *Result {
@@ -108,9 +130,13 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 		}
 	}
 
-	ag, err := agent.NewAgentWithModel(f.agentName, f.model)
-	if err != nil {
-		return skippedResult(grouped, start, "agent creation failed: "+err.Error())
+	ag := f.agent
+	if ag == nil {
+		var err error
+		ag, err = agent.NewAgentWithModel(f.agentName, f.model)
+		if err != nil {
+			return skippedResult(grouped, start, "agent creation failed: "+err.Error())
+		}
 	}
 
 	req := evaluationRequest{
@@ -132,7 +158,7 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 	}
 
 	prompt := buildPromptWithFeedback(fpEvaluationPrompt, priorFeedback)
-	execResult, err := ag.ExecuteSummary(ctx, prompt, payload)
+	execResult, err := ag.ExecuteSummary(ctx, &agent.SummaryConfig{Prompt: prompt, Input: payload, WorkDir: f.workDir})
 	if err != nil {
 		if ctx.Err() != nil {
 			return skippedResult(grouped, start, "context canceled")
@@ -140,35 +166,36 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 		return skippedResult(grouped, start, "LLM execution failed: "+err.Error())
 	}
 
-	defer func() {
-		if err := execResult.Close(); err != nil && f.verbose {
-			f.logger.Logf(terminal.StyleDim, "fp-filter close error (non-fatal): %v", err)
-		}
-	}()
-
 	output, err := io.ReadAll(execResult)
+	var warnings []string
+	if closeErr := execResult.Close(); closeErr != nil {
+		warnings = append(warnings, fmt.Sprintf("false-positive filter cleanup failed: %v", closeErr))
+		if f.verbose && f.logger != nil {
+			f.logger.Logf(terminal.StyleDim, "fp-filter close error (non-fatal): %v", closeErr)
+		}
+	}
 	if err != nil {
 		if ctx.Err() != nil {
-			return skippedResult(grouped, start, "context canceled")
+			return withWarnings(skippedResult(grouped, start, "context canceled"), warnings)
 		}
-		return skippedResult(grouped, start, "response read failed: "+err.Error())
+		return withWarnings(skippedResult(grouped, start, "response read failed: "+err.Error()), warnings)
 	}
 
-	parser, err := agent.NewSummaryParser(f.agentName)
+	parser, err := agent.NewSummaryParser(ag.Name())
 	if err != nil {
-		return skippedResult(grouped, start, "parser creation failed: "+err.Error())
+		return withWarnings(skippedResult(grouped, start, "parser creation failed: "+err.Error()), warnings)
 	}
 
 	responseText, err := parser.ExtractText(output)
 	if err != nil {
-		return skippedResult(grouped, start, "response extraction failed: "+err.Error())
+		return withWarnings(skippedResult(grouped, start, "response extraction failed: "+err.Error()), warnings)
 	}
 
 	var response evaluationResponse
 	if err := json.Unmarshal([]byte(responseText), &response); err != nil {
 		r := skippedResult(grouped, start, "response parse failed: "+err.Error())
 		r.EvalErrors = len(grouped.Findings)
-		return r
+		return withWarnings(r, warnings)
 	}
 
 	evalMap := make(map[int]findingEvaluation)
@@ -192,6 +219,7 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 
 		if adjusted >= f.threshold {
 			removed = append(removed, EvaluatedFinding{
+				Index:     i,
 				Finding:   finding,
 				FPScore:   adjusted,
 				Reasoning: eval.Reasoning,
@@ -201,7 +229,7 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 		}
 	}
 
-	return &Result{
+	return withWarnings(&Result{
 		Grouped: domain.GroupedFindings{
 			Findings: kept,
 			Info:     grouped.Info,
@@ -210,5 +238,5 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 		RemovedCount: len(removed),
 		Duration:     time.Since(start),
 		EvalErrors:   evalErrors,
-	}
+	}, warnings)
 }

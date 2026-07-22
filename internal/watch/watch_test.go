@@ -3,6 +3,8 @@ package watch
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -39,6 +41,7 @@ type harness struct {
 
 	triggers     []string
 	approvedWith []string
+	logs         []string
 }
 
 func newHarness(t *testing.T) *harness {
@@ -80,6 +83,9 @@ func (h *harness) deps() Deps {
 		Approve: func(ctx context.Context, body string) error {
 			h.approvedWith = append(h.approvedWith, body)
 			return nil
+		},
+		Logf: func(format string, args ...any) {
+			h.logs = append(h.logs, fmt.Sprintf(format, args...))
 		},
 	}
 }
@@ -430,6 +436,179 @@ func TestStateErrorsAreToleratedThenFatal(t *testing.T) {
 	}
 	if stateCalls != 1+maxConsecutivePollErrors {
 		t.Errorf("state calls = %d, want %d", stateCalls, 1+maxConsecutivePollErrors)
+	}
+}
+
+func TestRetryableCycleFailureDoesNotConsumeReviewBudget(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa")}
+	deps := h.deps()
+	var reviewNumbers []int
+	deps.RunCycle = func(_ context.Context, reviewNum int, trigger string) (Cycle, error) {
+		reviewNumbers = append(reviewNumbers, reviewNum)
+		h.triggers = append(h.triggers, trigger)
+		if len(reviewNumbers) == 1 {
+			return Cycle{Result: CycleError}, fmt.Errorf("%w: network unavailable", ErrRetryableCycle)
+		}
+		return Cycle{Result: CycleLGTMApproved}, nil
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if len(reviewNumbers) != 2 || reviewNumbers[0] != 1 || reviewNumbers[1] != 1 {
+		t.Fatalf("review numbers = %v, want [1 1]", reviewNumbers)
+	}
+	if len(h.triggers) != 2 || h.triggers[1] != "retry after transient preparation failure" {
+		t.Fatalf("triggers = %v", h.triggers)
+	}
+}
+
+func TestRetryableCycleFailuresBecomeFatalAfterLimit(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa")}
+	deps := h.deps()
+	attempts := 0
+	deps.RunCycle = func(_ context.Context, _ int, _ string) (Cycle, error) {
+		attempts++
+		return Cycle{Result: CycleError}, fmt.Errorf("%w: network unavailable", ErrRetryableCycle)
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeComment), deps); reason != ReasonError {
+		t.Fatalf("reason = %v, want ReasonError", reason)
+	}
+	if attempts != maxConsecutivePollErrors {
+		t.Fatalf("attempts = %d, want %d", attempts, maxConsecutivePollErrors)
+	}
+	var preparationLogs []string
+	for _, entry := range h.logs {
+		if strings.Contains(entry, "Review preparation failed") {
+			preparationLogs = append(preparationLogs, entry)
+		}
+	}
+	if len(preparationLogs) != maxConsecutivePollErrors {
+		t.Fatalf("preparation logs = %v", preparationLogs)
+	}
+	for _, entry := range preparationLogs[:len(preparationLogs)-1] {
+		if !strings.Contains(entry, "will retry") {
+			t.Fatalf("retrying log = %q", entry)
+		}
+	}
+	finalLog := preparationLogs[len(preparationLogs)-1]
+	if !strings.Contains(finalLog, "stopping") || strings.Contains(finalLog, "will retry") {
+		t.Fatalf("terminal log = %q", finalLog)
+	}
+}
+
+func TestRetryableRequestedReviewCannotPostPriorPendingApproval(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa"), requested("aaa")}
+	h.ci = []bool{true}
+	deps := h.deps()
+	attempts := 0
+	deps.RunCycle = func(_ context.Context, _ int, trigger string) (Cycle, error) {
+		attempts++
+		h.triggers = append(h.triggers, trigger)
+		switch attempts {
+		case 1:
+			return Cycle{Result: CycleLGTMCommentCIPending, LGTMBody: "obsolete"}, nil
+		case 2:
+			return Cycle{Result: CycleError}, fmt.Errorf("%w: network unavailable", ErrRetryableCycle)
+		default:
+			return Cycle{Result: CycleLGTMApproved}, nil
+		}
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if len(h.approvedWith) != 0 {
+		t.Fatalf("obsolete approval posted: %v", h.approvedWith)
+	}
+	if len(h.triggers) != 3 || h.triggers[1] != "re-review requested" || h.triggers[2] != "retry after transient preparation failure" {
+		t.Fatalf("triggers = %v", h.triggers)
+	}
+}
+
+func TestRetryablePreparationFailureSettlesChangedHead(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa"), open("bbb")}
+	deps := h.deps()
+	attempts := 0
+	deps.RunCycle = func(_ context.Context, _ int, trigger string) (Cycle, error) {
+		attempts++
+		h.triggers = append(h.triggers, trigger)
+		if attempts == 1 {
+			return Cycle{Result: CycleError}, fmt.Errorf("%w: network unavailable", ErrRetryableCycle)
+		}
+		return Cycle{Result: CycleLGTMApproved}, nil
+	}
+	startedAt := h.clock.Now()
+
+	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if len(h.triggers) != 2 || h.triggers[1] != "commits settled" {
+		t.Fatalf("triggers = %v", h.triggers)
+	}
+	if elapsed := h.clock.Now().Sub(startedAt); elapsed < defaultConfig(PostModeApprove).SettleTime {
+		t.Fatalf("changed head settled for %s", elapsed)
+	}
+}
+
+func TestRetryablePreparationFailuresResetWhenHeadChanges(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa"), open("bbb")}
+	deps := h.deps()
+	attempts := 0
+	deps.RunCycle = func(_ context.Context, _ int, trigger string) (Cycle, error) {
+		attempts++
+		h.triggers = append(h.triggers, trigger)
+		if attempts <= maxConsecutivePollErrors {
+			return Cycle{Result: CycleError}, fmt.Errorf("%w: network unavailable", ErrRetryableCycle)
+		}
+		return Cycle{Result: CycleLGTMApproved}, nil
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if attempts != maxConsecutivePollErrors+1 {
+		t.Fatalf("attempts = %d, want %d", attempts, maxConsecutivePollErrors+1)
+	}
+	if h.triggers[1] != "commits settled" {
+		t.Fatalf("triggers = %v", h.triggers)
+	}
+}
+
+func TestRetryablePreparationFailuresResetForRequestedNewHead(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{
+		open("aaa"),
+		open("aaa"),
+		open("aaa"),
+		open("aaa"),
+		requested("bbb"),
+	}
+	deps := h.deps()
+	attempts := 0
+	deps.RunCycle = func(_ context.Context, _ int, trigger string) (Cycle, error) {
+		attempts++
+		h.triggers = append(h.triggers, trigger)
+		if attempts <= 2*(maxConsecutivePollErrors-1) {
+			return Cycle{Result: CycleError}, fmt.Errorf("%w: network unavailable", ErrRetryableCycle)
+		}
+		return Cycle{Result: CycleLGTMApproved}, nil
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if attempts != 2*maxConsecutivePollErrors-1 {
+		t.Fatalf("attempts = %d, want %d", attempts, 2*maxConsecutivePollErrors-1)
+	}
+	if h.triggers[maxConsecutivePollErrors-1] != "re-review requested" {
+		t.Fatalf("triggers = %v", h.triggers)
 	}
 }
 

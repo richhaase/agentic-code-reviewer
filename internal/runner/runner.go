@@ -57,37 +57,63 @@ type Config struct {
 	UseRefFile      bool
 	Diff            string
 	DiffPrecomputed bool
+	Events          Events
+}
+
+type Events struct {
+	ReviewerStarted   func(int, string)
+	ReviewerOutput    func(int, string)
+	ReviewerRetrying  func(int, string, int, int, time.Duration)
+	ReviewerCompleted func(domain.ReviewerResult)
 }
 
 type Runner struct {
-	config    Config
-	agents    []agent.Agent
-	logger    *terminal.Logger
-	completed *atomic.Int32
+	config       Config
+	agents       []agent.Agent
+	logger       *terminal.Logger
+	completed    *atomic.Int32
+	showProgress bool
 }
 
 func New(config Config, agents []agent.Agent, logger *terminal.Logger) (*Runner, error) {
+	return newRunner(config, agents, logger, true)
+}
+
+func NewHeadless(config Config, agents []agent.Agent) (*Runner, error) {
+	return newRunner(config, agents, nil, false)
+}
+
+func newRunner(config Config, agents []agent.Agent, logger *terminal.Logger, showProgress bool) (*Runner, error) {
 	if len(agents) == 0 {
 		return nil, fmt.Errorf("at least one agent is required")
 	}
 	return &Runner{
-		config:    config,
-		agents:    agents,
-		logger:    logger,
-		completed: &atomic.Int32{},
+		config:       config,
+		agents:       agents,
+		logger:       logger,
+		completed:    &atomic.Int32{},
+		showProgress: showProgress,
 	}, nil
 }
 
 func (r *Runner) Run(ctx context.Context) ([]domain.ReviewerResult, time.Duration, error) {
-	spinner := terminal.NewSpinner(r.config.Reviewers)
-	r.completed = spinner.Completed()
-
-	spinnerCtx, spinnerCancel := context.WithCancel(context.Background())
-	spinnerDone := make(chan struct{})
-	go func() {
-		spinner.Run(spinnerCtx)
-		close(spinnerDone)
-	}()
+	stopProgress := func() {}
+	if r.showProgress {
+		spinner := terminal.NewSpinner(r.config.Reviewers)
+		r.completed = spinner.Completed()
+		spinnerCtx, spinnerCancel := context.WithCancel(context.Background())
+		spinnerDone := make(chan struct{})
+		go func() {
+			spinner.Run(spinnerCtx)
+			close(spinnerDone)
+		}()
+		stopProgress = func() {
+			spinnerCancel()
+			<-spinnerDone
+		}
+	} else {
+		r.completed = &atomic.Int32{}
+	}
 
 	start := time.Now()
 
@@ -102,66 +128,128 @@ func (r *Runner) Run(ctx context.Context) ([]domain.ReviewerResult, time.Duratio
 
 	for i := 1; i <= r.config.Reviewers; i++ {
 		go func(id int) {
+			agentName := r.reviewerAgentName(id)
 
 			select {
 			case sem <- struct{}{}:
 			case <-ctx.Done():
-				resultCh <- domain.ReviewerResult{
+				result := domain.ReviewerResult{
 					ReviewerID: id,
+					AgentName:  agentName,
 					ExitCode:   -1,
+					Failure: &domain.ReviewerFailure{
+						Kind:    domain.ReviewerFailureInterrupted,
+						Message: ctx.Err().Error(),
+					},
 				}
+				r.completed.Add(1)
+				resultCh <- result
 				return
 			}
 
-			result := r.runReviewerWithRetry(ctx, id)
-
-			<-sem
+			result, started := r.runReviewerAfterAcquiring(ctx, id, agentName)
 
 			r.completed.Add(1)
+			if started {
+				r.reviewerCompleted(result)
+			}
+			<-sem
 			resultCh <- result
 		}(i)
 	}
 
 	results := make([]domain.ReviewerResult, 0, r.config.Reviewers)
-	for i := 0; i < r.config.Reviewers; i++ {
+	var runErr error
+	for len(results) < r.config.Reviewers {
+		if runErr != nil {
+			results = append(results, <-resultCh)
+			continue
+		}
 		select {
 		case result := <-resultCh:
 			results = append(results, result)
 		case <-ctx.Done():
-			spinnerCancel()
-			<-spinnerDone
-			return nil, time.Since(start), ctx.Err()
+			runErr = ctx.Err()
 		}
 	}
 
-	spinnerCancel()
-	<-spinnerDone
+	stopProgress()
+	if runErr != nil {
+		return results, time.Since(start), runErr
+	}
 
-	return results, time.Since(start), nil
+	return finishRun(ctx, results, start)
+}
+
+func (r *Runner) runReviewerAfterAcquiring(ctx context.Context, reviewerID int, agentName string) (domain.ReviewerResult, bool) {
+	if err := ctx.Err(); err != nil {
+		return domain.ReviewerResult{
+			ReviewerID: reviewerID,
+			AgentName:  agentName,
+			ExitCode:   -1,
+			Failure: &domain.ReviewerFailure{
+				Kind:    domain.ReviewerFailureInterrupted,
+				Message: err.Error(),
+			},
+		}, false
+	}
+	r.reviewerStarted(reviewerID, agentName)
+	return r.runReviewerWithRetry(ctx, reviewerID), true
+}
+
+func finishRun(ctx context.Context, results []domain.ReviewerResult, startedAt time.Time) ([]domain.ReviewerResult, time.Duration, error) {
+	duration := time.Since(startedAt)
+	if err := ctx.Err(); err != nil {
+		return results, duration, err
+	}
+	return results, duration, nil
 }
 
 func (r *Runner) runReviewerWithRetry(ctx context.Context, reviewerID int) domain.ReviewerResult {
 	var result domain.ReviewerResult
+	var warnings []domain.ReviewerWarning
+	agentName := r.reviewerAgentName(reviewerID)
 
 	for attempt := 0; attempt <= r.config.Retries; attempt++ {
 		select {
 		case <-ctx.Done():
 			return domain.ReviewerResult{
 				ReviewerID: reviewerID,
+				AgentName:  agentName,
 				ExitCode:   -1,
+				Attempts:   attempt,
+				Failure: &domain.ReviewerFailure{
+					Kind:    domain.ReviewerFailureInterrupted,
+					Message: ctx.Err().Error(),
+				},
+				Warnings: append([]domain.ReviewerWarning(nil), warnings...),
 			}
 		default:
 		}
 
 		result = r.runReviewer(ctx, reviewerID)
+		warnings = append(warnings, result.Warnings...)
+		result.Warnings = append([]domain.ReviewerWarning(nil), warnings...)
+		result.Attempts = attempt + 1
 
 		if result.ExitCode == 0 {
 			return result
 		}
+		if ctx.Err() != nil || (result.Failure != nil && result.Failure.Kind == domain.ReviewerFailureInterrupted) {
+			if ctx.Err() != nil {
+				result.ExitCode = -1
+				result.TimedOut = false
+				result.AuthFailed = false
+				result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureInterrupted, Message: ctx.Err().Error()}
+			}
+			return result
+		}
 
 		if result.AuthFailed {
-			r.logger.Logf(terminal.StyleError, "Reviewer #%d (%s) authentication failed: %s",
-				reviewerID, result.AgentName, agent.AuthHint(result.AgentName))
+			if r.logger != nil {
+				r.logger.Logf(terminal.StyleError, "Reviewer #%d (%s) authentication failed: %s",
+					reviewerID, result.AgentName, agent.AuthHint(result.AgentName))
+			}
 			return result
 		}
 
@@ -173,12 +261,21 @@ func (r *Runner) runReviewerWithRetry(ctx context.Context, reviewerID int) domai
 			if result.TimedOut {
 				reason = "timed out"
 			}
-			r.logger.Logf(terminal.StyleWarning, "Reviewer #%d %s (exit %d), retry %d/%d in %v",
-				reviewerID, reason, result.ExitCode, attempt+1, r.config.Retries, delay)
+			if r.logger != nil {
+				r.logger.Logf(terminal.StyleWarning, "Reviewer #%d %s (exit %d), retry %d/%d in %v",
+					reviewerID, reason, result.ExitCode, attempt+1, r.config.Retries, delay)
+			}
+			if r.config.Events.ReviewerRetrying != nil {
+				r.config.Events.ReviewerRetrying(reviewerID, reason, attempt+1, r.config.Retries, delay)
+			}
 
 			select {
 			case <-time.After(delay):
 			case <-ctx.Done():
+				result.ExitCode = -1
+				result.TimedOut = false
+				result.AuthFailed = false
+				result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureInterrupted, Message: ctx.Err().Error()}
 				return result
 			}
 		}
@@ -187,7 +284,7 @@ func (r *Runner) runReviewerWithRetry(ctx context.Context, reviewerID int) domai
 	return result
 }
 
-func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.ReviewerResult {
+func (r *Runner) runReviewer(ctx context.Context, reviewerID int) (result domain.ReviewerResult) {
 	start := time.Now()
 
 	selectedAgent := agent.AgentForReviewer(r.agents, reviewerID)
@@ -197,10 +294,14 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 			ReviewerID: reviewerID,
 			ExitCode:   -1,
 			Duration:   time.Since(start),
+			Failure: &domain.ReviewerFailure{
+				Kind:    domain.ReviewerFailureExecution,
+				Message: "no reviewer agent available",
+			},
 		}
 	}
 
-	result := domain.ReviewerResult{
+	result = domain.ReviewerResult{
 		ReviewerID: reviewerID,
 		AgentName:  selectedAgent.Name(),
 	}
@@ -224,19 +325,40 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 	if err != nil {
 		result.ExitCode = -1
 		result.Duration = time.Since(start)
+		if ctx.Err() != nil {
+			result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureInterrupted, Message: ctx.Err().Error()}
+		} else if timeoutCtx.Err() == context.DeadlineExceeded {
+			result.TimedOut = true
+			result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureTimeout, Message: timeoutCtx.Err().Error()}
+		} else {
+			result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureExecution, Message: err.Error()}
+		}
 		return result
 	}
 
-	defer func() {
-		if closeErr := execResult.Close(); closeErr != nil && r.verbose() {
-			r.logger.Logf(terminal.StyleWarning, "Reviewer #%d: close error (non-fatal): %v", reviewerID, closeErr)
+	closed := false
+	closeExecution := func() {
+		if closed {
+			return
 		}
-	}()
+		closed = true
+		if closeErr := execResult.Close(); closeErr != nil {
+			result.Warnings = append(result.Warnings, domain.ReviewerWarning{
+				Kind:    domain.ReviewerWarningCleanup,
+				Message: fmt.Sprintf("reviewer cleanup failed: %v", closeErr),
+			})
+			if r.verbose() {
+				r.logger.Logf(terminal.StyleWarning, "Reviewer #%d: close error (non-fatal): %v", reviewerID, closeErr)
+			}
+		}
+	}
+	defer closeExecution()
 
 	parser, err := agent.NewReviewParser(selectedAgent.Name(), reviewerID)
 	if err != nil {
 		result.ExitCode = -1
 		result.Duration = time.Since(start)
+		result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureParser, Message: err.Error()}
 		return result
 	}
 
@@ -246,11 +368,19 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 
 	for {
 
+		if ctx.Err() != nil {
+			result.ParseErrors += parser.ParseErrors()
+			result.ExitCode = -1
+			result.Duration = time.Since(start)
+			result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureInterrupted, Message: ctx.Err().Error()}
+			return result
+		}
 		if timeoutCtx.Err() == context.DeadlineExceeded {
 			result.ParseErrors += parser.ParseErrors()
 			result.TimedOut = true
 			result.ExitCode = -1
 			result.Duration = time.Since(start)
+			result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureTimeout, Message: timeoutCtx.Err().Error()}
 			return result
 		}
 
@@ -274,6 +404,9 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 		}
 
 		result.Findings = append(result.Findings, *finding)
+		if r.config.Events.ReviewerOutput != nil {
+			r.config.Events.ReviewerOutput(reviewerID, finding.Text)
+		}
 
 		if r.verbose() {
 			text := finding.Text
@@ -288,32 +421,65 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) domain.Reviewe
 
 	result.ParseErrors += parser.ParseErrors()
 
-	if closeErr := execResult.Close(); closeErr != nil && r.verbose() {
-		r.logger.Logf(terminal.StyleWarning, "Reviewer #%d: close error (non-fatal): %v", reviewerID, closeErr)
-	}
+	closeExecution()
 	result.ExitCode = execResult.ExitCode()
+	result.Duration = time.Since(start)
 
-	if result.ExitCode != 0 {
-		result.AuthFailed = agent.IsAuthFailure(selectedAgent.Name(), result.ExitCode, execResult.Stderr(), stdoutCapture.String())
-		if result.AuthFailed {
-			result.Findings = nil
-		}
+	if result.ExitCode == 0 {
+		return result
 	}
 
-	result.Duration = time.Since(start)
+	if ctx.Err() != nil {
+		result.TimedOut = false
+		result.AuthFailed = false
+		result.ExitCode = -1
+		result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureInterrupted, Message: ctx.Err().Error()}
+		return result
+	}
 
 	if timeoutCtx.Err() == context.DeadlineExceeded {
 		result.TimedOut = true
 		result.AuthFailed = false
 		result.ExitCode = -1
+		result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureTimeout, Message: timeoutCtx.Err().Error()}
 		return result
+	}
+
+	if result.ExitCode != 0 {
+		result.AuthFailed = agent.IsAuthFailure(selectedAgent.Name(), result.ExitCode, execResult.Stderr(), stdoutCapture.String())
+		if result.AuthFailed {
+			result.Findings = nil
+			result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureAuth, Message: selectedAgent.Name() + " authentication failed"}
+		} else if result.Failure == nil {
+			result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureExit, Message: fmt.Sprintf("reviewer exited with code %d", result.ExitCode)}
+		}
 	}
 
 	return result
 }
 
+func (r *Runner) reviewerAgentName(reviewerID int) string {
+	selectedAgent := agent.AgentForReviewer(r.agents, reviewerID)
+	if selectedAgent == nil {
+		return ""
+	}
+	return selectedAgent.Name()
+}
+
 func (r *Runner) verbose() bool {
-	return r.config.Verbose
+	return r.config.Verbose && r.logger != nil
+}
+
+func (r *Runner) reviewerStarted(reviewerID int, agentName string) {
+	if r.config.Events.ReviewerStarted != nil {
+		r.config.Events.ReviewerStarted(reviewerID, agentName)
+	}
+}
+
+func (r *Runner) reviewerCompleted(result domain.ReviewerResult) {
+	if r.config.Events.ReviewerCompleted != nil {
+		r.config.Events.ReviewerCompleted(result)
+	}
 }
 
 func BuildStats(results []domain.ReviewerResult, totalReviewers int, wallClock time.Duration) domain.ReviewStats {

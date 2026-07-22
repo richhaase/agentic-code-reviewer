@@ -36,7 +36,7 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (*
 		return nil, err
 	}
 
-	if config.Guidance != "" {
+	if config.Guidance != "" || config.DiffPrecomputed {
 		args := []string{"exec", "--json", "--color", "never", "-"}
 		if c.model != "" {
 			args = append([]string{"--model", c.model}, args...)
@@ -61,7 +61,7 @@ func (c *CodexAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (*
 	})
 }
 
-func (c *CodexAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (*ExecutionResult, error) {
+func (c *CodexAgent) ExecuteSummary(ctx context.Context, config *SummaryConfig) (*ExecutionResult, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
 	}
@@ -72,9 +72,9 @@ func (c *CodexAgent) ExecuteSummary(ctx context.Context, prompt string, input []
 	}
 
 	stdin := io.MultiReader(
-		strings.NewReader(prompt),
+		strings.NewReader(config.Prompt),
 		strings.NewReader("\n\nINPUT JSON:\n"),
-		bytes.NewReader(input),
+		bytes.NewReader(config.Input),
 		strings.NewReader("\n"),
 	)
 
@@ -82,5 +82,6 @@ func (c *CodexAgent) ExecuteSummary(ctx context.Context, prompt string, input []
 		Command: "codex",
 		Args:    args,
 		Stdin:   stdin,
+		WorkDir: config.WorkDir,
 	})
 }

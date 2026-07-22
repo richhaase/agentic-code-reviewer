@@ -2,8 +2,10 @@ package agent
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -83,5 +85,53 @@ func TestExecuteCommand_StartFailureCleansTempFile(t *testing.T) {
 	}
 	if _, statErr := os.Stat(tempPath); !os.IsNotExist(statErr) {
 		t.Fatalf("expected temp file to be removed, stat err: %v", statErr)
+	}
+}
+
+func TestExecuteCommand_StartFailureIncludesCleanupFailure(t *testing.T) {
+	cleanupPath := filepath.Join(t.TempDir(), "not-empty")
+	if err := os.Mkdir(cleanupPath, 0700); err != nil {
+		t.Fatalf("create cleanup directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cleanupPath, "child"), []byte("data"), 0600); err != nil {
+		t.Fatalf("create cleanup child: %v", err)
+	}
+
+	_, err := executeCommand(context.Background(), executeOptions{
+		Command:      "definitely-not-a-real-acr-command",
+		TempFilePath: cleanupPath,
+	})
+
+	if err == nil {
+		t.Fatal("expected executeCommand to fail")
+	}
+	if !strings.Contains(err.Error(), "failed to start") || !strings.Contains(err.Error(), "failed to clean up temp file") {
+		t.Fatalf("combined setup and cleanup error = %v", err)
+	}
+}
+
+func TestExecuteCommand_CloseReturnsCleanupFailure(t *testing.T) {
+	cleanupPath := filepath.Join(t.TempDir(), "not-empty")
+	if err := os.Mkdir(cleanupPath, 0700); err != nil {
+		t.Fatalf("create cleanup directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cleanupPath, "child"), []byte("data"), 0600); err != nil {
+		t.Fatalf("create cleanup child: %v", err)
+	}
+
+	result, err := executeCommand(context.Background(), executeOptions{
+		Command:      "true",
+		TempFilePath: cleanupPath,
+	})
+	if err != nil {
+		t.Fatalf("execute command: %v", err)
+	}
+	if _, err := io.ReadAll(result); err != nil {
+		t.Fatalf("read command output: %v", err)
+	}
+	firstErr := result.Close()
+
+	if firstErr == nil || !strings.Contains(firstErr.Error(), "failed to clean up temp file") {
+		t.Fatalf("first Close() error = %v", firstErr)
 	}
 }

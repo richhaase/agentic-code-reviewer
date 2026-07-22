@@ -412,6 +412,42 @@ func TestUrlMatches_SSHShorthandFormat(t *testing.T) {
 	}
 }
 
+func TestUrlMatches_GeneralSCPFormat(t *testing.T) {
+	tests := []string{
+		"github.com:owner/repo.git",
+		"deploy@github.com:owner/repo.git",
+	}
+	for _, remoteURL := range tests {
+		if !urlMatches(remoteURL, "https://github.com/owner/repo") {
+			t.Errorf("expected canonical match for %q", remoteURL)
+		}
+	}
+}
+
+func TestUrlMatches_AuthenticatedHTTPSFormat(t *testing.T) {
+	tests := []string{
+		"https://user@github.com/owner/repo.git",
+		"https://user:token@github.com/owner/repo.git",
+	}
+	for _, remoteURL := range tests {
+		if !urlMatches(remoteURL, "https://github.com/owner/repo") {
+			t.Errorf("expected canonical match for %q", remoteURL)
+		}
+	}
+}
+
+func TestUrlMatches_AuthenticatedDifferentHost(t *testing.T) {
+	if urlMatches("https://github.com@evil.example/owner/repo.git", "https://github.com/owner/repo") {
+		t.Fatal("authenticated URL on a different host matched canonical repository")
+	}
+}
+
+func TestUrlMatches_HostlessPathDoesNotMatchCanonicalRepository(t *testing.T) {
+	if urlMatches("github.com/owner/repo.git", "https://github.com/owner/repo") {
+		t.Fatal("hostless path matched canonical repository")
+	}
+}
+
 func TestUrlMatches_SSHURLFormat(t *testing.T) {
 
 	result := urlMatches("ssh://git@github.com/owner/repo.git", "https://github.com/owner/repo")
@@ -428,6 +464,41 @@ func TestUrlMatches_SSHURLFormatNoUser(t *testing.T) {
 	}
 }
 
+func TestUrlMatches_SSHURLWithExplicitPort(t *testing.T) {
+	result := urlMatches("ssh://git@github.com:22/owner/repo.git", "https://github.com/owner/repo")
+	if !result {
+		t.Error("expected true for SSH URL with explicit port vs HTTPS")
+	}
+}
+
+func TestUrlMatches_DefaultPorts(t *testing.T) {
+	tests := []string{
+		"https://github.com:443/owner/repo.git",
+		"http://github.com:80/owner/repo.git",
+		"git://github.com:9418/owner/repo.git",
+	}
+	for _, remoteURL := range tests {
+		if !urlMatches(remoteURL, "https://github.com/owner/repo") {
+			t.Errorf("expected default-port canonical match for %q", remoteURL)
+		}
+	}
+}
+
+func TestUrlMatches_NonDefaultPortDoesNotMatchCanonicalRepository(t *testing.T) {
+	if urlMatches("ssh://git@github.com:2222/owner/repo.git", "https://github.com/owner/repo") {
+		t.Fatal("non-default port matched canonical repository")
+	}
+}
+
+func TestUrlMatches_RequiresSameNonDefaultPort(t *testing.T) {
+	if !urlMatches("ssh://git@github.com:2222/owner/repo.git", "ssh://github.com:2222/owner/repo") {
+		t.Fatal("matching non-default ports did not match")
+	}
+	if urlMatches("ssh://git@github.com:2222/owner/repo.git", "ssh://github.com:2200/owner/repo") {
+		t.Fatal("different non-default ports matched")
+	}
+}
+
 func TestUrlMatches_SSHURLVsSSHShorthand(t *testing.T) {
 	result := urlMatches("ssh://git@github.com/owner/repo.git", "git@github.com:owner/repo.git")
 	if !result {
@@ -439,6 +510,84 @@ func TestUrlMatches_DifferentRepos(t *testing.T) {
 	result := urlMatches("https://github.com/owner/repo1", "https://github.com/owner/repo2")
 	if result {
 		t.Error("expected false for different repos")
+	}
+}
+
+func matchingFetchRemoteForTest(t *testing.T, remotes []byte, repositoryURL, repositorySSHURL string) string {
+	t.Helper()
+	remote, err := matchingFetchRemote(remotes, repositoryURL, repositorySSHURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return remote
+}
+
+func TestMatchingFetchRemoteIgnoresCanonicalPushURLOnForkRemote(t *testing.T) {
+	remotes := []byte(strings.Join([]string{
+		"aaa-fork\thttps://github.com/user/fork.git (fetch)",
+		"aaa-fork\thttps://github.com/org/canonical.git (push)",
+		"zzz-canonical\thttps://github.com/org/canonical.git (fetch)",
+		"zzz-canonical\thttps://github.com/org/canonical.git (push)",
+	}, "\n"))
+
+	remote := matchingFetchRemoteForTest(t, remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")
+	if remote != "zzz-canonical" {
+		t.Fatalf("remote = %q, want zzz-canonical", remote)
+	}
+}
+
+func TestMatchingFetchRemoteAcceptsCanonicalAuthenticatedAndSCPURLs(t *testing.T) {
+	tests := []struct {
+		name      string
+		remoteURL string
+	}{
+		{name: "authenticated HTTPS", remoteURL: "https://user@github.com/org/canonical.git"},
+		{name: "SCP without user", remoteURL: "github.com:org/canonical.git"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			remotes := []byte("canonical\t" + tt.remoteURL + " (fetch)\n")
+			remote := matchingFetchRemoteForTest(t, remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")
+			if remote != "canonical" {
+				t.Fatalf("remote = %q, want canonical", remote)
+			}
+		})
+	}
+}
+
+func TestMatchingFetchRemoteRejectsHostlessCanonicalLookalike(t *testing.T) {
+	remotes := []byte(strings.Join([]string{
+		"aaa-local\tgithub.com/org/canonical.git (fetch)",
+		"zzz-canonical\thttps://github.com/org/canonical.git (fetch)",
+	}, "\n"))
+
+	remote := matchingFetchRemoteForTest(t, remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")
+	if remote != "zzz-canonical" {
+		t.Fatalf("remote = %q, want zzz-canonical", remote)
+	}
+}
+
+func TestMatchingFetchRemoteRejectsNonDefaultPortLookalike(t *testing.T) {
+	remotes := []byte(strings.Join([]string{
+		"aaa-other-service\tssh://git@github.com:2222/org/canonical.git (fetch)",
+		"zzz-canonical\tssh://git@github.com:22/org/canonical.git (fetch)",
+	}, "\n"))
+
+	remote := matchingFetchRemoteForTest(t, remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")
+	if remote != "zzz-canonical" {
+		t.Fatalf("remote = %q, want zzz-canonical", remote)
+	}
+}
+
+func TestMatchingFetchRemoteRejectsAmbiguousCanonicalRemotes(t *testing.T) {
+	remotes := []byte(strings.Join([]string{
+		"origin\tgit@github.com:org/canonical.git (fetch)",
+		"upstream\thttps://github.com/org/canonical.git (fetch)",
+	}, "\n"))
+
+	remote, err := matchingFetchRemote(remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")
+	if err == nil || !strings.Contains(err.Error(), "multiple configured fetch remotes") {
+		t.Fatalf("remote = %q, error = %v", remote, err)
 	}
 }
 

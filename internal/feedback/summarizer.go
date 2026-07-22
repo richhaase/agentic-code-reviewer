@@ -2,11 +2,13 @@ package feedback
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
@@ -27,15 +29,38 @@ func NewSummarizer(agentName, model string, verbose bool, logger *terminal.Logge
 }
 
 func (s *Summarizer) Summarize(ctx context.Context, prNumber string) (string, error) {
+	return s.SummarizeFromDir(ctx, prNumber, "")
+}
+
+func (s *Summarizer) SummarizeFromDir(ctx context.Context, prNumber, workDir string) (string, error) {
+	return s.SummarizeFromDirs(ctx, prNumber, workDir, workDir)
+}
+
+func (s *Summarizer) SummarizeFromDirs(ctx context.Context, prNumber, repositoryDir, agentDir string) (string, error) {
 	if prNumber == "" {
 		return "", fmt.Errorf("PR number is required")
 	}
 
-	prCtx, err := FetchPRContext(ctx, prNumber)
+	prCtx, err := FetchPRContextFromDir(ctx, prNumber, repositoryDir)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch PR context: %w", err)
 	}
+	return s.summarizeContext(ctx, prCtx, agentDir)
+}
 
+func (s *Summarizer) SummarizePullRequest(ctx context.Context, key domain.PullRequestKey, workDir string) (string, error) {
+	return s.SummarizePullRequestFromDirs(ctx, key, workDir, workDir)
+}
+
+func (s *Summarizer) SummarizePullRequestFromDirs(ctx context.Context, key domain.PullRequestKey, repositoryDir, agentDir string) (string, error) {
+	prCtx, err := FetchPRContextForPullRequest(ctx, key, repositoryDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch PR context: %w", err)
+	}
+	return s.summarizeContext(ctx, prCtx, agentDir)
+}
+
+func (s *Summarizer) summarizeContext(ctx context.Context, prCtx *PRContext, workDir string) (string, error) {
 	if !prCtx.HasContent() {
 		return "", nil
 	}
@@ -47,25 +72,20 @@ func (s *Summarizer) Summarize(ctx context.Context, prNumber string) (string, er
 		return "", fmt.Errorf("failed to create agent: %w", err)
 	}
 
-	execResult, err := ag.ExecuteSummary(ctx, summarizePrompt, []byte(input))
+	execResult, err := ag.ExecuteSummary(ctx, &agent.SummaryConfig{Prompt: summarizePrompt, Input: []byte(input), WorkDir: workDir})
 	if err != nil {
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
 		return "", fmt.Errorf("agent execution failed: %w", err)
 	}
-	defer func() {
-		if err := execResult.Close(); err != nil && s.verbose {
-			s.logger.Logf(terminal.StyleDim, "feedback close error (non-fatal): %v", err)
-		}
-	}()
-
 	output, err := io.ReadAll(execResult)
+	closeErr := execResult.Close()
 	if err != nil {
 		if ctx.Err() != nil {
-			return "", ctx.Err()
+			return "", errors.Join(ctx.Err(), closeErr)
 		}
-		return "", fmt.Errorf("failed to read agent output: %w", err)
+		return "", errors.Join(fmt.Errorf("failed to read agent output: %w", err), closeErr)
 	}
 
 	summary := strings.TrimSpace(string(output))
@@ -73,10 +93,20 @@ func (s *Summarizer) Summarize(ctx context.Context, prNumber string) (string, er
 	summary = agent.StripMarkdownCodeFence(summary)
 
 	if strings.Contains(strings.ToLower(summary), "no prior feedback") {
-		return "", nil
+		summary = ""
 	}
 
-	return summary, nil
+	return summary, s.handleCloseError(closeErr)
+}
+
+func (s *Summarizer) handleCloseError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if s.verbose && s.logger != nil {
+		s.logger.Logf(terminal.StyleDim, "feedback close error (non-fatal): %v", err)
+	}
+	return fmt.Errorf("feedback cleanup failed: %w", err)
 }
 
 func (s *Summarizer) buildInput(prCtx *PRContext) string {

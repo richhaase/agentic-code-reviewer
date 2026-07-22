@@ -1187,7 +1187,7 @@ func clearACREnv(t *testing.T) {
 		"ACR_RETRIES", "ACR_FETCH", "ACR_REVIEWER_AGENT", "ACR_SUMMARIZER_AGENT",
 		"ACR_SUMMARIZER_TIMEOUT", "ACR_FP_FILTER_TIMEOUT",
 		"ACR_GUIDANCE", "ACR_GUIDANCE_FILE", "ACR_FP_FILTER", "ACR_FP_THRESHOLD",
-		"ACR_PR_FEEDBACK", "ACR_PR_FEEDBACK_AGENT",
+		"ACR_PR_FEEDBACK", "ACR_PR_FEEDBACK_AGENT", "ACR_WATCH_POLL_INTERVAL",
 	} {
 		t.Setenv(key, os.Getenv(key))
 		os.Unsetenv(key)
@@ -1318,9 +1318,34 @@ func TestLoadEnvState_NoWarningsForValidValues(t *testing.T) {
 	t.Setenv("ACR_SUMMARIZER_TIMEOUT", "6m")
 	t.Setenv("ACR_FP_FILTER_TIMEOUT", "7m")
 	t.Setenv("ACR_FETCH", "true")
+	t.Setenv("ACR_WATCH_POLL_INTERVAL", "45s")
 	_, warnings := LoadEnvState()
 	if len(warnings) != 0 {
 		t.Errorf("expected no warnings for valid values, got %v", warnings)
+	}
+}
+
+func TestLoadEnvState_WatchPollInterval(t *testing.T) {
+	clearACREnv(t)
+	t.Setenv("ACR_WATCH_POLL_INTERVAL", "45s")
+	state, warnings := LoadEnvState()
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v", warnings)
+	}
+	if !state.WatchPollIntervalSet || state.WatchPollInterval != 45*time.Second {
+		t.Fatalf("watch poll interval = %s, set = %t", state.WatchPollInterval, state.WatchPollIntervalSet)
+	}
+}
+
+func TestLoadEnvState_MalformedWatchPollInterval(t *testing.T) {
+	clearACREnv(t)
+	t.Setenv("ACR_WATCH_POLL_INTERVAL", "soon")
+	state, warnings := LoadEnvState()
+	if state.WatchPollIntervalSet {
+		t.Fatal("WatchPollIntervalSet is true")
+	}
+	if !hasWarningContaining(warnings, "ACR_WATCH_POLL_INTERVAL") {
+		t.Fatalf("warnings = %v", warnings)
 	}
 }
 
@@ -1597,7 +1622,12 @@ func TestResolve_WatchConfigAndFlagPrecedence(t *testing.T) {
 		t.Errorf("WatchMaxReviews = %d, want 3 from config", resolved.WatchMaxReviews)
 	}
 
-	resolved = Resolve(cfg, EnvState{},
+	resolved = Resolve(cfg, EnvState{WatchPollInterval: time.Minute, WatchPollIntervalSet: true}, FlagState{}, ResolvedConfig{})
+	if resolved.WatchPollInterval != time.Minute {
+		t.Errorf("WatchPollInterval = %s, want 1m from environment", resolved.WatchPollInterval)
+	}
+
+	resolved = Resolve(cfg, EnvState{WatchPollInterval: time.Minute, WatchPollIntervalSet: true},
 		FlagState{WatchPollIntervalSet: true, WatchMaxReviewsSet: true},
 		ResolvedConfig{WatchPollInterval: 2 * time.Minute, WatchMaxReviews: 5})
 	if resolved.WatchPollInterval != 2*time.Minute {

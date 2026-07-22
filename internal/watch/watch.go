@@ -2,9 +2,12 @@ package watch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 )
+
+var ErrRetryableCycle = errors.New("retryable watch cycle failure")
 
 type PostMode string
 
@@ -114,6 +117,9 @@ type loop struct {
 	requestArmed    bool
 	pendingApproval string
 	ciErrors        int
+	cycleErrors     int
+	retryPending    bool
+	retryHead       string
 }
 
 func (l *loop) logf(format string, args ...any) {
@@ -192,6 +198,11 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		if reason, done := l.checkOpen(st); done {
 			return reason
 		}
+		if l.retryPending && st.HeadSHA != l.retryHead {
+			l.retryPending = false
+			l.retryHead = ""
+			l.cycleErrors = 0
+		}
 
 		if !st.ReviewRequested {
 			l.requestArmed = true
@@ -201,6 +212,10 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		if st.ReviewRequested && l.requestArmed {
 			trigger = "re-review requested"
 			l.requestArmed = false
+		}
+
+		if trigger == "" && l.retryPending {
+			trigger = "retry after transient preparation failure"
 		}
 
 		if trigger == "" && l.pendingApproval != "" {
@@ -328,6 +343,9 @@ func (l *loop) tryApprove(ctx context.Context) (ExitReason, bool) {
 }
 
 func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, bool) {
+	l.retryPending = false
+	l.retryHead = ""
+	l.pendingApproval = ""
 	l.reviews++
 	l.logf("Review #%d/%d starting (%s)", l.reviews, l.cfg.MaxReviews, trigger)
 
@@ -343,9 +361,22 @@ func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, boo
 			l.logf("Reached maximum duration (%s) during review #%d; stopping.", l.cfg.MaxDuration, l.reviews)
 			return ReasonMaxDuration, true
 		}
+		if errors.Is(err, ErrRetryableCycle) {
+			l.reviews--
+			l.cycleErrors++
+			if l.cycleErrors >= maxConsecutivePollErrors {
+				l.logf("Review preparation failed (%d/%d); stopping: %v", l.cycleErrors, maxConsecutivePollErrors, err)
+				return ReasonError, true
+			}
+			l.logf("Review preparation failed (%d/%d); will retry: %v", l.cycleErrors, maxConsecutivePollErrors, err)
+			l.retryPending = true
+			l.retryHead = head
+			return 0, false
+		}
 		l.logf("Review #%d failed: %v", l.reviews, err)
 		return ReasonError, true
 	}
+	l.cycleErrors = 0
 
 	if c.Result != CycleStaleHead {
 		l.lastHead = head

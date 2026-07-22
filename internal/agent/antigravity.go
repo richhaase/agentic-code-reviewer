@@ -47,15 +47,15 @@ func (a *AntigravityAgent) ExecuteReview(ctx context.Context, config *ReviewConf
 	})
 }
 
-func (a *AntigravityAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (*ExecutionResult, error) {
+func (a *AntigravityAgent) ExecuteSummary(ctx context.Context, config *SummaryConfig) (*ExecutionResult, error) {
 	if err := a.IsAvailable(); err != nil {
 		return nil, err
 	}
 
 	stdin := io.MultiReader(
-		strings.NewReader(prompt),
+		strings.NewReader(config.Prompt),
 		strings.NewReader("\n\nINPUT JSON:\n"),
-		bytes.NewReader(input),
+		bytes.NewReader(config.Input),
 		strings.NewReader("\n"),
 	)
 
@@ -63,6 +63,7 @@ func (a *AntigravityAgent) ExecuteSummary(ctx context.Context, prompt string, in
 		Command: "agy",
 		Args:    antigravityPrintArgs(antigravityPrintTimeoutCeilingFromContext(ctx, time.Now())),
 		Stdin:   stdin,
+		WorkDir: config.WorkDir,
 	})
 }
 

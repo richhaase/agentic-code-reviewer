@@ -48,7 +48,7 @@ func (c *ClaudeAgent) ExecuteReview(ctx context.Context, config *ReviewConfig) (
 	})
 }
 
-func (c *ClaudeAgent) ExecuteSummary(ctx context.Context, prompt string, input []byte) (*ExecutionResult, error) {
+func (c *ClaudeAgent) ExecuteSummary(ctx context.Context, config *SummaryConfig) (*ExecutionResult, error) {
 	if err := c.IsAvailable(); err != nil {
 		return nil, err
 	}
@@ -56,18 +56,18 @@ func (c *ClaudeAgent) ExecuteSummary(ctx context.Context, prompt string, input [
 	var stdin io.Reader
 	var tempFilePath string
 
-	if len(input) > RefFileSizeThreshold {
+	if len(config.Input) > RefFileSizeThreshold {
 
-		absPath, err := WriteInputToTempFile("", input, "summary-input.json")
+		absPath, err := WriteInputToTempFile(config.WorkDir, config.Input, "summary-input.json")
 		if err != nil {
 			return nil, err
 		}
 		tempFilePath = absPath
-		fullPrompt := fmt.Sprintf("%s\n\nThe input JSON is in file: %s\nUse the Read tool to examine it.", prompt, absPath)
+		fullPrompt := fmt.Sprintf("%s\n\nThe input JSON is in file: %s\nUse the Read tool to examine it.", config.Prompt, absPath)
 		stdin = bytes.NewReader([]byte(fullPrompt))
 	} else {
 
-		fullPrompt := prompt + "\n\nINPUT JSON:\n" + string(input) + "\n"
+		fullPrompt := config.Prompt + "\n\nINPUT JSON:\n" + string(config.Input) + "\n"
 		stdin = bytes.NewReader([]byte(fullPrompt))
 	}
 
@@ -80,6 +80,7 @@ func (c *ClaudeAgent) ExecuteSummary(ctx context.Context, prompt string, input [
 		Command:      "claude",
 		Args:         args,
 		Stdin:        stdin,
+		WorkDir:      config.WorkDir,
 		TempFilePath: tempFilePath,
 	})
 }
