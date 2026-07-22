@@ -723,13 +723,16 @@ func TestServiceReturnsPopulatedInterruptedRunAfterAcceptance(t *testing.T) {
 
 func TestServiceInterruptDuringReviewersRetainsCompletedWork(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
+	reviewerTwoStarted := make(chan struct{})
 	reviewAgent := &mockReviewAgent{
 		name: "codex",
 		review: func(reviewCtx context.Context, config *agent.ReviewConfig) (string, int, string, error) {
 			if config.ReviewerID == "2" {
+				close(reviewerTwoStarted)
 				<-reviewCtx.Done()
 				return "", 0, "", reviewCtx.Err()
 			}
+			<-reviewerTwoStarted
 			return codexReviewOutput("src/service.go:10: missing validation"), 0, "", nil
 		},
 	}
