@@ -236,7 +236,7 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 		Guidance:        values.Guidance,
 		UseRefFile:      values.UseRefFile,
 		Diff:            diff,
-		DiffPrecomputed: true,
+		DiffPrecomputed: agent.AgentsNeedDiff(reviewAgents),
 		Events:          reviewerEvents,
 	}, reviewAgents)
 	if err != nil {
@@ -531,7 +531,14 @@ func (t *priorFeedbackTask) receive(ctx context.Context, emitter *eventEmitter) 
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
-	emitter.emit(Event{Kind: EventPhaseCompleted, Phase: domain.ReviewPhaseFeedback})
+	completion := "empty"
+	if feedbackResult.summary != "" {
+		completion = "summarized"
+	}
+	if feedbackResult.err != nil {
+		completion = "failed"
+	}
+	emitter.emit(Event{Kind: EventPhaseCompleted, Phase: domain.ReviewPhaseFeedback, Message: completion})
 	if feedbackResult.err != nil {
 		message := "prior feedback unavailable: " + feedbackResult.err.Error()
 		if feedbackResult.summary != "" {

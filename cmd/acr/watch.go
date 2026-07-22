@@ -295,7 +295,7 @@ func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode
 		Outcome:          outcome,
 	}
 
-	code := executeReview(ctx, opts, logger)
+	code := executeLegacyReview(ctx, opts, logger)
 	if code == domain.ExitInterrupted {
 		return watch.Cycle{Result: watch.CycleError}, ctx.Err()
 	}

@@ -157,6 +157,7 @@ func registerSharedReviewFlags(cmd *cobra.Command) {
 
 type worktreeResult struct {
 	workDir          string
+	repositoryRoot   string
 	detectedBase     string
 	baseAutoDetected bool
 	prRemote         string
@@ -207,6 +208,7 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 			return result, exitCode(domain.ExitError)
 		}
 		result.prRepoRoot = repoRoot
+		result.repositoryRoot = repoRoot
 
 		remote, err := github.FindRepoRemote(ctx, repoRoot)
 		if err != nil {
@@ -251,6 +253,7 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 				logger.Logf(terminal.StyleError, "Error getting repo root: %v", err)
 				return result, exitCode(domain.ExitError)
 			}
+			result.repositoryRoot = repoRoot
 
 			if err := git.AddRemote(repoRoot, forkRef.RemoteName, forkRef.RepoURL); err != nil {
 				logger.Logf(terminal.StyleError, "Error adding remote: %v", err)
@@ -498,6 +501,19 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		return contextualExit(ctx, err)
 	}
 
+	repositoryRoot := wt.repositoryRoot
+	if repositoryRoot == "" {
+		repositoryRoot, err = git.GetRoot()
+		if err != nil {
+			logger.Logf(terminal.StyleError, "%v", err)
+			return contextualExit(ctx, exitCode(domain.ExitError))
+		}
+	}
+	reviewWorktreeRoot := wt.workDir
+	if reviewWorktreeRoot == "" {
+		reviewWorktreeRoot = repositoryRoot
+	}
+
 	detectedPR := prNumber
 	if detectedPR == "" && !local && cfgResult.resolved.PRFeedbackEnabled && github.IsGHAvailable() {
 		if detected, err := github.GetCurrentPRNumber(ctx, worktreeBranch); err == nil {
@@ -518,7 +534,9 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		WorktreeBranch:  worktreeBranch,
 		UseRefFile:      refFile,
 		ExcludePatterns: cfgResult.excludePatterns,
-		WorkDir:         wt.workDir,
+		RepositoryRoot:  repositoryRoot,
+		WorkDir:         reviewWorktreeRoot,
+		ConfigSource:    cfgResult.source,
 	}
 	code := executeReview(ctx, opts, logger)
 	return exitCode(code)

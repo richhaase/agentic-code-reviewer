@@ -312,7 +312,7 @@ func TestServiceRunsMockAgentsHeadlessly(t *testing.T) {
 	}
 }
 
-func TestServicePinsEveryReviewerToCapturedRevisionAndDiff(t *testing.T) {
+func TestServicePreservesNativeReviewerModeAgainstCapturedRevision(t *testing.T) {
 	configs := make(chan agent.ReviewConfig, 2)
 	reviewAgent := &mockReviewAgent{
 		name: "codex",
@@ -332,7 +332,7 @@ func TestServicePinsEveryReviewerToCapturedRevisionAndDiff(t *testing.T) {
 	}
 	for range 2 {
 		config := <-configs
-		if config.BaseRef != "base-object" || !config.DiffPrecomputed || config.Diff != "captured diff" {
+		if config.BaseRef != "base-object" || config.DiffPrecomputed || config.Diff != "captured diff" {
 			t.Fatalf("reviewer received mutable review input: %#v", config)
 		}
 	}
@@ -1027,13 +1027,20 @@ func TestServiceRetainsPriorFeedbackWhenCleanupWarns(t *testing.T) {
 		t.Fatalf("prior feedback was discarded: status=%q used=%v", run.Status, feedbackUsed.Load())
 	}
 	found := false
+	completion := ""
 	for _, event := range events {
 		if event.Kind == EventWarning && event.Phase == domain.ReviewPhaseFeedback && strings.Contains(event.Message, "feedback cleanup failed") {
 			found = true
 		}
+		if event.Kind == EventPhaseCompleted && event.Phase == domain.ReviewPhaseFeedback {
+			completion = event.Message
+		}
 	}
 	if !found {
 		t.Fatal("feedback cleanup warning event was not emitted")
+	}
+	if completion != "failed" {
+		t.Fatalf("feedback completion = %q", completion)
 	}
 }
 

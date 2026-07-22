@@ -190,6 +190,17 @@ func RenderReport(
 	return strings.Join(lines, "\n")
 }
 
+func RenderReviewRun(run domain.ReviewRun) string {
+	summaryResult := &summarizer.Result{
+		Grouped:  run.FinalGroupedFindings(),
+		ExitCode: run.Summarizer.ExitCode,
+		Stderr:   run.Summarizer.Stderr,
+		RawOut:   run.Summarizer.DiagnosticOutput,
+		Duration: run.Summarizer.Duration,
+	}
+	return RenderReport(summaryResult.Grouped, summaryResult, run.Stats)
+}
+
 func RenderCommentMarkdown(
 	grouped domain.GroupedFindings,
 	totalReviewers int,
