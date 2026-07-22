@@ -256,6 +256,30 @@ func TestGetCommonDir_InGitRepo(t *testing.T) {
 	}
 }
 
+func TestValidateWorktreeRepository(t *testing.T) {
+	repoDir := setupTestRepo(t)
+	linkedDir := filepath.Join(t.TempDir(), "linked")
+	cmd := exec.Command("git", "worktree", "add", "--detach", linkedDir)
+	cmd.Dir = repoDir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("create linked worktree: %v\n%s", err, output)
+	}
+	t.Cleanup(func() {
+		remove := exec.Command("git", "worktree", "remove", "--force", linkedDir)
+		remove.Dir = repoDir
+		_ = remove.Run()
+	})
+
+	if err := ValidateWorktreeRepository(context.Background(), repoDir, linkedDir); err != nil {
+		t.Fatalf("linked worktree rejected: %v", err)
+	}
+
+	otherDir := setupTestRepo(t)
+	if err := ValidateWorktreeRepository(context.Background(), repoDir, otherDir); err == nil {
+		t.Fatal("unrelated repository accepted as worktree")
+	}
+}
+
 func TestEnsureWorktreesExcluded(t *testing.T) {
 	repoDir := setupTestRepo(t)
 	commonDir := filepath.Join(repoDir, ".git")

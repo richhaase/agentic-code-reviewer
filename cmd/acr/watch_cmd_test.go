@@ -253,6 +253,22 @@ func TestFailedTrustedConfigLoadEmitsWarnings(t *testing.T) {
 	}
 }
 
+func TestTrustedConfigSourceReturningNoResultFailsClosed(t *testing.T) {
+	source := watchConfigSource{}
+	cmd := newWatchCmd()
+	var loadErr error
+
+	output := captureWatchStderr(t, func() {
+		_, loadErr = loadAndResolveConfig(context.Background(), cmd, worktreeResult{}, source, terminal.NewLogger())
+	})
+	if loadErr == nil {
+		t.Fatal("loadAndResolveConfig succeeded")
+	}
+	if !strings.Contains(output, "trusted review configuration source returned no result") {
+		t.Fatalf("stderr = %q", output)
+	}
+}
+
 func captureWatchStderr(t *testing.T, run func()) string {
 	t.Helper()
 	original := os.Stderr

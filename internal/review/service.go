@@ -122,6 +122,9 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	if err := validateRequest(request); err != nil {
 		return nil, err
 	}
+	if err := git.ValidateWorktreeRepository(context.WithoutCancel(ctx), request.Target.RepositoryRoot, request.Target.WorktreeRoot); err != nil {
+		return nil, fmt.Errorf("invalid review request: %w", err)
+	}
 
 	startedAt := s.dependencies.now()
 	runID, err := s.dependencies.newRunID(startedAt)
@@ -259,6 +262,8 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	emitter.emit(Event{Kind: EventPhaseStarted, Phase: domain.ReviewPhaseSummarization})
 	summaryCtx, summaryCancel := context.WithTimeout(ctx, values.SummarizerTimeout)
 	summaryResult, err := summarizer.SummarizeWithAgent(summaryCtx, summarizerAgent, run.AggregatedFindings, postProcessDir)
+	summaryContextErr := summaryCtx.Err()
+	parentContextErr := ctx.Err()
 	summaryCancel()
 	if summaryResult != nil {
 		run.Stats.SummarizerDuration = summaryResult.Duration
@@ -279,6 +284,15 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 		initializeRunFindingRecords(run)
 	}
 	emitter.emit(Event{Kind: EventPhaseCompleted, Phase: domain.ReviewPhaseSummarization})
+	if parentContextErr != nil {
+		return s.interrupt(run, domain.ReviewPhaseSummarization, parentContextErr, emitter), nil
+	}
+	if errors.Is(summaryContextErr, context.DeadlineExceeded) {
+		message := boundedSummaryEvidence(fmt.Sprintf("summarizer timed out after %s", values.SummarizerTimeout))
+		run.Summarizer.ExitCode = -1
+		run.Summarizer.Stderr = message
+		return s.fail(run, domain.ReviewPhaseSummarization, errors.New(message), emitter), nil
+	}
 	if err != nil {
 		return s.finishFromError(run, domain.ReviewPhaseSummarization, err, ctx, emitter), nil
 	}

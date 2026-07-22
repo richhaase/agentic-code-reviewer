@@ -321,6 +321,10 @@ func loadAndResolveConfig(ctx context.Context, cmd *cobra.Command, wt worktreeRe
 		logger.Logf(terminal.StyleError, "Config error: %v", err)
 		return result, exitCode(domain.ExitError)
 	}
+	if loaded == nil {
+		logger.Log("Config error: trusted review configuration source returned no result", terminal.StyleError)
+		return result, exitCode(domain.ExitError)
+	}
 	loadResult = loaded
 	cfg = loaded.Config
 	if verbose {

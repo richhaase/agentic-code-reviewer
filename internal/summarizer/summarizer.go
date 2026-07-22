@@ -168,10 +168,23 @@ func summarize(ctx context.Context, ag agent.Agent, aggregated []domain.Aggregat
 				Warnings: append([]string(nil), warnings...),
 			}, nil
 		}
+		readErr := fmt.Errorf("read summarizer output: %w", err)
+		exitCode := execResult.ExitCode()
+		if exitCode == 0 {
+			exitCode = -1
+		}
+		stderr := execResult.Stderr()
+		if stderr != "" {
+			stderr += "\n"
+		}
+		stderr += readErr.Error()
 		return &Result{
+			ExitCode: exitCode,
+			Stderr:   stderr,
+			RawOut:   string(output),
 			Duration: time.Since(start),
 			Warnings: append([]string(nil), warnings...),
-		}, err
+		}, readErr
 	}
 
 	closeExecution()

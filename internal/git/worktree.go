@@ -51,17 +51,60 @@ func GetHeadSHA(dir string) (string, error) {
 }
 
 func GetCommonDir() (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--git-common-dir")
-	out, err := cmd.Output()
+	dir, err := os.Getwd()
 	if err != nil {
-		return "", fmt.Errorf("failed to get git common dir: %w", err)
+		return "", fmt.Errorf("failed to get current directory: %w", err)
+	}
+	return GetCommonDirAt(context.Background(), dir)
+}
+
+func GetCommonDirAt(ctx context.Context, dir string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--git-common-dir")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		detail := strings.TrimSpace(string(out))
+		if detail != "" {
+			return "", fmt.Errorf("failed to get git common dir for %s (%s): %w", dir, detail, err)
+		}
+		return "", fmt.Errorf("failed to get git common dir for %s: %w", dir, err)
 	}
 	path := strings.TrimSpace(string(out))
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(dir, path)
+	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return "", fmt.Errorf("failed to resolve common dir path: %w", err)
+		return "", fmt.Errorf("failed to resolve common dir path for %s: %w", dir, err)
 	}
-	return abs, nil
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("failed to evaluate common dir path for %s: %w", dir, err)
+	}
+	return filepath.Clean(resolved), nil
+}
+
+func ValidateWorktreeRepository(ctx context.Context, repositoryRoot, worktreeRoot string) error {
+	repositoryCommonDir, err := GetCommonDirAt(ctx, repositoryRoot)
+	if err != nil {
+		return fmt.Errorf("resolve repository root: %w", err)
+	}
+	worktreeCommonDir, err := GetCommonDirAt(ctx, worktreeRoot)
+	if err != nil {
+		return fmt.Errorf("resolve worktree root: %w", err)
+	}
+	repositoryInfo, err := os.Stat(repositoryCommonDir)
+	if err != nil {
+		return fmt.Errorf("stat repository common dir: %w", err)
+	}
+	worktreeInfo, err := os.Stat(worktreeCommonDir)
+	if err != nil {
+		return fmt.Errorf("stat worktree common dir: %w", err)
+	}
+	if !os.SameFile(repositoryInfo, worktreeInfo) {
+		return fmt.Errorf("repository root %q and worktree root %q belong to different repositories", repositoryRoot, worktreeRoot)
+	}
+	return nil
 }
 
 func ensureWorktreesExcluded(commonDir string) error {

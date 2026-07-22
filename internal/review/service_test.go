@@ -25,6 +25,7 @@ type mockReviewAgent struct {
 	reviewClose         error
 	summaryClose        error
 	summaryCloseForCall func(int64) error
+	summaryRead         error
 	summaryConfigs      chan agent.SummaryConfig
 	summaryCalls        atomic.Int64
 }
@@ -32,6 +33,14 @@ type mockReviewAgent struct {
 type reviewErrorReadCloser struct {
 	io.Reader
 	err error
+}
+
+type reviewErrorReader struct {
+	err error
+}
+
+func (r reviewErrorReader) Read([]byte) (int, error) {
+	return 0, r.err
 }
 
 func (r *reviewErrorReadCloser) Close() error {
@@ -83,6 +92,10 @@ func (m *mockReviewAgent) ExecuteSummary(ctx context.Context, config *agent.Summ
 	if m.summaryCloseForCall != nil {
 		closeErr = m.summaryCloseForCall(call)
 	}
+	if m.summaryRead != nil {
+		reader := io.NopCloser(io.MultiReader(strings.NewReader(output), reviewErrorReader{err: m.summaryRead}))
+		return agent.NewExecutionResult(reader, func() int { return exitCode }, func() string { return stderr }), nil
+	}
 	if closeErr != nil {
 		reader := &reviewErrorReadCloser{Reader: strings.NewReader(output), err: closeErr}
 		return agent.NewExecutionResult(reader, func() int { return exitCode }, func() string { return stderr }), nil
@@ -114,6 +127,7 @@ func codexSummaryOutput(content string) string {
 
 func validRequest(t *testing.T, root string) Request {
 	t.Helper()
+	ensureGitRepositoryForServiceTest(t, root)
 	configuration, err := domain.NewReviewConfiguration(domain.ReviewConfigurationValues{
 		Reviewers:         2,
 		Concurrency:       1,
@@ -181,6 +195,10 @@ func TestServiceRunsMockAgentsHeadlessly(t *testing.T) {
 	reviewAgent := &mockReviewAgent{name: "codex"}
 	service := serviceForTest(t, reviewAgent, "diff --git a/file b/file")
 	request := validRequest(t, root)
+	targetEntriesBefore, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read target directory before review: %v", err)
+	}
 	var events []Event
 	request.Events = EventSinkFunc(func(event Event) {
 		events = append(events, event)
@@ -235,8 +253,13 @@ func TestServiceRunsMockAgentsHeadlessly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read target directory: %v", err)
 	}
-	if len(entries) != 0 {
-		t.Fatalf("headless service created files: %v", entries)
+	if len(entries) != len(targetEntriesBefore) {
+		t.Fatalf("headless service changed target entries from %v to %v", targetEntriesBefore, entries)
+	}
+	for i := range entries {
+		if entries[i].Name() != targetEntriesBefore[i].Name() {
+			t.Fatalf("headless service changed target entries from %v to %v", targetEntriesBefore, entries)
+		}
 	}
 
 	if run.Status != domain.ReviewStatusCompleted || run.Conclusion != domain.ReviewConclusionFindings {
@@ -944,6 +967,58 @@ func TestServiceSummarizerFailureRetainsReviewerEvidence(t *testing.T) {
 	}
 }
 
+func TestServiceReportsSummarizerTimeout(t *testing.T) {
+	reviewAgent := &mockReviewAgent{
+		name: "codex",
+		summary: func(ctx context.Context, _ int64, _ string, _ []byte) (string, int, string, error) {
+			<-ctx.Done()
+			return "", 0, "", ctx.Err()
+		},
+	}
+	request := validRequest(t, t.TempDir())
+	values := request.Configuration.Values()
+	values.SummarizerTimeout = 5 * time.Millisecond
+	configuration, err := domain.NewReviewConfiguration(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Configuration = configuration
+	service := serviceForTest(t, reviewAgent, "diff")
+
+	run, err := service.Run(context.Background(), request)
+	if err != nil {
+		t.Fatalf("accepted summarizer timeout returned Go error: %v", err)
+	}
+	if run.Status != domain.ReviewStatusFailed || run.Failure == nil || run.Failure.Phase != domain.ReviewPhaseSummarization {
+		t.Fatalf("unexpected summarizer timeout outcome: %#v", run)
+	}
+	if run.Summarizer.ExitCode != -1 || run.Summarizer.Stderr != "summarizer timed out after 5ms" {
+		t.Fatalf("summarizer timeout evidence = %#v", run.Summarizer)
+	}
+	if run.Failure.Message != run.Summarizer.Stderr {
+		t.Fatalf("timeout failure = %q, evidence = %q", run.Failure.Message, run.Summarizer.Stderr)
+	}
+}
+
+func TestServiceSummarizerReadFailureRecordsFailedOutcome(t *testing.T) {
+	reviewAgent := &mockReviewAgent{name: "codex", summaryRead: errors.New("summary stream failed")}
+	service := serviceForTest(t, reviewAgent, "diff")
+
+	run, err := service.Run(context.Background(), validRequest(t, t.TempDir()))
+	if err != nil {
+		t.Fatalf("accepted summarizer read failure returned Go error: %v", err)
+	}
+	if run.Status != domain.ReviewStatusFailed || run.Failure == nil || run.Failure.Phase != domain.ReviewPhaseSummarization {
+		t.Fatalf("unexpected summarizer read failure outcome: %#v", run)
+	}
+	if run.Summarizer.ExitCode == 0 || !strings.Contains(run.Summarizer.Stderr, "read summarizer output: summary stream failed") {
+		t.Fatalf("summarizer read failure evidence = %#v", run.Summarizer)
+	}
+	if run.Summarizer.DiagnosticOutput == "" || !strings.Contains(run.Failure.Message, "read summarizer output") {
+		t.Fatalf("summarizer read failure diagnostics missing: outcome=%#v failure=%#v", run.Summarizer, run.Failure)
+	}
+}
+
 func TestServiceBoundsOneLineSummarizerFailureEvidence(t *testing.T) {
 	rawOutput := strings.Repeat("x", summaryDiagnosticMaxBytes*4)
 	reviewAgent := &mockReviewAgent{
@@ -1290,6 +1365,23 @@ func TestServiceRejectsInvalidRequestBeforeAcceptance(t *testing.T) {
 	}
 }
 
+func TestServiceRejectsWorktreeFromDifferentRepositoryBeforeAcceptance(t *testing.T) {
+	repositoryRoot := t.TempDir()
+	worktreeRoot := t.TempDir()
+	request := validRequest(t, repositoryRoot)
+	ensureGitRepositoryForServiceTest(t, worktreeRoot)
+	request.Target.WorktreeRoot = worktreeRoot
+	service := serviceForTest(t, &mockReviewAgent{name: "codex"}, "diff")
+
+	run, err := service.Run(context.Background(), request)
+	if err == nil || !strings.Contains(err.Error(), "different repositories") {
+		t.Fatalf("expected repository provenance error, got %v", err)
+	}
+	if run != nil {
+		t.Fatalf("mismatched worktree was accepted: %#v", run)
+	}
+}
+
 func TestServiceRejectsMissingConfigurationSourceBeforeAcceptance(t *testing.T) {
 	reviewAgent := &mockReviewAgent{name: "codex"}
 	service := serviceForTest(t, reviewAgent, "diff")
@@ -1337,6 +1429,16 @@ func runGitForServiceTest(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %v: %v\n%s", args, err, output)
 	}
 	return string(output)
+}
+
+func ensureGitRepositoryForServiceTest(t *testing.T, dir string) {
+	t.Helper()
+	cmd := exec.Command("git", "rev-parse", "--git-dir")
+	cmd.Dir = dir
+	if err := cmd.Run(); err == nil {
+		return
+	}
+	runGitForServiceTest(t, dir, "init", "--quiet")
 }
 
 func assertOrderedEventBoundaries(t *testing.T, events []Event, status domain.ReviewStatus) {
