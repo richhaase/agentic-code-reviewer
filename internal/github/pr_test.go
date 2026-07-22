@@ -471,6 +471,34 @@ func TestUrlMatches_SSHURLWithExplicitPort(t *testing.T) {
 	}
 }
 
+func TestUrlMatches_DefaultPorts(t *testing.T) {
+	tests := []string{
+		"https://github.com:443/owner/repo.git",
+		"http://github.com:80/owner/repo.git",
+		"git://github.com:9418/owner/repo.git",
+	}
+	for _, remoteURL := range tests {
+		if !urlMatches(remoteURL, "https://github.com/owner/repo") {
+			t.Errorf("expected default-port canonical match for %q", remoteURL)
+		}
+	}
+}
+
+func TestUrlMatches_NonDefaultPortDoesNotMatchCanonicalRepository(t *testing.T) {
+	if urlMatches("ssh://git@github.com:2222/owner/repo.git", "https://github.com/owner/repo") {
+		t.Fatal("non-default port matched canonical repository")
+	}
+}
+
+func TestUrlMatches_RequiresSameNonDefaultPort(t *testing.T) {
+	if !urlMatches("ssh://git@github.com:2222/owner/repo.git", "ssh://github.com:2222/owner/repo") {
+		t.Fatal("matching non-default ports did not match")
+	}
+	if urlMatches("ssh://git@github.com:2222/owner/repo.git", "ssh://github.com:2200/owner/repo") {
+		t.Fatal("different non-default ports matched")
+	}
+}
+
 func TestUrlMatches_SSHURLVsSSHShorthand(t *testing.T) {
 	result := urlMatches("ssh://git@github.com/owner/repo.git", "git@github.com:owner/repo.git")
 	if !result {
@@ -522,6 +550,18 @@ func TestMatchingFetchRemoteRejectsHostlessCanonicalLookalike(t *testing.T) {
 	remotes := []byte(strings.Join([]string{
 		"aaa-local\tgithub.com/org/canonical.git (fetch)",
 		"zzz-canonical\thttps://github.com/org/canonical.git (fetch)",
+	}, "\n"))
+
+	remote := matchingFetchRemote(remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")
+	if remote != "zzz-canonical" {
+		t.Fatalf("remote = %q, want zzz-canonical", remote)
+	}
+}
+
+func TestMatchingFetchRemoteRejectsNonDefaultPortLookalike(t *testing.T) {
+	remotes := []byte(strings.Join([]string{
+		"aaa-other-service\tssh://git@github.com:2222/org/canonical.git (fetch)",
+		"zzz-canonical\tssh://git@github.com:22/org/canonical.git (fetch)",
 	}, "\n"))
 
 	remote := matchingFetchRemote(remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")

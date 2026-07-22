@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os/exec"
 	"strings"
@@ -154,6 +155,9 @@ func normalizeRepositoryURL(raw string) (string, bool) {
 	parsed, err := url.Parse(raw)
 	if err == nil && parsed.Host != "" {
 		host := parsed.Hostname()
+		if port := parsed.Port(); port != "" && !isDefaultRepositoryPort(parsed.Scheme, port) {
+			host = net.JoinHostPort(host, port)
+		}
 		return normalizeRepositoryLocation(host, parsed.Path), host != ""
 	}
 
@@ -164,6 +168,21 @@ func normalizeRepositoryURL(raw string) (string, bool) {
 	}
 
 	return normalizeRepositoryLocation("", raw), false
+}
+
+func isDefaultRepositoryPort(scheme, port string) bool {
+	switch strings.ToLower(scheme) {
+	case "ssh", "git+ssh", "ssh+git":
+		return port == "22"
+	case "http":
+		return port == "80"
+	case "https":
+		return port == "443"
+	case "git":
+		return port == "9418"
+	default:
+		return false
+	}
 }
 
 func normalizeRepositoryLocation(host, path string) string {

@@ -106,7 +106,7 @@ func (s *Summarizer) handleCloseError(err error) error {
 	if s.verbose && s.logger != nil {
 		s.logger.Logf(terminal.StyleDim, "feedback close error (non-fatal): %v", err)
 	}
-	return nil
+	return fmt.Errorf("feedback cleanup failed: %w", err)
 }
 
 func (s *Summarizer) buildInput(prCtx *PRContext) string {

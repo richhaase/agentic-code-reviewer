@@ -24,16 +24,25 @@ func TestNewSummarizer(t *testing.T) {
 	}
 }
 
-func TestSummarizerCloseErrorWithNilLoggerDoesNotPanic(t *testing.T) {
+func TestSummarizerCloseErrorWithNilLoggerIsReported(t *testing.T) {
 	s := NewSummarizer("codex", "", true, nil)
-	if err := s.handleCloseError(errors.New("cleanup failed")); err != nil {
+	err := s.handleCloseError(errors.New("cleanup failed"))
+	if err == nil || !strings.Contains(err.Error(), "feedback cleanup failed") {
 		t.Fatalf("handleCloseError returned %v", err)
 	}
 }
 
-func TestSummarizerCloseErrorIsNonFatalWhenNotVerbose(t *testing.T) {
+func TestSummarizerCloseErrorIsReportedWhenNotVerbose(t *testing.T) {
 	s := NewSummarizer("codex", "", false, nil)
-	if err := s.handleCloseError(errors.New("cleanup failed")); err != nil {
+	err := s.handleCloseError(errors.New("cleanup failed"))
+	if err == nil || !strings.Contains(err.Error(), "cleanup failed") {
+		t.Fatalf("handleCloseError returned %v", err)
+	}
+}
+
+func TestSummarizerSuccessfulCloseReturnsNil(t *testing.T) {
+	s := NewSummarizer("codex", "", false, nil)
+	if err := s.handleCloseError(nil); err != nil {
 		t.Fatalf("handleCloseError returned %v", err)
 	}
 }
