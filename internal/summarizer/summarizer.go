@@ -65,6 +65,7 @@ type Result struct {
 	Stderr   string
 	RawOut   string
 	Duration time.Duration
+	Warnings []string
 }
 
 type inputItem struct {
@@ -73,9 +74,8 @@ type inputItem struct {
 	Reviewers []int  `json:"reviewers"`
 }
 
-func Summarize(ctx context.Context, agentName, model string, aggregated []domain.AggregatedFinding, verbose bool, logger *terminal.Logger) (*Result, error) {
+func Summarize(ctx context.Context, agentName, model string, aggregated []domain.AggregatedFinding, workDir string, verbose bool, logger *terminal.Logger) (*Result, error) {
 	start := time.Now()
-
 	if len(aggregated) == 0 {
 		return &Result{
 			Grouped:  domain.GroupedFindings{},
@@ -87,6 +87,23 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 	if err != nil {
 		return nil, err
 	}
+	return summarize(ctx, ag, aggregated, workDir, verbose, logger)
+}
+
+func SummarizeWithAgent(ctx context.Context, ag agent.Agent, aggregated []domain.AggregatedFinding, workDir string) (*Result, error) {
+	start := time.Now()
+	if len(aggregated) == 0 {
+		return &Result{Grouped: domain.GroupedFindings{}, Duration: time.Since(start)}, nil
+	}
+	if ag == nil {
+		return nil, fmt.Errorf("summarizer agent is required")
+	}
+	return summarize(ctx, ag, aggregated, workDir, false, nil)
+}
+
+func summarize(ctx context.Context, ag agent.Agent, aggregated []domain.AggregatedFinding, workDir string, verbose bool, logger *terminal.Logger) (*Result, error) {
+	start := time.Now()
+	agentName := ag.Name()
 
 	items := make([]inputItem, len(aggregated))
 	for i, a := range aggregated {
@@ -110,7 +127,7 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 		}, nil
 	}
 
-	execResult, err := ag.ExecuteSummary(ctx, groupPrompt, payload)
+	execResult, err := ag.ExecuteSummary(ctx, &agent.SummaryConfig{Prompt: groupPrompt, Input: payload, WorkDir: workDir})
 	if err != nil {
 
 		if ctx.Err() != nil {
@@ -123,28 +140,41 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 		return nil, err
 	}
 
-	defer func() {
-		if err := execResult.Close(); err != nil && verbose {
-			logger.Logf(terminal.StyleDim, "summarizer close error (non-fatal): %v", err)
+	closed := false
+	var warnings []string
+	closeExecution := func() {
+		if closed {
+			return
 		}
-	}()
+		closed = true
+		if err := execResult.Close(); err != nil {
+			warnings = append(warnings, fmt.Sprintf("summarizer cleanup failed: %v", err))
+			if verbose && logger != nil {
+				logger.Logf(terminal.StyleDim, "summarizer close error (non-fatal): %v", err)
+			}
+		}
+	}
+	defer closeExecution()
 
 	output, err := io.ReadAll(execResult)
 	if err != nil {
+		closeExecution()
 
 		if ctx.Err() != nil {
 			return &Result{
 				ExitCode: -1,
 				Stderr:   "context canceled",
 				Duration: time.Since(start),
+				Warnings: append([]string(nil), warnings...),
 			}, nil
 		}
-		return nil, err
+		return &Result{
+			Duration: time.Since(start),
+			Warnings: append([]string(nil), warnings...),
+		}, err
 	}
 
-	if err := execResult.Close(); err != nil && verbose {
-		logger.Logf(terminal.StyleDim, "summarizer close error (non-fatal): %v", err)
-	}
+	closeExecution()
 	exitCode := execResult.ExitCode()
 	stderr := execResult.Stderr()
 	duration := time.Since(start)
@@ -157,6 +187,7 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 			Stderr:   fmt.Sprintf("%s authentication failed: %s", agentName, agent.AuthHint(agentName)),
 			RawOut:   rawOut,
 			Duration: duration,
+			Warnings: append([]string(nil), warnings...),
 		}, nil
 	}
 
@@ -166,6 +197,7 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 			ExitCode: exitCode,
 			Stderr:   stderr,
 			Duration: duration,
+			Warnings: append([]string(nil), warnings...),
 		}, nil
 	}
 
@@ -186,6 +218,7 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 			Stderr:   parseErr,
 			RawOut:   rawOut,
 			Duration: duration,
+			Warnings: append([]string(nil), warnings...),
 		}, nil
 	}
 
@@ -195,5 +228,6 @@ func Summarize(ctx context.Context, agentName, model string, aggregated []domain
 		Stderr:   stderr,
 		RawOut:   rawOut,
 		Duration: duration,
+		Warnings: append([]string(nil), warnings...),
 	}, nil
 }

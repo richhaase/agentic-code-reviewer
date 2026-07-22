@@ -82,7 +82,7 @@ func TestAntigravityAgent_ExecuteSummary_AgyNotAvailable(t *testing.T) {
 	agent := NewAntigravityAgent("")
 	ctx := context.Background()
 
-	result, err := agent.ExecuteSummary(ctx, "test prompt", []byte(`{"findings":[]}`))
+	result, err := agent.ExecuteSummary(ctx, &SummaryConfig{Prompt: "test prompt", Input: []byte(`{"findings":[]}`)})
 	if err == nil {
 		if result != nil {
 			result.Close()
@@ -276,7 +276,7 @@ func TestAntigravityAgent_ExecuteSummary_Args(t *testing.T) {
 	agent := NewAntigravityAgent("ignored-model")
 	ctx := context.Background()
 
-	result, err := agent.ExecuteSummary(ctx, "summarize", []byte(`{"findings":[]}`))
+	result, err := agent.ExecuteSummary(ctx, &SummaryConfig{Prompt: "summarize", Input: []byte(`{"findings":[]}`), WorkDir: tmpDir})
 	if err != nil {
 		t.Fatalf("ExecuteSummary() error: %v", err)
 	}

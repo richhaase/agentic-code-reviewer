@@ -2,6 +2,9 @@ package runner
 
 import (
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -18,6 +21,19 @@ type stringReadCloser struct {
 
 func (s *stringReadCloser) Close() error {
 	return nil
+}
+
+type errorReadCloser struct {
+	*strings.Reader
+	err     error
+	onClose func()
+}
+
+func (r *errorReadCloser) Close() error {
+	if r.onClose != nil {
+		r.onClose()
+	}
+	return r.err
 }
 
 func TestBuildStats_CategorizesResults(t *testing.T) {
@@ -41,6 +57,21 @@ func TestBuildStats_CategorizesResults(t *testing.T) {
 	}
 	if stats.ParseErrors != 2 {
 		t.Errorf("expected 2 parse errors, got %d", stats.ParseErrors)
+	}
+}
+
+func TestFinishRunReportsCancellationAfterResultsWereCollected(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	want := []domain.ReviewerResult{{ReviewerID: 1, ExitCode: 0}}
+
+	got, _, err := finishRun(ctx, want, time.Now())
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("finishRun error = %v, want context cancellation", err)
+	}
+	if len(got) != 1 || got[0].ReviewerID != 1 {
+		t.Fatalf("collected reviewer results were lost: %#v", got)
 	}
 }
 
@@ -259,13 +290,37 @@ func (m *mockAgent) ExecuteReview(_ context.Context, _ *agent.ReviewConfig) (*ag
 	return nil, nil
 }
 
-func (m *mockAgent) ExecuteSummary(_ context.Context, _ string, _ []byte) (*agent.ExecutionResult, error) {
+func (m *mockAgent) ExecuteSummary(_ context.Context, _ *agent.SummaryConfig) (*agent.ExecutionResult, error) {
 	return nil, nil
 }
 
 type mockStreamingAgent struct {
 	name   string
 	output string
+}
+
+type cleanupWarningAgent struct {
+	name     string
+	output   string
+	closeErr error
+	onClose  func()
+}
+
+func (a *cleanupWarningAgent) Name() string {
+	return a.name
+}
+
+func (a *cleanupWarningAgent) IsAvailable() error {
+	return nil
+}
+
+func (a *cleanupWarningAgent) ExecuteReview(context.Context, *agent.ReviewConfig) (*agent.ExecutionResult, error) {
+	reader := &errorReadCloser{Reader: strings.NewReader(a.output), err: a.closeErr, onClose: a.onClose}
+	return agent.NewExecutionResult(reader, func() int { return 0 }, func() string { return "" }), nil
+}
+
+func (a *cleanupWarningAgent) ExecuteSummary(context.Context, *agent.SummaryConfig) (*agent.ExecutionResult, error) {
+	return nil, nil
 }
 
 func (m *mockStreamingAgent) Name() string {
@@ -284,7 +339,7 @@ func (m *mockStreamingAgent) ExecuteReview(_ context.Context, _ *agent.ReviewCon
 	return agent.NewExecutionResult(reader, func() int { return 0 }, func() string { return "" }), nil
 }
 
-func (m *mockStreamingAgent) ExecuteSummary(_ context.Context, _ string, _ []byte) (*agent.ExecutionResult, error) {
+func (m *mockStreamingAgent) ExecuteSummary(_ context.Context, _ *agent.SummaryConfig) (*agent.ExecutionResult, error) {
 	return nil, nil
 }
 
@@ -310,6 +365,198 @@ invalid json line here
 	}
 	if result.ParseErrors != 1 {
 		t.Errorf("expected 1 parse error, got %d", result.ParseErrors)
+	}
+}
+
+func TestRunReviewerCleanupFailureIsNonfatalWarning(t *testing.T) {
+	mock := &cleanupWarningAgent{
+		name:     "codex",
+		output:   `{"item":{"type":"agent_message","text":"finding"}}`,
+		closeErr: errors.New("temporary file cleanup failed"),
+	}
+	r := &Runner{
+		config:    Config{Reviewers: 1, Timeout: time.Second},
+		agents:    []agent.Agent{mock},
+		completed: new(atomic.Int32),
+	}
+
+	result := r.runReviewer(context.Background(), 1)
+
+	if result.ExitCode != 0 || result.Failure != nil || len(result.Findings) != 1 {
+		t.Fatalf("cleanup failure changed reviewer outcome: %#v", result)
+	}
+	if len(result.Warnings) != 1 || result.Warnings[0].Kind != domain.ReviewerWarningCleanup {
+		t.Fatalf("cleanup warning missing: %#v", result.Warnings)
+	}
+}
+
+func TestHeadlessRunnerEmitsEarlyReturnCleanupWarningWithoutStderr(t *testing.T) {
+	mock := &cleanupWarningAgent{
+		name:     "unsupported",
+		output:   "ignored",
+		closeErr: errors.New("temporary file cleanup failed"),
+	}
+	var completed domain.ReviewerResult
+	r, err := NewHeadless(Config{
+		Reviewers:   1,
+		Concurrency: 1,
+		Timeout:     time.Second,
+		Events: Events{
+			ReviewerCompleted: func(result domain.ReviewerResult) {
+				completed = result
+			},
+		},
+	}, []agent.Agent{mock})
+	if err != nil {
+		t.Fatalf("create headless runner: %v", err)
+	}
+	stderrPath := filepath.Join(t.TempDir(), "stderr")
+	stderr, err := os.Create(stderrPath)
+	if err != nil {
+		t.Fatalf("create stderr capture: %v", err)
+	}
+	originalStderr := os.Stderr
+	os.Stderr = stderr
+	t.Cleanup(func() { os.Stderr = originalStderr })
+
+	results, _, runErr := r.Run(context.Background())
+	os.Stderr = originalStderr
+	if err := stderr.Close(); err != nil {
+		t.Fatalf("close stderr capture: %v", err)
+	}
+
+	if runErr != nil {
+		t.Fatalf("run headless reviewer: %v", runErr)
+	}
+	if len(results) != 1 || results[0].Failure == nil || results[0].Failure.Kind != domain.ReviewerFailureParser {
+		t.Fatalf("early return outcome missing: %#v", results)
+	}
+	if len(results[0].Warnings) != 1 || results[0].Warnings[0].Kind != domain.ReviewerWarningCleanup {
+		t.Fatalf("early-return cleanup warning missing: %#v", results[0])
+	}
+	if len(completed.Warnings) != 1 || completed.Warnings[0] != results[0].Warnings[0] {
+		t.Fatalf("ReviewerCompleted did not receive cleanup warning: completed=%#v result=%#v", completed, results[0])
+	}
+	captured, err := os.ReadFile(stderrPath)
+	if err != nil {
+		t.Fatalf("read stderr capture: %v", err)
+	}
+	if len(captured) != 0 {
+		t.Fatalf("headless cleanup failure wrote stderr: %q", captured)
+	}
+}
+
+func TestVerboseRunnerLogsCleanupWarningOnce(t *testing.T) {
+	mock := &cleanupWarningAgent{
+		name:     "codex",
+		output:   `{"item":{"type":"agent_message","text":"finding"}}`,
+		closeErr: errors.New("temporary file cleanup failed"),
+	}
+	stderrPath := filepath.Join(t.TempDir(), "stderr")
+	stderr, err := os.Create(stderrPath)
+	if err != nil {
+		t.Fatalf("create stderr capture: %v", err)
+	}
+	originalStderr := os.Stderr
+	os.Stderr = stderr
+	t.Cleanup(func() { os.Stderr = originalStderr })
+	r := &Runner{
+		config:    Config{Reviewers: 1, Timeout: time.Second, Verbose: true},
+		agents:    []agent.Agent{mock},
+		logger:    terminal.NewLogger(),
+		completed: new(atomic.Int32),
+	}
+
+	result := r.runReviewer(context.Background(), 1)
+	os.Stderr = originalStderr
+	if err := stderr.Close(); err != nil {
+		t.Fatalf("close stderr capture: %v", err)
+	}
+
+	if len(result.Warnings) != 1 || result.Warnings[0].Kind != domain.ReviewerWarningCleanup {
+		t.Fatalf("typed cleanup warning missing: %#v", result.Warnings)
+	}
+	captured, err := os.ReadFile(stderrPath)
+	if err != nil {
+		t.Fatalf("read stderr capture: %v", err)
+	}
+	if strings.Count(string(captured), "close error (non-fatal)") != 1 {
+		t.Fatalf("verbose cleanup warning output = %q", captured)
+	}
+}
+
+func TestRunReviewerParentCancellationTakesPriority(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	mock := &mockStreamingAgent{
+		output: `{"item":{"type":"agent_message","text":"finding"}}`,
+	}
+	r := &Runner{
+		config: Config{
+			Reviewers: 1,
+			Timeout:   time.Minute,
+			Events: Events{
+				ReviewerStarted: func(int, string) { cancel() },
+			},
+		},
+		agents:    []agent.Agent{mock},
+		completed: new(atomic.Int32),
+	}
+
+	result := r.runReviewer(ctx, 1)
+
+	if result.Failure == nil || result.Failure.Kind != domain.ReviewerFailureInterrupted {
+		t.Fatalf("reviewer cancellation was not classified as interrupted: %#v", result)
+	}
+	if result.TimedOut || result.AuthFailed || result.ExitCode != -1 {
+		t.Fatalf("reviewer cancellation was misclassified: %#v", result)
+	}
+}
+
+func TestRunReviewerKeepsSuccessfulResultWhenCancellationArrivesAfterCompletion(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	mock := &cleanupWarningAgent{
+		name:    "codex",
+		output:  `{"item":{"type":"agent_message","text":"finding"}}`,
+		onClose: cancel,
+	}
+	r := &Runner{
+		config:    Config{Reviewers: 1, Timeout: time.Minute},
+		agents:    []agent.Agent{mock},
+		completed: new(atomic.Int32),
+	}
+
+	result := r.runReviewer(ctx, 1)
+
+	if result.ExitCode != 0 || result.Failure != nil || len(result.Findings) != 1 {
+		t.Fatalf("completed reviewer was reclassified after cancellation: %#v", result)
+	}
+}
+
+func TestCanceledReviewersRetainAssignedAgentNames(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r, err := NewHeadless(Config{Reviewers: 2, Concurrency: 1, Timeout: time.Minute}, []agent.Agent{
+		&mockStreamingAgent{name: "codex"},
+		&mockStreamingAgent{name: "claude"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	results, _, runErr := r.Run(ctx)
+	if !errors.Is(runErr, context.Canceled) {
+		t.Fatalf("Run() error = %v", runErr)
+	}
+	byID := make(map[int]domain.ReviewerResult)
+	for _, result := range results {
+		byID[result.ReviewerID] = result
+	}
+	if byID[1].AgentName != "codex" || byID[2].AgentName != "claude" {
+		t.Fatalf("canceled reviewer identities = %#v", byID)
+	}
+	stats := BuildStats(results, 2, 0)
+	if stats.ReviewerAgentNames[1] != "codex" || stats.ReviewerAgentNames[2] != "claude" {
+		t.Fatalf("canceled reviewer stats identities = %#v", stats.ReviewerAgentNames)
 	}
 }
 
@@ -372,6 +619,7 @@ type mockAuthFailAgent struct {
 	exitCode  int
 	stdout    string
 	stderr    string
+	onReview  func()
 	callCount atomic.Int32
 }
 
@@ -380,13 +628,16 @@ func (m *mockAuthFailAgent) IsAvailable() error { return nil }
 
 func (m *mockAuthFailAgent) ExecuteReview(_ context.Context, _ *agent.ReviewConfig) (*agent.ExecutionResult, error) {
 	m.callCount.Add(1)
+	if m.onReview != nil {
+		m.onReview()
+	}
 	reader := &stringReadCloser{strings.NewReader(m.stdout)}
 	exitCode := m.exitCode
 	stderr := m.stderr
 	return agent.NewExecutionResult(reader, func() int { return exitCode }, func() string { return stderr }), nil
 }
 
-func (m *mockAuthFailAgent) ExecuteSummary(_ context.Context, _ string, _ []byte) (*agent.ExecutionResult, error) {
+func (m *mockAuthFailAgent) ExecuteSummary(_ context.Context, _ *agent.SummaryConfig) (*agent.ExecutionResult, error) {
 	return nil, nil
 }
 
@@ -457,5 +708,61 @@ func TestRunReviewerWithRetry_RetriesNonAuthFailure(t *testing.T) {
 	}
 	if result.AuthFailed {
 		t.Error("expected AuthFailed to be false for non-auth failure")
+	}
+}
+
+func TestRunReviewerWithRetryMarksBackoffCancellationInterrupted(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	mock := &mockAuthFailAgent{name: "codex", exitCode: 1, stderr: "some error"}
+	r := &Runner{
+		config: Config{
+			Reviewers: 1,
+			Retries:   1,
+			Timeout:   10 * time.Second,
+			Events: Events{
+				ReviewerRetrying: func(int, string, int, int, time.Duration) { cancel() },
+			},
+		},
+		agents:    []agent.Agent{mock},
+		completed: new(atomic.Int32),
+	}
+
+	result := r.runReviewerWithRetry(ctx, 1)
+
+	if mock.callCount.Load() != 1 || result.Attempts != 1 {
+		t.Fatalf("retry started after cancellation: calls=%d result=%#v", mock.callCount.Load(), result)
+	}
+	if result.Failure == nil || result.Failure.Kind != domain.ReviewerFailureInterrupted {
+		t.Fatalf("backoff cancellation was not interrupted: %#v", result)
+	}
+	if result.TimedOut || result.AuthFailed || result.ExitCode != -1 {
+		t.Fatalf("backoff cancellation was misclassified: %#v", result)
+	}
+}
+
+func TestRunReviewerWithRetrySkipsRetryEventAfterInterruption(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	retryEvents := 0
+	mock := &mockAuthFailAgent{name: "codex", exitCode: 1, stderr: "some error", onReview: cancel}
+	r := &Runner{
+		config: Config{
+			Reviewers: 1,
+			Retries:   1,
+			Timeout:   10 * time.Second,
+			Events: Events{
+				ReviewerRetrying: func(int, string, int, int, time.Duration) { retryEvents++ },
+			},
+		},
+		agents:    []agent.Agent{mock},
+		completed: new(atomic.Int32),
+	}
+
+	result := r.runReviewerWithRetry(ctx, 1)
+
+	if mock.callCount.Load() != 1 || retryEvents != 0 {
+		t.Fatalf("interrupted review retried: calls=%d retry-events=%d", mock.callCount.Load(), retryEvents)
+	}
+	if result.Failure == nil || result.Failure.Kind != domain.ReviewerFailureInterrupted || result.ExitCode != -1 {
+		t.Fatalf("interrupted result = %#v", result)
 	}
 }

@@ -2,6 +2,7 @@ package feedback
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -20,6 +21,13 @@ func TestNewSummarizer(t *testing.T) {
 	s := NewSummarizer("claude", "", true, terminal.NewLogger())
 	if s == nil {
 		t.Fatal("NewSummarizer returned nil")
+	}
+}
+
+func TestSummarizerCloseErrorWithNilLoggerDoesNotPanic(t *testing.T) {
+	s := NewSummarizer("codex", "", true, nil)
+	if err := s.handleCloseError(errors.New("cleanup failed")); err == nil {
+		t.Fatal("handleCloseError succeeded")
 	}
 }
 

@@ -16,6 +16,7 @@ type cmdReader struct {
 	stderr       stderrBuffer
 	exitCode     int
 	closeOnce    sync.Once
+	closeErr     error
 	tempFilePath string
 }
 
@@ -41,10 +42,10 @@ func (r *cmdReader) Close() error {
 			}
 		}
 
-		CleanupTempFile(r.tempFilePath)
+		r.closeErr = CleanupTempFile(r.tempFilePath)
 	})
 
-	return nil
+	return r.closeErr
 }
 
 func (r *cmdReader) ExitCode() int {

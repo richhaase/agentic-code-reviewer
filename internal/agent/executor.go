@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -78,13 +79,17 @@ func executeCommand(ctx context.Context, opts executeOptions) (*ExecutionResult,
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		CleanupTempFile(opts.TempFilePath)
-		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+		return nil, errors.Join(
+			fmt.Errorf("failed to create stdout pipe: %w", err),
+			CleanupTempFile(opts.TempFilePath),
+		)
 	}
 
 	if err := cmd.Start(); err != nil {
-		CleanupTempFile(opts.TempFilePath)
-		return nil, fmt.Errorf("failed to start %s: %w", opts.Command, err)
+		return nil, errors.Join(
+			fmt.Errorf("failed to start %s: %w", opts.Command, err),
+			CleanupTempFile(opts.TempFilePath),
+		)
 	}
 
 	reader := &cmdReader{

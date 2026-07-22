@@ -3,8 +3,11 @@ package feedback
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
 func TestFetchPRContext_NoPRNumber(t *testing.T) {
@@ -12,6 +15,27 @@ func TestFetchPRContext_NoPRNumber(t *testing.T) {
 	_, err := FetchPRContext(ctx, "")
 	if err == nil {
 		t.Error("expected error for empty PR number")
+	}
+}
+
+func TestPullRequestScopeUsesGlobalKey(t *testing.T) {
+	key := domain.PullRequestKey{Host: "github.example.com", Owner: "owner", Repository: "repo", Number: 42}
+	if repositorySelector(key) != "github.example.com/owner/repo" {
+		t.Fatalf("unexpected repository selector %q", repositorySelector(key))
+	}
+	endpoint := pullRequestEndpoint(&key, "pulls/42/comments")
+	if endpoint != "repos/owner/repo/pulls/42/comments" {
+		t.Fatalf("unexpected endpoint %q", endpoint)
+	}
+	wantArgs := []string{"api", "--hostname", "github.example.com", "--paginate", "--jq", ".[]", endpoint}
+	if got := apiArgs(&key, endpoint); !slices.Equal(got, wantArgs) {
+		t.Fatalf("API args = %v, want %v", got, wantArgs)
+	}
+}
+
+func TestFetchPRContextForPullRequestRejectsInvalidKey(t *testing.T) {
+	if _, err := FetchPRContextForPullRequest(context.Background(), domain.PullRequestKey{}, ""); err == nil {
+		t.Fatal("expected invalid pull request key error")
 	}
 }
 
