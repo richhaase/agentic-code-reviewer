@@ -245,12 +245,16 @@ func handleTypedReviewFailure(run *domain.ReviewRun, logger *terminal.Logger) do
 		logger.Logf(terminal.StyleError, "Failed to get diff: %s", run.Failure.Message)
 	case domain.ReviewPhaseReviewers:
 		if strings.Contains(run.Failure.Message, "all reviewers failed") {
+			logAuthenticationFailures(run.Stats, logger)
 			logger.Log("All reviewers failed", terminal.StyleError)
 		} else {
 			logger.Logf(terminal.StyleError, "Review failed: %s", run.Failure.Message)
 		}
 	case domain.ReviewPhaseSummarization:
 		if strings.Contains(run.Failure.Message, "summarizer timed out") {
+			if diagnostic := retainedSummarizerTimeoutDiagnostic(run.Summarizer.Stderr, run.Failure.Message); diagnostic != "" {
+				logger.Logf(terminal.StyleError, "Summarizer stderr: %s", diagnostic)
+			}
 			logger.Logf(terminal.StyleError, "Summarizer timed out after %s", run.Configuration.Values().SummarizerTimeout)
 		} else {
 			logger.Logf(terminal.StyleError, "Summarizer error: %s", run.Failure.Message)
@@ -261,6 +265,42 @@ func handleTypedReviewFailure(run *domain.ReviewRun, logger *terminal.Logger) do
 		logger.Logf(terminal.StyleError, "Review failed: %s", run.Failure.Message)
 	}
 	return domain.ExitError
+}
+
+func logAuthenticationFailures(stats domain.ReviewStats, logger *terminal.Logger) {
+	if len(stats.AuthFailedReviewers) == 0 {
+		return
+	}
+	reviewers := make([]string, 0, len(stats.AuthFailedReviewers))
+	hints := make([]string, 0, len(stats.AuthFailedReviewers))
+	seenHints := make(map[string]struct{})
+	for _, reviewerID := range stats.AuthFailedReviewers {
+		agentName := stats.ReviewerAgentNames[reviewerID]
+		if agentName == "" {
+			reviewers = append(reviewers, fmt.Sprintf("#%d", reviewerID))
+			continue
+		}
+		reviewers = append(reviewers, fmt.Sprintf("#%d (%s)", reviewerID, agentName))
+		hint := agent.AuthHint(agentName)
+		if _, seen := seenHints[hint]; seen {
+			continue
+		}
+		seenHints[hint] = struct{}{}
+		hints = append(hints, fmt.Sprintf("Authentication hint (%s): %s", agentName, hint))
+	}
+	logger.Logf(terminal.StyleError, "Auth failed reviewers: %s", strings.Join(reviewers, ", "))
+	for _, hint := range hints {
+		logger.Log(hint, terminal.StyleError)
+	}
+}
+
+func retainedSummarizerTimeoutDiagnostic(stderr, timeoutEvidence string) string {
+	stderr = strings.TrimSpace(stderr)
+	timeoutEvidence = strings.TrimSpace(timeoutEvidence)
+	if stderr == timeoutEvidence {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimSuffix(stderr, "\n"+timeoutEvidence))
 }
 
 func configurationSourceIdentity(source config.SourceIdentity) domain.ConfigurationSourceIdentity {

@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/config"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	reviewpkg "github.com/richhaase/agentic-code-reviewer/internal/review"
@@ -232,6 +234,75 @@ func TestHandleTypedReviewRunPreservesFailuresAndInterruptions(t *testing.T) {
 				t.Fatalf("exit = %d, want %d", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestHandleTypedReviewFailureRendersDeduplicatedAuthenticationGuidance(t *testing.T) {
+	run := &domain.ReviewRun{
+		Status:  domain.ReviewStatusFailed,
+		Failure: &domain.ReviewFailure{Phase: domain.ReviewPhaseReviewers, Message: "all reviewers failed"},
+		Stats: domain.ReviewStats{
+			AuthFailedReviewers: []int{1, 2, 3},
+			ReviewerAgentNames: map[int]string{
+				1: "codex",
+				2: "codex",
+				3: "claude",
+			},
+		},
+	}
+	output := captureWatchStderr(t, func() {
+		if got := handleTypedReviewFailure(run, terminal.NewLogger()); got != domain.ExitError {
+			t.Fatalf("exit = %d", got)
+		}
+	})
+	if !strings.Contains(output, "Auth failed reviewers: #1 (codex), #2 (codex), #3 (claude)") {
+		t.Fatalf("auth failed reviewers missing: %q", output)
+	}
+	if strings.Count(output, agent.AuthHint("codex")) != 1 {
+		t.Fatalf("codex authentication hint was not rendered once: %q", output)
+	}
+	if strings.Count(output, agent.AuthHint("claude")) != 1 {
+		t.Fatalf("claude authentication hint was not rendered once: %q", output)
+	}
+	if !strings.Contains(output, "All reviewers failed") {
+		t.Fatalf("generic failure missing: %q", output)
+	}
+}
+
+func TestHandleTypedReviewFailureRendersRetainedSummarizerTimeoutDiagnosticOnce(t *testing.T) {
+	configuration, err := domain.NewReviewConfiguration(domain.ReviewConfigurationValues{
+		Reviewers:         1,
+		Concurrency:       1,
+		Timeout:           time.Minute,
+		ReviewerAgents:    []string{"codex"},
+		SummarizerAgent:   "codex",
+		SummarizerTimeout: time.Minute,
+		FPFilterTimeout:   time.Minute,
+		FPThreshold:       75,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	timeoutEvidence := "summarizer timed out after 1m0s"
+	run := &domain.ReviewRun{
+		Status:        domain.ReviewStatusFailed,
+		Configuration: configuration,
+		Summarizer: domain.SummarizerOutcome{
+			ExitCode: -1,
+			Stderr:   "partial child diagnostic\n" + timeoutEvidence,
+		},
+		Failure: &domain.ReviewFailure{Phase: domain.ReviewPhaseSummarization, Message: timeoutEvidence},
+	}
+	output := captureWatchStderr(t, func() {
+		if got := handleTypedReviewFailure(run, terminal.NewLogger()); got != domain.ExitError {
+			t.Fatalf("exit = %d", got)
+		}
+	})
+	if !strings.Contains(output, "Summarizer stderr: partial child diagnostic") {
+		t.Fatalf("retained summarizer diagnostic missing: %q", output)
+	}
+	if strings.Count(strings.ToLower(output), timeoutEvidence) != 1 {
+		t.Fatalf("timeout evidence was rendered more than once: %q", output)
 	}
 }
 
