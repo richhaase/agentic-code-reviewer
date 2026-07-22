@@ -30,7 +30,7 @@ func validReviewConfigurationValues() ReviewConfigurationValues {
 func TestPullRequestKeyValidate(t *testing.T) {
 	valid := []PullRequestKey{
 		{Host: "github.com", Owner: "owner", Repository: "repo", Number: 42},
-		{Host: "github.example.com:8443", Owner: "owner-name", Repository: ".github", Number: 1},
+		{Host: "github.example.com", Owner: "owner-name", Repository: ".github", Number: 1},
 	}
 	for _, key := range valid {
 		if err := key.Validate(); err != nil {
@@ -56,6 +56,7 @@ func TestPullRequestKeyValidate(t *testing.T) {
 func TestPullRequestKeyRejectsUnsafeComponents(t *testing.T) {
 	tests := []PullRequestKey{
 		{Host: "https://github.com", Owner: "owner", Repository: "repo", Number: 1},
+		{Host: "github.example.com:8443", Owner: "owner", Repository: "repo", Number: 1},
 		{Host: "github.com/other", Owner: "owner", Repository: "repo", Number: 1},
 		{Host: "github.com", Owner: "..", Repository: "repo", Number: 1},
 		{Host: "github.com", Owner: "owner/replacement", Repository: "repo", Number: 1},

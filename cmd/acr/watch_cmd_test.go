@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -230,4 +233,47 @@ func TestFailedTrustedConfigLoadRetainsSafeRetryInterval(t *testing.T) {
 	if result.resolved.WatchPollInterval != 19*time.Second {
 		t.Fatalf("retry interval = %s", result.resolved.WatchPollInterval)
 	}
+}
+
+func TestFailedTrustedConfigLoadEmitsWarnings(t *testing.T) {
+	source := watchConfigSource{
+		result: &config.LoadResult{
+			Config:   &config.Config{},
+			Warnings: []string{"unknown trusted configuration key"},
+		},
+		err: errors.New("trusted config validation failed"),
+	}
+	cmd := newWatchCmd()
+
+	output := captureWatchStderr(t, func() {
+		_, _ = loadAndResolveConfig(context.Background(), cmd, worktreeResult{}, source, terminal.NewLogger())
+	})
+	if !strings.Contains(output, "Warning: unknown trusted configuration key") {
+		t.Fatalf("stderr = %q", output)
+	}
+}
+
+func captureWatchStderr(t *testing.T, run func()) string {
+	t.Helper()
+	original := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	func() {
+		os.Stderr = writer
+		defer func() { os.Stderr = original }()
+		run()
+	}()
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }

@@ -19,7 +19,7 @@ type PullRequestKey struct {
 	Number     int
 }
 
-var pullRequestHostPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?$`)
+var pullRequestHostPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$`)
 
 var pullRequestPathComponentPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 

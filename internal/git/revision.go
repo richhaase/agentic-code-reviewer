@@ -233,7 +233,11 @@ func readFileAtCommit(ctx context.Context, repoRoot, commit, repositoryPath stri
 			if err != nil {
 				return nil, fmt.Errorf("repository symlink %q at %s is invalid: %w", candidate, commit, err)
 			}
-			return readFileAtCommit(ctx, repoRoot, commit, resolvedPath, depth+1, visited)
+			data, err := readFileAtCommit(ctx, repoRoot, commit, resolvedPath, depth+1, visited)
+			if errors.Is(err, ErrPathNotFoundAtRevision) {
+				return nil, fmt.Errorf("repository symlink %q at %s resolves to missing path %q", candidate, commit, resolvedPath)
+			}
+			return data, err
 		}
 		if index+1 < len(components) {
 			if mode != "040000" {

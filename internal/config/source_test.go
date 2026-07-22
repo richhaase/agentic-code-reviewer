@@ -180,6 +180,24 @@ func TestRepositoryRevisionSourceResolvesTrustedSymlinksWithinRevision(t *testin
 	}
 }
 
+func TestRepositoryRevisionSourceFailsClosedForDanglingTrustedConfigSymlink(t *testing.T) {
+	ctx := context.Background()
+	repositoryRoot := newConfigSourceRepository(t, "", nil)
+	if err := os.Symlink("missing-config.yaml", filepath.Join(repositoryRoot, ConfigFileName)); err != nil {
+		t.Fatal(err)
+	}
+	runConfigGit(t, repositoryRoot, "add", ConfigFileName)
+	runConfigGit(t, repositoryRoot, "commit", "-m", "dangling trusted config")
+
+	source, err := NewRepositoryRevisionSource(ctx, repositoryRoot, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.LoadWithWarnings(ctx); err == nil || !strings.Contains(err.Error(), "resolves to missing path") {
+		t.Fatalf("LoadWithWarnings() error = %v", err)
+	}
+}
+
 func TestResolveTrustedSourceUsesExplicitRepositoryOutsideCurrentDirectory(t *testing.T) {
 	ctx := context.Background()
 	repositoryRoot := newConfigSourceRepository(t, "reviewers: 11\n", nil)

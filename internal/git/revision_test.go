@@ -122,6 +122,31 @@ func TestReadFileAtCommitFollowsSymlinkWithinRevision(t *testing.T) {
 	}
 }
 
+func TestReadFileAtCommitDistinguishesDanglingSymlinkFromMissingPath(t *testing.T) {
+	ctx := context.Background()
+	repositoryRoot := setupTestRepo(t)
+	linkPath := filepath.Join(repositoryRoot, "review-guidance.md")
+	if err := os.Symlink("missing-guidance.md", linkPath); err != nil {
+		t.Fatal(err)
+	}
+	commitRevisionFiles(t, repositoryRoot)
+
+	commit, err := ResolveCommit(ctx, repositoryRoot, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ReadFileAtCommit(ctx, repositoryRoot, commit, "review-guidance.md")
+	if err == nil {
+		t.Fatal("ReadFileAtCommit succeeded")
+	}
+	if errors.Is(err, ErrPathNotFoundAtRevision) {
+		t.Fatalf("dangling symlink reported as missing path: %v", err)
+	}
+	if !strings.Contains(err.Error(), "resolves to missing path") {
+		t.Fatalf("dangling symlink error = %v", err)
+	}
+}
+
 func TestReadFileAtCommitFollowsIntermediateSymlinkWithinRevision(t *testing.T) {
 	ctx := context.Background()
 	repositoryRoot := setupTestRepo(t)

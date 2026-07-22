@@ -313,6 +313,9 @@ func loadAndResolveConfig(ctx context.Context, cmd *cobra.Command, wt worktreeRe
 	loaded, err := source.LoadWithWarnings(ctx)
 	if loaded != nil {
 		result.resolved.WatchPollInterval = resolveWatchPollInterval(cmd, loaded.Config)
+		for _, warning := range loaded.Warnings {
+			logger.Logf(terminal.StyleWarning, "Warning: %s", warning)
+		}
 	}
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Config error: %v", err)
@@ -320,10 +323,6 @@ func loadAndResolveConfig(ctx context.Context, cmd *cobra.Command, wt worktreeRe
 	}
 	loadResult = loaded
 	cfg = loaded.Config
-
-	for _, warning := range loaded.Warnings {
-		logger.Logf(terminal.StyleWarning, "Warning: %s", warning)
-	}
 	if verbose {
 		logger.Logf(terminal.StyleDim, "Review configuration source: %s %s %s", loaded.Source.Kind, loaded.Source.Ref, loaded.Source.Revision)
 	}

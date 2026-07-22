@@ -137,27 +137,32 @@ func matchingFetchRemote(remoteOut []byte, repositoryURL, repositorySSHURL strin
 }
 
 func urlMatches(url1, url2 string) bool {
-	return normalizeRepositoryURL(url1) == normalizeRepositoryURL(url2)
+	if strings.TrimSpace(url1) == "" || strings.TrimSpace(url2) == "" {
+		return strings.TrimSpace(url1) == strings.TrimSpace(url2)
+	}
+	first, firstHasHost := normalizeRepositoryURL(url1)
+	second, secondHasHost := normalizeRepositoryURL(url2)
+	return firstHasHost && secondHasHost && first == second
 }
 
-func normalizeRepositoryURL(raw string) string {
+func normalizeRepositoryURL(raw string) (string, bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return ""
+		return "", false
 	}
 
 	parsed, err := url.Parse(raw)
 	if err == nil && parsed.Host != "" {
-		return normalizeRepositoryLocation(parsed.Host, parsed.Path)
+		return normalizeRepositoryLocation(parsed.Host, parsed.Path), true
 	}
 
 	colon := strings.Index(raw, ":")
 	slash := strings.Index(raw, "/")
 	if colon > 0 && (slash == -1 || colon < slash) {
-		return normalizeRepositoryLocation(raw[:colon], raw[colon+1:])
+		return normalizeRepositoryLocation(raw[:colon], raw[colon+1:]), true
 	}
 
-	return normalizeRepositoryLocation("", raw)
+	return normalizeRepositoryLocation("", raw), false
 }
 
 func normalizeRepositoryLocation(host, path string) string {

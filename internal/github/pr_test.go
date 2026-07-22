@@ -442,6 +442,12 @@ func TestUrlMatches_AuthenticatedDifferentHost(t *testing.T) {
 	}
 }
 
+func TestUrlMatches_HostlessPathDoesNotMatchCanonicalRepository(t *testing.T) {
+	if urlMatches("github.com/owner/repo.git", "https://github.com/owner/repo") {
+		t.Fatal("hostless path matched canonical repository")
+	}
+}
+
 func TestUrlMatches_SSHURLFormat(t *testing.T) {
 
 	result := urlMatches("ssh://git@github.com/owner/repo.git", "https://github.com/owner/repo")
@@ -502,6 +508,18 @@ func TestMatchingFetchRemoteAcceptsCanonicalAuthenticatedAndSCPURLs(t *testing.T
 				t.Fatalf("remote = %q, want canonical", remote)
 			}
 		})
+	}
+}
+
+func TestMatchingFetchRemoteRejectsHostlessCanonicalLookalike(t *testing.T) {
+	remotes := []byte(strings.Join([]string{
+		"aaa-local\tgithub.com/org/canonical.git (fetch)",
+		"zzz-canonical\thttps://github.com/org/canonical.git (fetch)",
+	}, "\n"))
+
+	remote := matchingFetchRemote(remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")
+	if remote != "zzz-canonical" {
+		t.Fatalf("remote = %q, want zzz-canonical", remote)
 	}
 }
 
