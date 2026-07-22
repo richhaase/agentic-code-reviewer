@@ -141,6 +141,22 @@ func TestRepositoryRevisionSourceFailsClosedForMissingTrustedGuidance(t *testing
 	}
 }
 
+func TestRepositoryRevisionSourceRejectsInvalidGuidancePathBeforePrecedence(t *testing.T) {
+	ctx := context.Background()
+	repositoryRoot := newConfigSourceRepository(t, "guidance: trusted inline\nguidance_file: ../outside.md\n", nil)
+	source, err := NewRepositoryRevisionSource(ctx, repositoryRoot, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := source.LoadWithWarnings(ctx)
+	if err == nil || !strings.Contains(err.Error(), "invalid trusted guidance_file") {
+		t.Fatalf("LoadWithWarnings() error = %v", err)
+	}
+	if result == nil || result.Config == nil {
+		t.Fatalf("failed load lost diagnostics: %#v", result)
+	}
+}
+
 func TestRepositoryRevisionSourceResolvesTrustedSymlinksWithinRevision(t *testing.T) {
 	ctx := context.Background()
 	repositoryRoot := newConfigSourceRepository(t, "", map[string]string{

@@ -183,6 +183,15 @@ func (s RepositoryRevisionSource) LoadWithWarnings(ctx context.Context) (*LoadRe
 			ConfigDigest:  digest(data),
 		}
 		result.readConfigRelative = s.readConfigRelative
+		if result.Config != nil && result.Config.GuidanceFile != nil && *result.Config.GuidanceFile != "" {
+			if pathErr := gitpkg.ValidateRepositoryPath(*result.Config.GuidanceFile); pathErr != nil {
+				pathErr = fmt.Errorf("invalid trusted guidance_file: %w", pathErr)
+				if err != nil {
+					return result, errors.Join(err, pathErr)
+				}
+				return result, pathErr
+			}
+		}
 	}
 	return result, err
 }

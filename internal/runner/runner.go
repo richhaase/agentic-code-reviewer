@@ -147,12 +147,14 @@ func (r *Runner) Run(ctx context.Context) ([]domain.ReviewerResult, time.Duratio
 				return
 			}
 
-			result := r.runReviewerWithRetry(ctx, id)
+			result, started := r.runReviewerAfterAcquiring(ctx, id, agentName)
 
 			<-sem
 
 			r.completed.Add(1)
-			r.reviewerCompleted(result)
+			if started {
+				r.reviewerCompleted(result)
+			}
 			resultCh <- result
 		}(i)
 	}
@@ -178,6 +180,22 @@ func (r *Runner) Run(ctx context.Context) ([]domain.ReviewerResult, time.Duratio
 	}
 
 	return finishRun(ctx, results, start)
+}
+
+func (r *Runner) runReviewerAfterAcquiring(ctx context.Context, reviewerID int, agentName string) (domain.ReviewerResult, bool) {
+	if err := ctx.Err(); err != nil {
+		return domain.ReviewerResult{
+			ReviewerID: reviewerID,
+			AgentName:  agentName,
+			ExitCode:   -1,
+			Failure: &domain.ReviewerFailure{
+				Kind:    domain.ReviewerFailureInterrupted,
+				Message: err.Error(),
+			},
+		}, false
+	}
+	r.reviewerStarted(reviewerID, agentName)
+	return r.runReviewerWithRetry(ctx, reviewerID), true
 }
 
 func finishRun(ctx context.Context, results []domain.ReviewerResult, startedAt time.Time) ([]domain.ReviewerResult, time.Duration, error) {
@@ -287,9 +305,6 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) (result domain
 	result = domain.ReviewerResult{
 		ReviewerID: reviewerID,
 		AgentName:  selectedAgent.Name(),
-	}
-	if r.config.Events.ReviewerStarted != nil {
-		r.config.Events.ReviewerStarted(reviewerID, selectedAgent.Name())
 	}
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, r.config.Timeout)
@@ -454,6 +469,12 @@ func (r *Runner) reviewerAgentName(reviewerID int) string {
 
 func (r *Runner) verbose() bool {
 	return r.config.Verbose && r.logger != nil
+}
+
+func (r *Runner) reviewerStarted(reviewerID int, agentName string) {
+	if r.config.Events.ReviewerStarted != nil {
+		r.config.Events.ReviewerStarted(reviewerID, agentName)
+	}
 }
 
 func (r *Runner) reviewerCompleted(result domain.ReviewerResult) {

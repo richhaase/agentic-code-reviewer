@@ -153,7 +153,8 @@ func normalizeRepositoryURL(raw string) (string, bool) {
 
 	parsed, err := url.Parse(raw)
 	if err == nil && parsed.Host != "" {
-		return normalizeRepositoryLocation(parsed.Host, parsed.Path), true
+		host := parsed.Hostname()
+		return normalizeRepositoryLocation(host, parsed.Path), host != ""
 	}
 
 	colon := strings.Index(raw, ":")

@@ -256,6 +256,23 @@ func TestGetCommonDir_InGitRepo(t *testing.T) {
 	}
 }
 
+func TestGetCommonDirAtIgnoresSuccessfulCommandStderr(t *testing.T) {
+	repoDir := setupTestRepo(t)
+	t.Setenv("GIT_TRACE", "1")
+
+	commonDir, err := GetCommonDirAt(context.Background(), repoDir)
+	if err != nil {
+		t.Fatalf("GetCommonDirAt failed: %v", err)
+	}
+	expected, err := filepath.EvalSymlinks(filepath.Join(repoDir, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commonDir != expected {
+		t.Fatalf("common dir = %q, want %q", commonDir, expected)
+	}
+}
+
 func TestValidateWorktreeRepository(t *testing.T) {
 	repoDir := setupTestRepo(t)
 	linkedDir := filepath.Join(t.TempDir(), "linked")
@@ -518,6 +535,14 @@ func TestGitVersionSupportsIsolatedFetch(t *testing.T) {
 		if got := gitVersionSupportsIsolatedFetch(test.major, test.minor); got != test.want {
 			t.Fatalf("gitVersionSupportsIsolatedFetch(%d, %d) = %t", test.major, test.minor, got)
 		}
+	}
+}
+
+func TestRequireIsolatedFetchGitVersionIgnoresSuccessfulCommandStderr(t *testing.T) {
+	repoDir := setupTestRepo(t)
+	t.Setenv("GIT_TRACE", "1")
+	if err := requireIsolatedFetchGitVersion(context.Background(), repoDir); err != nil {
+		t.Fatalf("requireIsolatedFetchGitVersion failed: %v", err)
 	}
 }
 

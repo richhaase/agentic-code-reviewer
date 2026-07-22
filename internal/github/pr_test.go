@@ -464,6 +464,13 @@ func TestUrlMatches_SSHURLFormatNoUser(t *testing.T) {
 	}
 }
 
+func TestUrlMatches_SSHURLWithExplicitPort(t *testing.T) {
+	result := urlMatches("ssh://git@github.com:22/owner/repo.git", "https://github.com/owner/repo")
+	if !result {
+		t.Error("expected true for SSH URL with explicit port vs HTTPS")
+	}
+}
+
 func TestUrlMatches_SSHURLVsSSHShorthand(t *testing.T) {
 	result := urlMatches("ssh://git@github.com/owner/repo.git", "git@github.com:owner/repo.git")
 	if !result {

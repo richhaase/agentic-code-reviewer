@@ -284,10 +284,11 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 		initializeRunFindingRecords(run)
 	}
 	emitter.emit(Event{Kind: EventPhaseCompleted, Phase: domain.ReviewPhaseSummarization})
+	summarySucceeded := err == nil && summaryResult != nil && summaryResult.ExitCode == 0
 	if parentContextErr != nil {
 		return s.interrupt(run, domain.ReviewPhaseSummarization, parentContextErr, emitter), nil
 	}
-	if errors.Is(summaryContextErr, context.DeadlineExceeded) {
+	if !summarySucceeded && errors.Is(summaryContextErr, context.DeadlineExceeded) {
 		message := boundedSummaryEvidence(fmt.Sprintf("summarizer timed out after %s", values.SummarizerTimeout))
 		run.Summarizer.ExitCode = -1
 		run.Summarizer.Stderr = message

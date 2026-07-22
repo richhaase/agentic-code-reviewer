@@ -527,7 +527,10 @@ func TestRunReviewerParentCancellationTakesPriority(t *testing.T) {
 		completed: new(atomic.Int32),
 	}
 
-	result := r.runReviewer(ctx, 1)
+	result, started := r.runReviewerAfterAcquiring(ctx, 1, r.reviewerAgentName(1))
+	if !started {
+		t.Fatal("reviewer did not start")
+	}
 
 	if result.Failure == nil || result.Failure.Kind != domain.ReviewerFailureInterrupted {
 		t.Fatalf("reviewer cancellation was not classified as interrupted: %#v", result)
@@ -657,6 +660,38 @@ func TestQueuedCancellationKeepsProgressAndEventsConsistent(t *testing.T) {
 	}
 	if completedID := <-completed; completedID != startedID {
 		t.Fatalf("completion reviewer = %d, started reviewer = %d", completedID, startedID)
+	}
+}
+
+func TestCanceledReviewerAfterAcquiringSlotEmitsNoLifecycleEvents(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var startedEvents atomic.Int32
+	var completedEvents atomic.Int32
+	r, err := NewHeadless(Config{
+		Reviewers:   1,
+		Concurrency: 1,
+		Timeout:     time.Minute,
+		Events: Events{
+			ReviewerStarted: func(int, string) { startedEvents.Add(1) },
+			ReviewerCompleted: func(domain.ReviewerResult) {
+				completedEvents.Add(1)
+			},
+		},
+	}, []agent.Agent{&mockStreamingAgent{name: "codex"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, started := r.runReviewerAfterAcquiring(ctx, 1, r.reviewerAgentName(1))
+	if started {
+		r.reviewerCompleted(result)
+	}
+	if startedEvents.Load() != 0 || completedEvents.Load() != 0 {
+		t.Fatalf("canceled lifecycle events: started=%d completed=%d", startedEvents.Load(), completedEvents.Load())
+	}
+	if result.Failure == nil || result.Failure.Kind != domain.ReviewerFailureInterrupted {
+		t.Fatalf("canceled result = %#v", result)
 	}
 }
 
@@ -808,6 +843,38 @@ func TestRunReviewerWithRetry_RetriesNonAuthFailure(t *testing.T) {
 	}
 	if result.AuthFailed {
 		t.Error("expected AuthFailed to be false for non-auth failure")
+	}
+}
+
+func TestReviewerLifecycleStartsOnceAcrossRetries(t *testing.T) {
+	mock := &mockAuthFailAgent{name: "codex", exitCode: 1, stderr: "some error"}
+	var startedEvents atomic.Int32
+	var completedEvents atomic.Int32
+	r, err := NewHeadless(Config{
+		Reviewers:   1,
+		Concurrency: 1,
+		Retries:     1,
+		Timeout:     10 * time.Second,
+		Events: Events{
+			ReviewerStarted: func(int, string) { startedEvents.Add(1) },
+			ReviewerCompleted: func(domain.ReviewerResult) {
+				completedEvents.Add(1)
+			},
+		},
+	}, []agent.Agent{mock})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	results, _, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mock.callCount.Load() != 2 || len(results) != 1 || results[0].Attempts != 2 {
+		t.Fatalf("retry result = %#v calls=%d", results, mock.callCount.Load())
+	}
+	if startedEvents.Load() != 1 || completedEvents.Load() != 1 {
+		t.Fatalf("lifecycle events: started=%d completed=%d", startedEvents.Load(), completedEvents.Load())
 	}
 }
 

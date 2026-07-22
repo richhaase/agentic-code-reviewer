@@ -1,6 +1,7 @@
 package git
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -61,9 +62,11 @@ func GetCommonDir() (string, error) {
 func GetCommonDirAt(ctx context.Context, dir string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--git-common-dir")
 	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		detail := strings.TrimSpace(string(out))
+		detail := strings.TrimSpace(stderr.String())
 		if detail != "" {
 			return "", fmt.Errorf("failed to get git common dir for %s (%s): %w", dir, detail, err)
 		}
@@ -273,10 +276,16 @@ var gitVersionPattern = regexp.MustCompile(`^git version ([0-9]+)\.([0-9]+)`)
 func requireIsolatedFetchGitVersion(ctx context.Context, repoRoot string) error {
 	cmd := exec.CommandContext(ctx, "git", "version")
 	cmd.Dir = repoRoot
-	out, err := cmd.CombinedOutput()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		detail := strings.TrimSpace(stderr.String())
+		if detail != "" {
+			return fmt.Errorf("failed to determine git version (%s): %w", detail, err)
 		}
 		return fmt.Errorf("failed to determine git version: %w", err)
 	}

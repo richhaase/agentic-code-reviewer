@@ -1000,6 +1000,36 @@ func TestServiceReportsSummarizerTimeout(t *testing.T) {
 	}
 }
 
+func TestServiceAcceptsSuccessfulSummaryAtDeadline(t *testing.T) {
+	reviewAgent := &mockReviewAgent{
+		name: "codex",
+		summary: func(ctx context.Context, _ int64, _ string, _ []byte) (string, int, string, error) {
+			<-ctx.Done()
+			return codexSummaryOutput(`{"findings":[{"title":"Validated finding","summary":"Validated.","messages":["src/service.go:10: missing validation"],"reviewer_count":2,"sources":[0]}],"info":[]}`), 0, "", nil
+		},
+	}
+	request := validRequest(t, t.TempDir())
+	values := request.Configuration.Values()
+	values.SummarizerTimeout = 5 * time.Millisecond
+	configuration, err := domain.NewReviewConfiguration(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Configuration = configuration
+	service := serviceForTest(t, reviewAgent, "diff")
+
+	run, err := service.Run(context.Background(), request)
+	if err != nil {
+		t.Fatalf("accepted successful summary returned Go error: %v", err)
+	}
+	if run.Status != domain.ReviewStatusCompleted || run.Conclusion != domain.ReviewConclusionFindings {
+		t.Fatalf("successful summary at deadline was rejected: %#v", run)
+	}
+	if run.Summarizer.ExitCode != 0 || len(run.Findings) != 1 {
+		t.Fatalf("successful summary evidence = %#v findings=%#v", run.Summarizer, run.Findings)
+	}
+}
+
 func TestServiceSummarizerReadFailureRecordsFailedOutcome(t *testing.T) {
 	reviewAgent := &mockReviewAgent{name: "codex", summaryRead: errors.New("summary stream failed")}
 	service := serviceForTest(t, reviewAgent, "diff")
