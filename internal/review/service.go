@@ -291,7 +291,11 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	if !summarySucceeded && errors.Is(summaryContextErr, context.DeadlineExceeded) {
 		message := boundedSummaryEvidence(fmt.Sprintf("summarizer timed out after %s", values.SummarizerTimeout))
 		run.Summarizer.ExitCode = -1
-		run.Summarizer.Stderr = message
+		stderr := ""
+		if summaryResult != nil {
+			stderr = summaryResult.Stderr
+		}
+		run.Summarizer.Stderr = boundedSummaryEvidenceWithSuffix(stderr, message)
 		return s.fail(run, domain.ReviewPhaseSummarization, errors.New(message), emitter), nil
 	}
 	if err != nil {
@@ -675,6 +679,40 @@ func boundedSummaryEvidence(output string) string {
 		return diagnostic + summaryDiagnosticTruncationMarker
 	}
 	return diagnostic
+}
+
+func boundedSummaryEvidenceWithSuffix(output, suffix string) string {
+	output = strings.TrimRight(output, "\r\n")
+	suffix = strings.TrimSpace(suffix)
+	if output == "" {
+		return boundedSummaryEvidence(suffix)
+	}
+	if suffix == "" {
+		return boundedSummaryEvidence(output)
+	}
+
+	lines := strings.Split(output, "\n")
+	truncated := len(lines) >= summaryDiagnosticMaxLines
+	if truncated {
+		lines = lines[:summaryDiagnosticMaxLines-1]
+	}
+	prefix := strings.Join(lines, "\n")
+	trailer := "\n" + suffix
+	limit := summaryDiagnosticMaxBytes - len(trailer)
+	if truncated || len(prefix) > limit {
+		limit -= len(summaryDiagnosticTruncationMarker)
+		if limit < 0 {
+			return boundedSummaryEvidence(suffix)
+		}
+		if len(prefix) > limit {
+			for limit > 0 && !utf8.RuneStart(prefix[limit]) {
+				limit--
+			}
+			prefix = prefix[:limit]
+		}
+		prefix += summaryDiagnosticTruncationMarker
+	}
+	return prefix + trailer
 }
 
 func populateRunFindings(run *domain.ReviewRun, final domain.GroupedFindings, fpRemovedByIndex map[int]domain.FPRemovedInfo, excludeRemoved []domain.FindingGroup) {

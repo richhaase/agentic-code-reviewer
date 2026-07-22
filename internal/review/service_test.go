@@ -975,7 +975,7 @@ func TestServiceReportsSummarizerTimeout(t *testing.T) {
 		name: "codex",
 		summary: func(ctx context.Context, _ int64, _ string, _ []byte) (string, int, string, error) {
 			<-ctx.Done()
-			return "", 0, "", ctx.Err()
+			return "", 1, "partial summarizer diagnostics", nil
 		},
 	}
 	request := validRequest(t, t.TempDir())
@@ -995,11 +995,27 @@ func TestServiceReportsSummarizerTimeout(t *testing.T) {
 	if run.Status != domain.ReviewStatusFailed || run.Failure == nil || run.Failure.Phase != domain.ReviewPhaseSummarization {
 		t.Fatalf("unexpected summarizer timeout outcome: %#v", run)
 	}
-	if run.Summarizer.ExitCode != -1 || run.Summarizer.Stderr != "summarizer timed out after 5ms" {
+	if run.Summarizer.ExitCode != -1 || run.Summarizer.Stderr != "partial summarizer diagnostics\nsummarizer timed out after 5ms" {
 		t.Fatalf("summarizer timeout evidence = %#v", run.Summarizer)
 	}
-	if run.Failure.Message != run.Summarizer.Stderr {
+	if run.Failure.Message != "summarizer timed out after 5ms" {
 		t.Fatalf("timeout failure = %q, evidence = %q", run.Failure.Message, run.Summarizer.Stderr)
+	}
+}
+
+func TestBoundedSummaryEvidenceWithSuffixRetainsTimeout(t *testing.T) {
+	stderr := strings.Repeat("diagnostic line\n", summaryDiagnosticMaxLines) + strings.Repeat("x", summaryDiagnosticMaxBytes)
+	timeout := "summarizer timed out after 5ms"
+	evidence := boundedSummaryEvidenceWithSuffix(stderr, timeout)
+
+	if len(evidence) > summaryDiagnosticMaxBytes {
+		t.Fatalf("summarizer timeout evidence has %d bytes, want at most %d", len(evidence), summaryDiagnosticMaxBytes)
+	}
+	if !strings.Contains(evidence, summaryDiagnosticTruncationMarker) {
+		t.Fatalf("bounded timeout evidence is not marked as truncated: %q", evidence)
+	}
+	if !strings.HasSuffix(evidence, timeout) {
+		t.Fatalf("bounded timeout evidence lost timeout suffix: %q", evidence)
 	}
 }
 
