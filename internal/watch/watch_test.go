@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -40,6 +41,7 @@ type harness struct {
 
 	triggers     []string
 	approvedWith []string
+	logs         []string
 }
 
 func newHarness(t *testing.T) *harness {
@@ -81,6 +83,9 @@ func (h *harness) deps() Deps {
 		Approve: func(ctx context.Context, body string) error {
 			h.approvedWith = append(h.approvedWith, body)
 			return nil
+		},
+		Logf: func(format string, args ...any) {
+			h.logs = append(h.logs, fmt.Sprintf(format, args...))
 		},
 	}
 }
@@ -474,6 +479,24 @@ func TestRetryableCycleFailuresBecomeFatalAfterLimit(t *testing.T) {
 	}
 	if attempts != maxConsecutivePollErrors {
 		t.Fatalf("attempts = %d, want %d", attempts, maxConsecutivePollErrors)
+	}
+	var preparationLogs []string
+	for _, entry := range h.logs {
+		if strings.Contains(entry, "Review preparation failed") {
+			preparationLogs = append(preparationLogs, entry)
+		}
+	}
+	if len(preparationLogs) != maxConsecutivePollErrors {
+		t.Fatalf("preparation logs = %v", preparationLogs)
+	}
+	for _, entry := range preparationLogs[:len(preparationLogs)-1] {
+		if !strings.Contains(entry, "will retry") {
+			t.Fatalf("retrying log = %q", entry)
+		}
+	}
+	finalLog := preparationLogs[len(preparationLogs)-1]
+	if !strings.Contains(finalLog, "stopping") || strings.Contains(finalLog, "will retry") {
+		t.Fatalf("terminal log = %q", finalLog)
 	}
 }
 

@@ -208,7 +208,11 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 		}
 		result.prRepoRoot = repoRoot
 
-		remote := github.GetRepoRemote(ctx)
+		remote, err := github.FindRepoRemote(ctx, repoRoot)
+		if err != nil {
+			logger.Logf(terminal.StyleError, "Failed to select PR fetch remote: %v", err)
+			return result, exitCode(domain.ExitError)
+		}
 		result.prRemote = remote
 
 		wt, err := git.CreateWorktreeFromPR(repoRoot, remote, prNumber)

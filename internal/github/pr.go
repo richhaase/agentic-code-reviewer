@@ -81,14 +81,6 @@ func ValidatePR(ctx context.Context, prNumber string) error {
 	return nil
 }
 
-func GetRepoRemote(ctx context.Context) string {
-	remote, err := FindRepoRemote(ctx, "")
-	if err != nil {
-		return "origin"
-	}
-	return remote
-}
-
 func FindRepoRemote(ctx context.Context, repositoryRoot string) (string, error) {
 	cmd := exec.CommandContext(ctx, "gh", "repo", "view", "--json", "url,sshUrl")
 	cmd.Dir = repositoryRoot

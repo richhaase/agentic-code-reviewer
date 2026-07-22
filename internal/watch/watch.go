@@ -364,10 +364,11 @@ func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, boo
 		if errors.Is(err, ErrRetryableCycle) {
 			l.reviews--
 			l.cycleErrors++
-			l.logf("Review preparation failed (%d/%d); will retry: %v", l.cycleErrors, maxConsecutivePollErrors, err)
 			if l.cycleErrors >= maxConsecutivePollErrors {
+				l.logf("Review preparation failed (%d/%d); stopping: %v", l.cycleErrors, maxConsecutivePollErrors, err)
 				return ReasonError, true
 			}
+			l.logf("Review preparation failed (%d/%d); will retry: %v", l.cycleErrors, maxConsecutivePollErrors, err)
 			l.retryPending = true
 			l.retryHead = head
 			return 0, false
