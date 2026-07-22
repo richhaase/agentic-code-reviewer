@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -137,7 +138,6 @@ func newConfigValidateCmd() *cobra.Command {
 			var warnings []string
 
 			cfg := &config.Config{}
-			configDir := ""
 			configFileError := false
 			result, err := config.LoadWithWarnings()
 			if err != nil {
@@ -146,7 +146,6 @@ func newConfigValidateCmd() *cobra.Command {
 			}
 			if result != nil {
 				cfg = result.Config
-				configDir = result.ConfigDir
 				warnings = append(warnings, result.Warnings...)
 			}
 			if cfg.GuidanceFile != nil && *cfg.GuidanceFile != "" {
@@ -166,7 +165,7 @@ func newConfigValidateCmd() *cobra.Command {
 			validationErrs := resolved.ValidateAll()
 			errors = append(errors, validationErrs...)
 
-			_, guidanceErr := config.ResolveGuidance(cfg, envState, config.FlagState{}, config.Defaults, configDir)
+			_, guidanceErr := config.ResolveGuidanceFromLoadResult(context.Background(), result, envState, config.FlagState{}, config.Defaults)
 			if guidanceErr != nil {
 				errors = append(errors, guidanceErr.Error())
 			}

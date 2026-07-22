@@ -214,6 +214,54 @@ func TestReadFileAtCommitRejectsCrossPlatformAbsolutePaths(t *testing.T) {
 	}
 }
 
+func TestReadFileWithinRepositoryResolvesBoundedSymlinks(t *testing.T) {
+	repositoryRoot := setupTestRepo(t)
+	if err := os.MkdirAll(filepath.Join(repositoryRoot, "config", "v1"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repositoryRoot, "config", "v1", "guidance.md"), []byte("bounded"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("v1", filepath.Join(repositoryRoot, "config", "current")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("config/current/guidance.md", filepath.Join(repositoryRoot, "guidance.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := ReadFileWithinRepository(repositoryRoot, "guidance.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "bounded" {
+		t.Fatalf("data = %q", data)
+	}
+}
+
+func TestReadFileWithinRepositoryRejectsEscapingSymlinks(t *testing.T) {
+	root := t.TempDir()
+	repositoryRoot := filepath.Join(root, "repository")
+	if err := os.MkdirAll(repositoryRoot, 0755); err != nil {
+		t.Fatal(err)
+	}
+	outsidePath := filepath.Join(root, "outside.md")
+	if err := os.WriteFile(outsidePath, []byte("outside"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../outside.md", filepath.Join(repositoryRoot, "relative.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsidePath, filepath.Join(repositoryRoot, "absolute.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, repositoryPath := range []string{"relative.md", "absolute.md"} {
+		if _, err := ReadFileWithinRepository(repositoryRoot, repositoryPath); err == nil {
+			t.Fatalf("ReadFileWithinRepository(%q) succeeded", repositoryPath)
+		}
+	}
+}
+
 func commitRevisionFiles(t *testing.T, repositoryRoot string) {
 	t.Helper()
 	for _, args := range [][]string{{"add", "."}, {"commit", "-m", "revision files"}} {

@@ -26,8 +26,15 @@ func TestNewSummarizer(t *testing.T) {
 
 func TestSummarizerCloseErrorWithNilLoggerDoesNotPanic(t *testing.T) {
 	s := NewSummarizer("codex", "", true, nil)
-	if err := s.handleCloseError(errors.New("cleanup failed")); err == nil {
-		t.Fatal("handleCloseError succeeded")
+	if err := s.handleCloseError(errors.New("cleanup failed")); err != nil {
+		t.Fatalf("handleCloseError returned %v", err)
+	}
+}
+
+func TestSummarizerCloseErrorIsNonFatalWhenNotVerbose(t *testing.T) {
+	s := NewSummarizer("codex", "", false, nil)
+	if err := s.handleCloseError(errors.New("cleanup failed")); err != nil {
+		t.Fatalf("handleCloseError returned %v", err)
 	}
 }
 

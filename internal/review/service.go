@@ -155,6 +155,11 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	if err != nil {
 		return s.fail(run, domain.ReviewPhaseInitialization, err, emitter), nil
 	}
+	postProcessDir, cleanupPostProcessDir, err := agent.NewIsolatedWorkDir()
+	if err != nil {
+		return s.fail(run, domain.ReviewPhaseInitialization, fmt.Errorf("create isolated post-processing workspace: %w", err), emitter), nil
+	}
+	defer cleanupPostProcessDir()
 	emitter.emit(Event{Kind: EventPhaseCompleted, Phase: domain.ReviewPhaseInitialization})
 	if err := ctx.Err(); err != nil {
 		return s.interrupt(run, domain.ReviewPhaseInitialization, err, emitter), nil
@@ -253,7 +258,7 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 
 	emitter.emit(Event{Kind: EventPhaseStarted, Phase: domain.ReviewPhaseSummarization})
 	summaryCtx, summaryCancel := context.WithTimeout(ctx, values.SummarizerTimeout)
-	summaryResult, err := summarizer.SummarizeWithAgent(summaryCtx, summarizerAgent, run.AggregatedFindings, run.Target.WorktreeRoot)
+	summaryResult, err := summarizer.SummarizeWithAgent(summaryCtx, summarizerAgent, run.AggregatedFindings, postProcessDir)
 	summaryCancel()
 	if summaryResult != nil {
 		run.Stats.SummarizerDuration = summaryResult.Duration
@@ -308,7 +313,7 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	if values.FPFilterEnabled && len(finalGrouped.Findings) > 0 {
 		emitter.emit(Event{Kind: EventPhaseStarted, Phase: domain.ReviewPhaseFalsePositiveFilter})
 		fpCtx, fpCancel := context.WithTimeout(ctx, values.FPFilterTimeout)
-		fpResult := fpfilter.NewWithAgent(summarizerAgent, values.FPThreshold, run.Target.WorktreeRoot).Apply(fpCtx, finalGrouped, priorFeedback, run.Stats.SuccessfulReviewers)
+		fpResult := fpfilter.NewWithAgent(summarizerAgent, values.FPThreshold, postProcessDir).Apply(fpCtx, finalGrouped, priorFeedback, run.Stats.SuccessfulReviewers)
 		fpCancel()
 		if fpResult != nil {
 			finalGrouped = cloneGroupedFindings(fpResult.Grouped)
@@ -611,8 +616,13 @@ func summarizePriorFeedback(ctx context.Context, target domain.ReviewTarget, age
 	if target.PullRequest == nil {
 		return "", nil
 	}
+	agentDir, cleanupAgentDir, err := agent.NewIsolatedWorkDir()
+	if err != nil {
+		return "", fmt.Errorf("create isolated feedback workspace: %w", err)
+	}
+	defer cleanupAgentDir()
 	summary := feedback.NewSummarizer(agentName, model, false, nil)
-	return summary.SummarizePullRequest(ctx, *target.PullRequest, target.WorktreeRoot)
+	return summary.SummarizePullRequestFromDirs(ctx, *target.PullRequest, target.WorktreeRoot, agentDir)
 }
 
 func defaultRunID(startedAt time.Time) (string, error) {

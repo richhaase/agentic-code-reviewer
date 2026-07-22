@@ -33,23 +33,31 @@ func (s *Summarizer) Summarize(ctx context.Context, prNumber string) (string, er
 }
 
 func (s *Summarizer) SummarizeFromDir(ctx context.Context, prNumber, workDir string) (string, error) {
+	return s.SummarizeFromDirs(ctx, prNumber, workDir, workDir)
+}
+
+func (s *Summarizer) SummarizeFromDirs(ctx context.Context, prNumber, repositoryDir, agentDir string) (string, error) {
 	if prNumber == "" {
 		return "", fmt.Errorf("PR number is required")
 	}
 
-	prCtx, err := FetchPRContextFromDir(ctx, prNumber, workDir)
+	prCtx, err := FetchPRContextFromDir(ctx, prNumber, repositoryDir)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch PR context: %w", err)
 	}
-	return s.summarizeContext(ctx, prCtx, workDir)
+	return s.summarizeContext(ctx, prCtx, agentDir)
 }
 
 func (s *Summarizer) SummarizePullRequest(ctx context.Context, key domain.PullRequestKey, workDir string) (string, error) {
-	prCtx, err := FetchPRContextForPullRequest(ctx, key, workDir)
+	return s.SummarizePullRequestFromDirs(ctx, key, workDir, workDir)
+}
+
+func (s *Summarizer) SummarizePullRequestFromDirs(ctx context.Context, key domain.PullRequestKey, repositoryDir, agentDir string) (string, error) {
+	prCtx, err := FetchPRContextForPullRequest(ctx, key, repositoryDir)
 	if err != nil {
 		return "", fmt.Errorf("failed to fetch PR context: %w", err)
 	}
-	return s.summarizeContext(ctx, prCtx, workDir)
+	return s.summarizeContext(ctx, prCtx, agentDir)
 }
 
 func (s *Summarizer) summarizeContext(ctx context.Context, prCtx *PRContext, workDir string) (string, error) {
@@ -97,9 +105,8 @@ func (s *Summarizer) handleCloseError(err error) error {
 	}
 	if s.verbose && s.logger != nil {
 		s.logger.Logf(terminal.StyleDim, "feedback close error (non-fatal): %v", err)
-		return nil
 	}
-	return fmt.Errorf("feedback cleanup failed: %w", err)
+	return nil
 }
 
 func (s *Summarizer) buildInput(prCtx *PRContext) string {

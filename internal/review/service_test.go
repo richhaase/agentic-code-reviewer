@@ -315,7 +315,7 @@ func TestServicePinsEveryReviewerToCapturedRevisionAndDiff(t *testing.T) {
 	}
 }
 
-func TestServiceScopesSummaryAndFalsePositiveExecutionToReviewTarget(t *testing.T) {
+func TestServiceIsolatesSummaryAndFalsePositiveExecutionFromReviewTarget(t *testing.T) {
 	root := t.TempDir()
 	summaryConfigs := make(chan agent.SummaryConfig, 2)
 	reviewAgent := &mockReviewAgent{
@@ -348,11 +348,20 @@ func TestServiceScopesSummaryAndFalsePositiveExecutionToReviewTarget(t *testing.
 	if len(summaryConfigs) != 2 {
 		t.Fatalf("summary calls = %d, want 2", len(summaryConfigs))
 	}
+	var postProcessDir string
 	for range 2 {
 		config := <-summaryConfigs
-		if config.WorkDir != root {
-			t.Fatalf("summary workdir = %q, want %q", config.WorkDir, root)
+		if config.WorkDir == root {
+			t.Fatalf("summary workdir uses reviewed target %q", root)
 		}
+		if postProcessDir == "" {
+			postProcessDir = config.WorkDir
+		} else if config.WorkDir != postProcessDir {
+			t.Fatalf("post-processing workdirs differ: %q and %q", postProcessDir, config.WorkDir)
+		}
+	}
+	if _, err := os.Stat(postProcessDir); !os.IsNotExist(err) {
+		t.Fatalf("post-processing workspace remains after review: %v", err)
 	}
 }
 

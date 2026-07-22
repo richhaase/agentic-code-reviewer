@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -119,6 +121,75 @@ func ReadFileAtCommit(ctx context.Context, repoRoot, commit, repositoryPath stri
 func ValidateRepositoryPath(repositoryPath string) error {
 	_, err := cleanRepositoryPath(repositoryPath)
 	return err
+}
+
+func ReadFileWithinRepository(repositoryRoot, repositoryPath string) ([]byte, error) {
+	cleanPath, err := cleanRepositoryPath(repositoryPath)
+	if err != nil {
+		return nil, err
+	}
+	root, err := filepath.Abs(repositoryRoot)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve repository root %q: %w", repositoryRoot, err)
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve repository root %q: %w", repositoryRoot, err)
+	}
+	return readFileWithinRepository(root, cleanPath, 0, make(map[string]struct{}))
+}
+
+func readFileWithinRepository(repositoryRoot, repositoryPath string, depth int, visited map[string]struct{}) ([]byte, error) {
+	if depth > maxRepositorySymlinkDepth {
+		return nil, fmt.Errorf("repository path %q exceeds the symlink resolution limit", repositoryPath)
+	}
+	if _, exists := visited[repositoryPath]; exists {
+		return nil, fmt.Errorf("repository path %q contains a symlink cycle", repositoryPath)
+	}
+	visited[repositoryPath] = struct{}{}
+
+	components := strings.Split(repositoryPath, "/")
+	for index := range components {
+		candidate := path.Join(components[:index+1]...)
+		candidatePath := filepath.Join(repositoryRoot, filepath.FromSlash(candidate))
+		info, err := os.Lstat(candidatePath)
+		if err != nil {
+			return nil, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			target, err := os.Readlink(candidatePath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read repository symlink %q: %w", candidate, err)
+			}
+			if target == "" {
+				return nil, fmt.Errorf("repository symlink %q has an empty target", candidate)
+			}
+			normalizedTarget := strings.ReplaceAll(target, "\\", "/")
+			if isAbsoluteRepositoryPath(normalizedTarget) {
+				return nil, fmt.Errorf("repository symlink %q has an absolute target %q", candidate, target)
+			}
+			resolvedPath := path.Join(path.Dir(candidate), normalizedTarget)
+			if index+1 < len(components) {
+				resolvedPath = path.Join(resolvedPath, path.Join(components[index+1:]...))
+			}
+			resolvedPath, err = cleanRepositoryPath(resolvedPath)
+			if err != nil {
+				return nil, fmt.Errorf("repository symlink %q is invalid: %w", candidate, err)
+			}
+			return readFileWithinRepository(repositoryRoot, resolvedPath, depth+1, visited)
+		}
+		if index+1 < len(components) {
+			if !info.IsDir() {
+				return nil, fmt.Errorf("repository path %q is not a directory", candidate)
+			}
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("repository path %q is not a regular file or symlink", repositoryPath)
+		}
+		return os.ReadFile(candidatePath)
+	}
+	return nil, fmt.Errorf("repository path %q is invalid", repositoryPath)
 }
 
 func readFileAtCommit(ctx context.Context, repoRoot, commit, repositoryPath string, depth int, visited map[string]struct{}) ([]byte, error) {

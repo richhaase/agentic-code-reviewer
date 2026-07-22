@@ -456,6 +456,47 @@ func TestFetchBaseRefAcceptsForcedRemoteUpdate(t *testing.T) {
 	}
 }
 
+func TestParseGitVersion(t *testing.T) {
+	tests := []struct {
+		output string
+		major  int
+		minor  int
+	}{
+		{"git version 2.29.0", 2, 29},
+		{"git version 2.39.3 (Apple Git-145)", 2, 39},
+		{"git version 3.1.0.windows.1", 3, 1},
+	}
+	for _, test := range tests {
+		major, minor, err := parseGitVersion(test.output)
+		if err != nil {
+			t.Fatalf("parseGitVersion(%q): %v", test.output, err)
+		}
+		if major != test.major || minor != test.minor {
+			t.Fatalf("parseGitVersion(%q) = %d.%d, want %d.%d", test.output, major, minor, test.major, test.minor)
+		}
+	}
+	if _, _, err := parseGitVersion("git version unknown"); err == nil {
+		t.Fatal("parseGitVersion accepted invalid output")
+	}
+}
+
+func TestGitVersionSupportsIsolatedFetch(t *testing.T) {
+	for _, test := range []struct {
+		major int
+		minor int
+		want  bool
+	}{
+		{1, 99, false},
+		{2, 28, false},
+		{2, 29, true},
+		{3, 0, true},
+	} {
+		if got := gitVersionSupportsIsolatedFetch(test.major, test.minor); got != test.want {
+			t.Fatalf("gitVersionSupportsIsolatedFetch(%d, %d) = %t", test.major, test.minor, got)
+		}
+	}
+}
+
 func runWorktreeGit(t *testing.T, directory string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)

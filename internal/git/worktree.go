@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -204,6 +206,9 @@ func FetchRemoteBranchToRef(ctx context.Context, repoRoot, remote, branch, desti
 	if !strings.HasPrefix(destinationRef, "refs/") {
 		return fmt.Errorf("destination ref %q must be fully qualified", destinationRef)
 	}
+	if err := requireIsolatedFetchGitVersion(ctx, repoRoot); err != nil {
+		return err
+	}
 	refSpec := fmt.Sprintf("+refs/heads/%s:%s", branch, destinationRef)
 	cmd := exec.CommandContext(ctx, "git", "fetch", "--no-tags", "--no-write-fetch-head", "--refmap=", remote, refSpec)
 	cmd.Dir = repoRoot
@@ -218,6 +223,48 @@ func FetchRemoteBranchToRef(ctx context.Context, repoRoot, remote, branch, desti
 		return fmt.Errorf("failed to fetch branch %q: %w", branch, err)
 	}
 	return nil
+}
+
+var gitVersionPattern = regexp.MustCompile(`^git version ([0-9]+)\.([0-9]+)`)
+
+func requireIsolatedFetchGitVersion(ctx context.Context, repoRoot string) error {
+	cmd := exec.CommandContext(ctx, "git", "version")
+	cmd.Dir = repoRoot
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("failed to determine git version: %w", err)
+	}
+	major, minor, err := parseGitVersion(string(out))
+	if err != nil {
+		return err
+	}
+	if !gitVersionSupportsIsolatedFetch(major, minor) {
+		return fmt.Errorf("git 2.29 or newer is required for isolated trusted-configuration fetches; found %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func gitVersionSupportsIsolatedFetch(major, minor int) bool {
+	return major > 2 || major == 2 && minor >= 29
+}
+
+func parseGitVersion(output string) (int, int, error) {
+	matches := gitVersionPattern.FindStringSubmatch(strings.TrimSpace(output))
+	if len(matches) != 3 {
+		return 0, 0, fmt.Errorf("unrecognized git version output %q", strings.TrimSpace(output))
+	}
+	major, err := strconv.Atoi(matches[1])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid git major version %q: %w", matches[1], err)
+	}
+	minor, err := strconv.Atoi(matches[2])
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid git minor version %q: %w", matches[2], err)
+	}
+	return major, minor, nil
 }
 
 func QualifyBaseRef(remote, baseRef string) string {

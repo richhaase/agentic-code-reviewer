@@ -7,8 +7,18 @@ import (
 	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/config"
+	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 	"github.com/richhaase/agentic-code-reviewer/internal/watch"
 )
+
+type watchConfigSource struct {
+	result *config.LoadResult
+	err    error
+}
+
+func (s watchConfigSource) LoadWithWarnings(context.Context) (*config.LoadResult, error) {
+	return s.result, s.err
+}
 
 func TestWatchRejectsOneShotOnlyFlags(t *testing.T) {
 	for _, args := range [][]string{
@@ -73,20 +83,20 @@ func TestWatchRejectsPositionalArgs(t *testing.T) {
 	}
 }
 
-func TestInitialTrustedConfigPreparationRetries(t *testing.T) {
+func TestInitialTrustedConfigurationRetries(t *testing.T) {
 	attempts := 0
 	sleeps := 0
 	pollInterval := 30 * time.Second
 
-	source, err := resolveInitialTrustedReviewConfigSource(
+	result, err := resolveInitialTrustedReviewConfiguration(
 		context.Background(),
 		pollInterval,
-		func(context.Context) (config.Source, error) {
+		func(context.Context) (configResult, error) {
 			attempts++
 			if attempts < 3 {
-				return nil, errors.New("remote unavailable")
+				return configResult{}, errors.New("remote unavailable")
 			}
-			return config.DefaultsSource{Reason: "test"}, nil
+			return configResult{resolved: config.ResolvedConfig{WatchPollInterval: pollInterval}}, nil
 		},
 		func(_ context.Context, duration time.Duration) error {
 			if duration != pollInterval {
@@ -103,25 +113,21 @@ func TestInitialTrustedConfigPreparationRetries(t *testing.T) {
 	if attempts != 3 || sleeps != 2 {
 		t.Fatalf("attempts = %d, sleeps = %d", attempts, sleeps)
 	}
-	result, err := source.LoadWithWarnings(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Source.Kind != config.SourceKindDefaults {
-		t.Fatalf("source = %+v", result.Source)
+	if result.resolved.WatchPollInterval != pollInterval {
+		t.Fatalf("poll interval = %s", result.resolved.WatchPollInterval)
 	}
 }
 
-func TestInitialTrustedConfigPreparationStopsAfterLimit(t *testing.T) {
+func TestInitialTrustedConfigurationStopsAfterLimit(t *testing.T) {
 	attempts := 0
 	sleeps := 0
 
-	_, err := resolveInitialTrustedReviewConfigSource(
+	_, err := resolveInitialTrustedReviewConfiguration(
 		context.Background(),
 		time.Second,
-		func(context.Context) (config.Source, error) {
+		func(context.Context) (configResult, error) {
 			attempts++
-			return nil, errors.New("remote unavailable")
+			return configResult{}, errors.New("remote unavailable")
 		},
 		func(context.Context, time.Duration) error {
 			sleeps++
@@ -130,23 +136,23 @@ func TestInitialTrustedConfigPreparationStopsAfterLimit(t *testing.T) {
 		nil,
 	)
 	if err == nil {
-		t.Fatal("resolveInitialTrustedReviewConfigSource succeeded")
+		t.Fatal("resolveInitialTrustedReviewConfiguration succeeded")
 	}
 	if attempts != maxInitialTrustedConfigAttempts || sleeps != maxInitialTrustedConfigAttempts-1 {
 		t.Fatalf("attempts = %d, sleeps = %d", attempts, sleeps)
 	}
 }
 
-func TestInitialTrustedConfigPreparationHonorsCancellation(t *testing.T) {
+func TestInitialTrustedConfigurationHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	attempts := 0
 
-	_, err := resolveInitialTrustedReviewConfigSource(
+	_, err := resolveInitialTrustedReviewConfiguration(
 		ctx,
 		time.Second,
-		func(context.Context) (config.Source, error) {
+		func(context.Context) (configResult, error) {
 			attempts++
-			return nil, errors.New("remote unavailable")
+			return configResult{}, errors.New("remote unavailable")
 		},
 		func(ctx context.Context, _ time.Duration) error {
 			cancel()
@@ -159,5 +165,69 @@ func TestInitialTrustedConfigPreparationHonorsCancellation(t *testing.T) {
 	}
 	if attempts != 1 {
 		t.Fatalf("attempts = %d", attempts)
+	}
+}
+
+func TestInitialTrustedConfigurationUsesTrustedConfigRetryInterval(t *testing.T) {
+	attempts := 0
+	var sleeps []time.Duration
+	trustedInterval := 17 * time.Second
+
+	_, err := resolveInitialTrustedReviewConfiguration(
+		context.Background(),
+		time.Minute,
+		func(context.Context) (configResult, error) {
+			attempts++
+			result := configResult{resolved: config.ResolvedConfig{WatchPollInterval: trustedInterval}}
+			if attempts == 1 {
+				return result, errors.New("guidance unavailable")
+			}
+			return result, nil
+		},
+		func(_ context.Context, duration time.Duration) error {
+			sleeps = append(sleeps, duration)
+			return nil
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sleeps) != 1 || sleeps[0] != trustedInterval {
+		t.Fatalf("sleeps = %v", sleeps)
+	}
+}
+
+func TestResolveWatchPollIntervalUsesEnvironmentAndFlagPrecedence(t *testing.T) {
+	originalPollInterval := watchPollInterval
+	t.Cleanup(func() { watchPollInterval = originalPollInterval })
+	t.Setenv("ACR_WATCH_POLL_INTERVAL", "23s")
+	cmd := newWatchCmd()
+	if got := resolveWatchPollInterval(cmd, nil); got != 23*time.Second {
+		t.Fatalf("environment poll interval = %s", got)
+	}
+	if err := cmd.ParseFlags([]string{"--poll-interval", "7s"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolveWatchPollInterval(cmd, nil); got != 7*time.Second {
+		t.Fatalf("flag poll interval = %s", got)
+	}
+}
+
+func TestFailedTrustedConfigLoadRetainsSafeRetryInterval(t *testing.T) {
+	originalPollInterval := watchPollInterval
+	t.Cleanup(func() { watchPollInterval = originalPollInterval })
+	interval := config.Duration(19 * time.Second)
+	source := watchConfigSource{
+		result: &config.LoadResult{Config: &config.Config{Watch: config.WatchConfig{PollInterval: &interval}}},
+		err:    errors.New("trusted config validation failed"),
+	}
+	cmd := newWatchCmd()
+	result, err := loadAndResolveConfig(context.Background(), cmd, worktreeResult{}, source, terminal.NewLogger())
+	if err == nil {
+		t.Fatal("loadAndResolveConfig succeeded")
+	}
+	if result.resolved.WatchPollInterval != 19*time.Second {
+		t.Fatalf("retry interval = %s", result.resolved.WatchPollInterval)
 	}
 }

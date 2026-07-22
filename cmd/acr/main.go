@@ -305,14 +305,18 @@ func loadAndResolveConfig(ctx context.Context, cmd *cobra.Command, wt worktreeRe
 
 	var cfg *config.Config
 	var loadResult *config.LoadResult
+	result := configResult{}
 	if source == nil {
 		logger.Log("Config error: no trusted review configuration source was selected", terminal.StyleError)
-		return configResult{}, exitCode(domain.ExitError)
+		return result, exitCode(domain.ExitError)
 	}
 	loaded, err := source.LoadWithWarnings(ctx)
+	if loaded != nil {
+		result.resolved.WatchPollInterval = resolveWatchPollInterval(cmd, loaded.Config)
+	}
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Config error: %v", err)
-		return configResult{}, exitCode(domain.ExitError)
+		return result, exitCode(domain.ExitError)
 	}
 	loadResult = loaded
 	cfg = loaded.Config
@@ -388,11 +392,12 @@ func loadAndResolveConfig(ctx context.Context, cmd *cobra.Command, wt worktreeRe
 	}
 
 	resolved := config.Resolve(cfg, envState, flagState, flagValues)
+	result.resolved = resolved
 	prepareReviewBase(ctx, wt, &resolved, logger)
 
 	if err := resolved.Validate(); err != nil {
 		logger.Logf(terminal.StyleError, "%v", err)
-		return configResult{}, exitCode(domain.ExitError)
+		return result, exitCode(domain.ExitError)
 	}
 
 	if resolved.Concurrency <= 0 {
@@ -407,16 +412,25 @@ func loadAndResolveConfig(ctx context.Context, cmd *cobra.Command, wt worktreeRe
 	resolvedGuidance, err := config.ResolveGuidanceFromLoadResult(ctx, loadResult, envState, flagState, flagValues)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Failed to resolve guidance: %v", err)
-		return configResult{}, exitCode(domain.ExitError)
+		result.resolved = resolved
+		return result, exitCode(domain.ExitError)
 	}
 	resolved.Guidance = resolvedGuidance
 
-	result := configResult{
-		resolved:        resolved,
-		excludePatterns: allExcludePatterns,
-	}
+	result.resolved = resolved
+	result.excludePatterns = allExcludePatterns
 	result.source = loadResult.Source
 	return result, nil
+}
+
+func resolveWatchPollInterval(cmd *cobra.Command, cfg *config.Config) time.Duration {
+	envState, _ := config.LoadEnvState()
+	return config.Resolve(
+		cfg,
+		envState,
+		config.FlagState{WatchPollIntervalSet: cmd.Flags().Changed("poll-interval")},
+		config.ResolvedConfig{WatchPollInterval: watchPollInterval},
+	).WatchPollInterval
 }
 
 func prepareReviewBase(ctx context.Context, wt worktreeResult, resolved *config.ResolvedConfig, logger *terminal.Logger) {

@@ -126,16 +126,20 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 
 	prNumber = watchPR
 
-	initialPollInterval := config.Defaults.WatchPollInterval
-	if cmd.Flags().Changed("poll-interval") && watchPollInterval > 0 {
-		initialPollInterval = watchPollInterval
+	initialPollInterval := resolveWatchPollInterval(cmd, nil)
+	if initialPollInterval <= 0 {
+		initialPollInterval = config.Defaults.WatchPollInterval
 	}
 	clock := watch.RealClock{}
-	configSource, err := resolveInitialTrustedReviewConfigSource(
+	cfgResult, err := resolveInitialTrustedReviewConfiguration(
 		ctx,
 		initialPollInterval,
-		func(ctx context.Context) (config.Source, error) {
-			return resolveTrustedReviewConfigSource(ctx, noConfig)
+		func(ctx context.Context) (configResult, error) {
+			configSource, err := resolveTrustedReviewConfigSource(ctx, noConfig)
+			if err != nil {
+				return configResult{}, err
+			}
+			return loadAndResolveConfig(ctx, cmd, worktreeResult{}, configSource, logger)
 		},
 		clock.Sleep,
 		func(format string, args ...any) {
@@ -145,10 +149,6 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		logger.Logf(terminal.StyleError, "%v", err)
 		return contextualExit(ctx, exitCode(domain.ExitError))
-	}
-	cfgResult, err := loadAndResolveConfig(ctx, cmd, worktreeResult{}, configSource, logger)
-	if err != nil {
-		return contextualExit(ctx, err)
 	}
 	wcfg := watch.Config{
 		Mode:         mode,
@@ -213,34 +213,37 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 	}
 }
 
-func resolveInitialTrustedReviewConfigSource(
+func resolveInitialTrustedReviewConfiguration(
 	ctx context.Context,
 	pollInterval time.Duration,
-	resolve func(context.Context) (config.Source, error),
+	load func(context.Context) (configResult, error),
 	sleep func(context.Context, time.Duration) error,
 	logf func(string, ...any),
-) (config.Source, error) {
+) (configResult, error) {
 	var lastErr error
 	for attempt := 1; attempt <= maxInitialTrustedConfigAttempts; attempt++ {
-		source, err := resolve(ctx)
+		result, err := load(ctx)
+		if result.resolved.WatchPollInterval > 0 {
+			pollInterval = result.resolved.WatchPollInterval
+		}
 		if err == nil {
-			return source, nil
+			return result, nil
 		}
 		lastErr = err
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return configResult{}, ctx.Err()
 		}
 		if attempt == maxInitialTrustedConfigAttempts {
 			break
 		}
 		if logf != nil {
-			logf("Trusted configuration preparation failed (%d/%d); retrying in %s: %v", attempt, maxInitialTrustedConfigAttempts, pollInterval, err)
+			logf("Trusted configuration initialization failed (%d/%d); retrying in %s: %v", attempt, maxInitialTrustedConfigAttempts, pollInterval, err)
 		}
 		if err := sleep(ctx, pollInterval); err != nil {
-			return nil, err
+			return configResult{}, err
 		}
 	}
-	return nil, fmt.Errorf("trusted configuration preparation failed after %d attempts: %w", maxInitialTrustedConfigAttempts, lastErr)
+	return configResult{}, fmt.Errorf("trusted configuration initialization failed after %d attempts: %w", maxInitialTrustedConfigAttempts, lastErr)
 }
 
 func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode watch.PostMode, logger *terminal.Logger) (watch.Cycle, error) {
@@ -274,7 +277,7 @@ func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode
 		if ctx.Err() != nil {
 			return watch.Cycle{Result: watch.CycleError}, ctx.Err()
 		}
-		return watch.Cycle{Result: watch.CycleError}, fmt.Errorf("%w: trusted configuration load failed: %v", watch.ErrRetryableCycle, err)
+		return watch.Cycle{Result: watch.CycleError}, fmt.Errorf("trusted configuration load failed: %w", err)
 	}
 
 	outcome := &CycleOutcome{}

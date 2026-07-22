@@ -23,6 +23,10 @@ acr
 
 ## Prerequisites
 
+Git 2.29 or newer is required. ACR checks this floor before isolated
+trusted-configuration fetches and reports the installed version when it is too
+old.
+
 You need **at least one** of the following LLM CLIs installed and authenticated:
 
 | Agent | Installation |
@@ -229,10 +233,11 @@ Every cycle fetches the PR head into a fresh temporary worktree, so local
 branch state never goes stale mid-watch. Review configuration is independently
 refreshed and snapshotted from the canonical remote default branch; neither the
 launch checkout nor the PR worktree supplies `.acr.yaml` or relative guidance.
-Trusted-configuration preparation failures are retried on the watch poll
-interval up to five consecutive attempts and do not consume the review budget.
-Startup uses the explicit `--poll-interval`, or the default interval until the
-trusted configuration snapshot is available.
+Startup gives trusted-source preparation and trusted config/guidance loading a
+shared five-attempt retry budget. Retry pacing follows `--poll-interval`,
+`ACR_WATCH_POLL_INTERVAL`, a safely parsed canonical config value, then the
+built-in default. During an active watch, transient source-refresh failures are
+retryable without consuming review budget; invalid loaded policy fails fast.
 If the PR head moves while a review is running, the result is discarded instead
 of posted, and the new head is re-reviewed after the settle period.
 
@@ -360,6 +365,7 @@ PR feedback summarization runs in parallel with the reviewers and is enabled by 
 | `ACR_FP_FILTER_TIMEOUT`   | Timeout for false positive filter phase (e.g., "5m" or "300") |
 | `ACR_GUIDANCE`            | Steering context appended to review prompt |
 | `ACR_GUIDANCE_FILE`       | Path to file containing review guidance    |
+| `ACR_WATCH_POLL_INTERVAL` | Watch polling and startup retry interval (e.g., "1m") |
 
 ## Configuration
 
@@ -403,6 +409,7 @@ Configuration is resolved with the following precedence (highest to lowest):
 ### Behavior
 
 - Review commands load the config file from an immutable canonical/default-branch snapshot, never from the code being reviewed
+- Reviewer agents run in the reviewed checkout, while aggregation, feedback, and false-positive-filter agents run in isolated ACR-owned directories so reviewed instruction files cannot steer post-processing
 - Missing config file is not an error (empty defaults used)
 - Invalid YAML or regex patterns produce an error
 - Unknown keys in config file produce a warning with "did you mean?" suggestions
