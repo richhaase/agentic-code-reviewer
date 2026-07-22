@@ -513,6 +513,15 @@ func TestUrlMatches_DifferentRepos(t *testing.T) {
 	}
 }
 
+func matchingFetchRemoteForTest(t *testing.T, remotes []byte, repositoryURL, repositorySSHURL string) string {
+	t.Helper()
+	remote, err := matchingFetchRemote(remotes, repositoryURL, repositorySSHURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return remote
+}
+
 func TestMatchingFetchRemoteIgnoresCanonicalPushURLOnForkRemote(t *testing.T) {
 	remotes := []byte(strings.Join([]string{
 		"aaa-fork\thttps://github.com/user/fork.git (fetch)",
@@ -521,7 +530,7 @@ func TestMatchingFetchRemoteIgnoresCanonicalPushURLOnForkRemote(t *testing.T) {
 		"zzz-canonical\thttps://github.com/org/canonical.git (push)",
 	}, "\n"))
 
-	remote := matchingFetchRemote(remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")
+	remote := matchingFetchRemoteForTest(t, remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")
 	if remote != "zzz-canonical" {
 		t.Fatalf("remote = %q, want zzz-canonical", remote)
 	}
@@ -538,7 +547,7 @@ func TestMatchingFetchRemoteAcceptsCanonicalAuthenticatedAndSCPURLs(t *testing.T
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			remotes := []byte("canonical\t" + tt.remoteURL + " (fetch)\n")
-			remote := matchingFetchRemote(remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")
+			remote := matchingFetchRemoteForTest(t, remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")
 			if remote != "canonical" {
 				t.Fatalf("remote = %q, want canonical", remote)
 			}
@@ -552,7 +561,7 @@ func TestMatchingFetchRemoteRejectsHostlessCanonicalLookalike(t *testing.T) {
 		"zzz-canonical\thttps://github.com/org/canonical.git (fetch)",
 	}, "\n"))
 
-	remote := matchingFetchRemote(remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")
+	remote := matchingFetchRemoteForTest(t, remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")
 	if remote != "zzz-canonical" {
 		t.Fatalf("remote = %q, want zzz-canonical", remote)
 	}
@@ -564,9 +573,21 @@ func TestMatchingFetchRemoteRejectsNonDefaultPortLookalike(t *testing.T) {
 		"zzz-canonical\tssh://git@github.com:22/org/canonical.git (fetch)",
 	}, "\n"))
 
-	remote := matchingFetchRemote(remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")
+	remote := matchingFetchRemoteForTest(t, remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")
 	if remote != "zzz-canonical" {
 		t.Fatalf("remote = %q, want zzz-canonical", remote)
+	}
+}
+
+func TestMatchingFetchRemoteRejectsAmbiguousCanonicalRemotes(t *testing.T) {
+	remotes := []byte(strings.Join([]string{
+		"origin\tgit@github.com:org/canonical.git (fetch)",
+		"upstream\thttps://github.com/org/canonical.git (fetch)",
+	}, "\n"))
+
+	remote, err := matchingFetchRemote(remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")
+	if err == nil || !strings.Contains(err.Error(), "multiple configured fetch remotes") {
+		t.Fatalf("remote = %q, error = %v", remote, err)
 	}
 }
 

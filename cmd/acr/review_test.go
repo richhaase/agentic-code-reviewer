@@ -1,10 +1,49 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/config"
 )
+
+func TestPriorFeedbackFailureWarning(t *testing.T) {
+	tests := []struct {
+		name      string
+		parentErr error
+		taskErr   error
+		failure   error
+		want      string
+	}{
+		{
+			name:      "deliberate teardown",
+			parentErr: context.Canceled,
+			taskErr:   context.Canceled,
+			failure:   context.Canceled,
+		},
+		{
+			name:    "timeout",
+			taskErr: context.DeadlineExceeded,
+			failure: context.DeadlineExceeded,
+			want:    "PR feedback summarizer timed out after 5s",
+		},
+		{
+			name:    "failure",
+			failure: errors.New("agent failed"),
+			want:    "PR feedback summarizer failed: agent failed",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := priorFeedbackFailureWarning(tt.parentErr, tt.taskErr, tt.failure, 5*time.Second)
+			if got != tt.want {
+				t.Fatalf("warning = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestUsesGeminiAgent(t *testing.T) {
 	tests := []struct {

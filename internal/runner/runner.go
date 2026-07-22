@@ -149,12 +149,11 @@ func (r *Runner) Run(ctx context.Context) ([]domain.ReviewerResult, time.Duratio
 
 			result, started := r.runReviewerAfterAcquiring(ctx, id, agentName)
 
-			<-sem
-
 			r.completed.Add(1)
 			if started {
 				r.reviewerCompleted(result)
 			}
+			<-sem
 			resultCh <- result
 		}(i)
 	}

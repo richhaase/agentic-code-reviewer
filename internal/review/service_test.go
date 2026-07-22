@@ -548,6 +548,38 @@ func TestServiceFailsWhenHeadMovesDuringDiffCapture(t *testing.T) {
 	}
 }
 
+func TestServiceFailsWhenHeadMovesDuringReviewerExecution(t *testing.T) {
+	reviewAgent := &mockReviewAgent{name: "codex"}
+	var revisionCalls atomic.Int32
+	service := serviceForTest(t, reviewAgent, "diff", WithRevisionProvider(func(_ context.Context, target domain.ReviewTarget) (domain.RevisionEvidence, error) {
+		revision := target.Revision
+		revision.BaseObjectID = "base-object"
+		if revisionCalls.Add(1) < 3 {
+			revision.HeadObjectID = "head-a"
+		} else {
+			revision.HeadObjectID = "head-b"
+		}
+		return revision, nil
+	}))
+
+	run, err := service.Run(context.Background(), validRequest(t, t.TempDir()))
+	if err != nil {
+		t.Fatalf("run review: %v", err)
+	}
+	if revisionCalls.Load() != 3 {
+		t.Fatalf("revision checks = %d, want 3", revisionCalls.Load())
+	}
+	if run.Status != domain.ReviewStatusFailed || run.Failure == nil || run.Failure.Phase != domain.ReviewPhaseReviewers {
+		t.Fatalf("moving head was accepted: %#v", run)
+	}
+	if !strings.Contains(run.Failure.Message, "review head changed") {
+		t.Fatalf("failure = %#v", run.Failure)
+	}
+	if len(run.ReviewerResults) != 2 || reviewAgent.summaryCalls.Load() != 0 {
+		t.Fatalf("reviewer evidence or execution boundary is wrong: %#v", run)
+	}
+}
+
 func TestServiceReturnsNoChangesWithoutReviewExecution(t *testing.T) {
 	reviewAgent := &mockReviewAgent{name: "codex"}
 	service := serviceForTest(t, reviewAgent, "")
@@ -890,6 +922,65 @@ func TestServiceCancelsAndJoinsPriorFeedbackOnEarlyFailure(t *testing.T) {
 	}
 	if feedbackStarted < 0 || feedbackCompleted <= feedbackStarted || runCompleted <= feedbackCompleted {
 		t.Fatalf("feedback phase lifecycle is unbalanced: %#v", events)
+	}
+}
+
+func TestServiceCancelsPriorFeedbackWhenSummaryHasNoFindings(t *testing.T) {
+	reviewAgent := &mockReviewAgent{
+		name: "codex",
+		summary: func(context.Context, int64, string, []byte) (string, int, string, error) {
+			return codexSummaryOutput(`{"findings":[],"info":[]}`), 0, "", nil
+		},
+	}
+	var feedbackStopped atomic.Bool
+	request := validRequest(t, t.TempDir())
+	values := request.Configuration.Values()
+	values.FPFilterEnabled = true
+	values.PRFeedbackEnabled = true
+	configuration, err := domain.NewReviewConfiguration(values)
+	if err != nil {
+		t.Fatalf("create feedback configuration: %v", err)
+	}
+	request.Configuration = configuration
+	request.Target.PullRequest = &domain.PullRequestKey{Host: "github.com", Owner: "owner", Repository: "repo", Number: 42}
+	var events []Event
+	request.Events = EventSinkFunc(func(event Event) { events = append(events, event) })
+	service := serviceForTest(
+		t,
+		reviewAgent,
+		"diff",
+		WithPriorFeedbackProvider(func(ctx context.Context, _ domain.ReviewTarget, _, _ string) (string, error) {
+			<-ctx.Done()
+			feedbackStopped.Store(true)
+			return "", ctx.Err()
+		}),
+	)
+
+	run, err := service.Run(context.Background(), request)
+	if err != nil {
+		t.Fatalf("run review: %v", err)
+	}
+	if run.Status != domain.ReviewStatusCompleted || run.Conclusion != domain.ReviewConclusionClean {
+		t.Fatalf("unexpected clean review outcome: %#v", run)
+	}
+	if !feedbackStopped.Load() {
+		t.Fatal("unused prior-feedback worker remained active")
+	}
+	if reviewAgent.summaryCalls.Load() != 1 {
+		t.Fatalf("summary calls = %d, want 1", reviewAgent.summaryCalls.Load())
+	}
+	feedbackCompleted := 0
+	feedbackWarnings := 0
+	for _, event := range events {
+		if event.Kind == EventPhaseCompleted && event.Phase == domain.ReviewPhaseFeedback {
+			feedbackCompleted++
+		}
+		if event.Kind == EventWarning && event.Phase == domain.ReviewPhaseFeedback {
+			feedbackWarnings++
+		}
+	}
+	if feedbackCompleted != 1 || feedbackWarnings != 0 {
+		t.Fatalf("feedback lifecycle: completed=%d warnings=%d events=%#v", feedbackCompleted, feedbackWarnings, events)
 	}
 }
 

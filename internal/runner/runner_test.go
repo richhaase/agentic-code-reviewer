@@ -663,6 +663,60 @@ func TestQueuedCancellationKeepsProgressAndEventsConsistent(t *testing.T) {
 	}
 }
 
+func TestReviewerCompletionPrecedesNextStartAtConcurrencyLimit(t *testing.T) {
+	firstCompletionEntered := make(chan struct{})
+	releaseFirstCompletion := make(chan struct{})
+	secondStarted := make(chan struct{})
+	var starts atomic.Int32
+	var completions atomic.Int32
+	r, err := NewHeadless(Config{
+		Reviewers:   2,
+		Concurrency: 1,
+		Timeout:     time.Second,
+		Events: Events{
+			ReviewerStarted: func(int, string) {
+				if starts.Add(1) == 2 {
+					close(secondStarted)
+				}
+			},
+			ReviewerCompleted: func(domain.ReviewerResult) {
+				if completions.Add(1) == 1 {
+					close(firstCompletionEntered)
+					<-releaseFirstCompletion
+				}
+			},
+		},
+	}, []agent.Agent{&mockStreamingAgent{name: "codex"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, _, runErr := r.Run(context.Background())
+		done <- runErr
+	}()
+
+	select {
+	case <-firstCompletionEntered:
+	case <-time.After(time.Second):
+		t.Fatal("first completion event did not begin")
+	}
+	select {
+	case <-secondStarted:
+		close(releaseFirstCompletion)
+		<-done
+		t.Fatal("next reviewer started before prior completion event returned")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(releaseFirstCompletion)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if starts.Load() != 2 || completions.Load() != 2 {
+		t.Fatalf("lifecycle counts: starts=%d completions=%d", starts.Load(), completions.Load())
+	}
+}
+
 func TestCanceledReviewerAfterAcquiringSlotEmitsNoLifecycleEvents(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

@@ -112,7 +112,10 @@ func FindRepoRemote(ctx context.Context, repositoryRoot string) (string, error) 
 		return "", fmt.Errorf("failed to list repository remotes: %w", err)
 	}
 
-	remote := matchingFetchRemote(remoteOut, repoInfo.URL, repoInfo.SSHUrl)
+	remote, err := matchingFetchRemote(remoteOut, repoInfo.URL, repoInfo.SSHUrl)
+	if err != nil {
+		return "", err
+	}
 	if remote != "" {
 		return remote, nil
 	}
@@ -120,8 +123,10 @@ func FindRepoRemote(ctx context.Context, repositoryRoot string) (string, error) 
 	return "", fmt.Errorf("no configured remote matches the GitHub repository")
 }
 
-func matchingFetchRemote(remoteOut []byte, repositoryURL, repositorySSHURL string) string {
+func matchingFetchRemote(remoteOut []byte, repositoryURL, repositorySSHURL string) (string, error) {
 	lines := strings.Split(string(remoteOut), "\n")
+	var matches []string
+	seen := make(map[string]struct{})
 	for _, line := range lines {
 		fields := strings.Fields(line)
 		if len(fields) < 3 || fields[2] != "(fetch)" {
@@ -131,10 +136,19 @@ func matchingFetchRemote(remoteOut []byte, repositoryURL, repositorySSHURL strin
 		remoteURL := fields[1]
 
 		if urlMatches(remoteURL, repositoryURL) || urlMatches(remoteURL, repositorySSHURL) {
-			return remoteName
+			if _, ok := seen[remoteName]; !ok {
+				seen[remoteName] = struct{}{}
+				matches = append(matches, remoteName)
+			}
 		}
 	}
-	return ""
+	if len(matches) == 0 {
+		return "", nil
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	return "", fmt.Errorf("multiple configured fetch remotes match the GitHub repository: %s", strings.Join(matches, ", "))
 }
 
 func urlMatches(url1, url2 string) bool {

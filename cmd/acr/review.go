@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
@@ -169,16 +170,10 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 				priorFeedback = summary
 			}
 			if err != nil {
-
-				if ctx.Err() != nil {
-
-					return
+				warning := priorFeedbackFailureWarning(feedbackParentCtx.Err(), feedbackCtx.Err(), err, opts.SummarizerTimeout)
+				if warning != "" {
+					logger.Log(warning, terminal.StyleWarning)
 				}
-				if feedbackCtx.Err() == context.DeadlineExceeded {
-					logger.Logf(terminal.StyleWarning, "PR feedback summarizer timed out after %s", opts.SummarizerTimeout)
-					return
-				}
-				logger.Logf(terminal.StyleWarning, "PR feedback summarizer failed: %v", err)
 				return
 			}
 			if summary != "" {
@@ -329,6 +324,16 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 	}
 
 	return handleFindings(ctx, opts, summaryResult.Grouped, aggregated, stats, logger)
+}
+
+func priorFeedbackFailureWarning(parentErr, taskErr, failure error, timeout time.Duration) string {
+	if parentErr != nil {
+		return ""
+	}
+	if taskErr == context.DeadlineExceeded {
+		return fmt.Sprintf("PR feedback summarizer timed out after %s", timeout)
+	}
+	return fmt.Sprintf("PR feedback summarizer failed: %v", failure)
 }
 
 func usesGeminiAgent(opts ReviewOpts) bool {

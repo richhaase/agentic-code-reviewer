@@ -254,6 +254,13 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	if err := ctx.Err(); err != nil {
 		return s.interrupt(run, domain.ReviewPhaseReviewers, err, emitter), nil
 	}
+	confirmedRevision, err = s.dependencies.revisions(ctx, run.Target)
+	if err != nil {
+		return s.finishFromError(run, domain.ReviewPhaseReviewers, err, ctx, emitter), nil
+	}
+	if err := validateResolvedRevision(run.Target.Revision, confirmedRevision); err != nil {
+		return s.fail(run, domain.ReviewPhaseReviewers, err, emitter), nil
+	}
 	if run.Stats.AllFailed() {
 		return s.fail(run, domain.ReviewPhaseReviewers, fmt.Errorf("all reviewers failed"), emitter), nil
 	}
@@ -318,9 +325,14 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 		return s.fail(run, domain.ReviewPhaseSummarization, errors.New(message), emitter), nil
 	}
 
-	priorFeedback, err := feedbackTask.receive(ctx, emitter)
-	if err != nil {
-		return s.interrupt(run, domain.ReviewPhaseFeedback, err, emitter), nil
+	var priorFeedback string
+	if len(run.PreFilterSummary.Findings) == 0 {
+		feedbackTask.cancelAndComplete(emitter)
+	} else {
+		priorFeedback, err = feedbackTask.receive(ctx, emitter)
+		if err != nil {
+			return s.interrupt(run, domain.ReviewPhaseFeedback, err, emitter), nil
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return s.interrupt(run, domain.ReviewPhaseFeedback, err, emitter), nil
@@ -537,6 +549,14 @@ func (t *priorFeedbackTask) stop() {
 	}
 	t.cancel()
 	<-t.done
+}
+
+func (t *priorFeedbackTask) cancelAndComplete(emitter *eventEmitter) {
+	if t == nil {
+		return
+	}
+	t.stop()
+	emitter.emit(Event{Kind: EventPhaseCompleted, Phase: domain.ReviewPhaseFeedback})
 }
 
 func (s *Service) emitReviewerWarnings(stats domain.ReviewStats, emitter *eventEmitter) {
