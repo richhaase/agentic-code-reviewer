@@ -142,7 +142,7 @@ func (r *Runner) Run(ctx context.Context) ([]domain.ReviewerResult, time.Duratio
 						Message: ctx.Err().Error(),
 					},
 				}
-				r.reviewerCompleted(result)
+				r.completed.Add(1)
 				resultCh <- result
 				return
 			}

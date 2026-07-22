@@ -306,6 +306,31 @@ type cleanupWarningAgent struct {
 	onClose  func()
 }
 
+type blockingReviewAgent struct {
+	name    string
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (a *blockingReviewAgent) Name() string {
+	return a.name
+}
+
+func (a *blockingReviewAgent) IsAvailable() error {
+	return nil
+}
+
+func (a *blockingReviewAgent) ExecuteReview(context.Context, *agent.ReviewConfig) (*agent.ExecutionResult, error) {
+	close(a.entered)
+	<-a.release
+	reader := &stringReadCloser{strings.NewReader("")}
+	return agent.NewExecutionResult(reader, func() int { return 0 }, func() string { return "" }), nil
+}
+
+func (a *blockingReviewAgent) ExecuteSummary(context.Context, *agent.SummaryConfig) (*agent.ExecutionResult, error) {
+	return nil, nil
+}
+
 func (a *cleanupWarningAgent) Name() string {
 	return a.name
 }
@@ -557,6 +582,81 @@ func TestCanceledReviewersRetainAssignedAgentNames(t *testing.T) {
 	stats := BuildStats(results, 2, 0)
 	if stats.ReviewerAgentNames[1] != "codex" || stats.ReviewerAgentNames[2] != "claude" {
 		t.Fatalf("canceled reviewer stats identities = %#v", stats.ReviewerAgentNames)
+	}
+}
+
+func TestQueuedCancellationKeepsProgressAndEventsConsistent(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	started := make(chan int, 2)
+	completed := make(chan int, 2)
+	r, err := NewHeadless(Config{
+		Reviewers:   2,
+		Concurrency: 1,
+		Timeout:     time.Minute,
+		Events: Events{
+			ReviewerStarted: func(id int, _ string) { started <- id },
+			ReviewerCompleted: func(result domain.ReviewerResult) {
+				completed <- result.ReviewerID
+			},
+		},
+	}, []agent.Agent{&blockingReviewAgent{name: "codex", entered: entered, release: release}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	type outcome struct {
+		results []domain.ReviewerResult
+		err     error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		results, _, runErr := r.Run(ctx)
+		done <- outcome{results: results, err: runErr}
+	}()
+
+	<-entered
+	startedID := <-started
+	cancel()
+
+	deadline := time.NewTimer(time.Second)
+	ticker := time.NewTicker(time.Millisecond)
+	for r.completed.Load() == 0 {
+		select {
+		case <-ticker.C:
+		case <-deadline.C:
+			t.Fatal("queued reviewer did not reach terminal progress state")
+		}
+	}
+	ticker.Stop()
+	if !deadline.Stop() {
+		select {
+		case <-deadline.C:
+		default:
+		}
+	}
+	close(release)
+
+	var result outcome
+	select {
+	case result = <-done:
+	case <-time.After(time.Second):
+		t.Fatal("runner did not finish after cancellation")
+	}
+	if !errors.Is(result.err, context.Canceled) {
+		t.Fatalf("Run() error = %v", result.err)
+	}
+	if len(result.results) != 2 || r.completed.Load() != 2 {
+		t.Fatalf("terminal progress = %d, results = %#v", r.completed.Load(), result.results)
+	}
+	if len(started) != 0 {
+		t.Fatalf("queued reviewer emitted a start event")
+	}
+	if len(completed) != 1 {
+		t.Fatalf("completion event count = %d, want 1", len(completed))
+	}
+	if completedID := <-completed; completedID != startedID {
+		t.Fatalf("completion reviewer = %d, started reviewer = %d", completedID, startedID)
 	}
 }
 

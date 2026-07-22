@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os/exec"
 	"strings"
 )
@@ -136,27 +137,45 @@ func matchingFetchRemote(remoteOut []byte, repositoryURL, repositorySSHURL strin
 }
 
 func urlMatches(url1, url2 string) bool {
+	return normalizeRepositoryURL(url1) == normalizeRepositoryURL(url2)
+}
 
-	normalize := func(url string) string {
-		url = strings.TrimSuffix(url, ".git")
-		url = strings.TrimPrefix(url, "https://")
-		url = strings.TrimPrefix(url, "http://")
-
-		if strings.HasPrefix(url, "ssh://") {
-			url = strings.TrimPrefix(url, "ssh://")
-
-			if idx := strings.Index(url, "@"); idx != -1 {
-				url = url[idx+1:]
-			}
-		}
-
-		if strings.HasPrefix(url, "git@") {
-			url = strings.TrimPrefix(url, "git@")
-			url = strings.Replace(url, ":", "/", 1)
-		}
-		return strings.ToLower(url)
+func normalizeRepositoryURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
 	}
-	return normalize(url1) == normalize(url2)
+
+	parsed, err := url.Parse(raw)
+	if err == nil && parsed.Host != "" {
+		return normalizeRepositoryLocation(parsed.Host, parsed.Path)
+	}
+
+	colon := strings.Index(raw, ":")
+	slash := strings.Index(raw, "/")
+	if colon > 0 && (slash == -1 || colon < slash) {
+		return normalizeRepositoryLocation(raw[:colon], raw[colon+1:])
+	}
+
+	return normalizeRepositoryLocation("", raw)
+}
+
+func normalizeRepositoryLocation(host, path string) string {
+	host = strings.TrimSpace(host)
+	if at := strings.LastIndex(host, "@"); at != -1 {
+		host = host[at+1:]
+	}
+	path = strings.Trim(strings.TrimSpace(path), "/")
+
+	location := path
+	if host != "" && path != "" {
+		location = host + "/" + path
+	} else if host != "" {
+		location = host
+	}
+
+	location = strings.ToLower(strings.TrimSuffix(location, "/"))
+	return strings.TrimSuffix(location, ".git")
 }
 
 func classifyGHError(err error) error {

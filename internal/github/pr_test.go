@@ -412,6 +412,36 @@ func TestUrlMatches_SSHShorthandFormat(t *testing.T) {
 	}
 }
 
+func TestUrlMatches_GeneralSCPFormat(t *testing.T) {
+	tests := []string{
+		"github.com:owner/repo.git",
+		"deploy@github.com:owner/repo.git",
+	}
+	for _, remoteURL := range tests {
+		if !urlMatches(remoteURL, "https://github.com/owner/repo") {
+			t.Errorf("expected canonical match for %q", remoteURL)
+		}
+	}
+}
+
+func TestUrlMatches_AuthenticatedHTTPSFormat(t *testing.T) {
+	tests := []string{
+		"https://user@github.com/owner/repo.git",
+		"https://user:token@github.com/owner/repo.git",
+	}
+	for _, remoteURL := range tests {
+		if !urlMatches(remoteURL, "https://github.com/owner/repo") {
+			t.Errorf("expected canonical match for %q", remoteURL)
+		}
+	}
+}
+
+func TestUrlMatches_AuthenticatedDifferentHost(t *testing.T) {
+	if urlMatches("https://github.com@evil.example/owner/repo.git", "https://github.com/owner/repo") {
+		t.Fatal("authenticated URL on a different host matched canonical repository")
+	}
+}
+
 func TestUrlMatches_SSHURLFormat(t *testing.T) {
 
 	result := urlMatches("ssh://git@github.com/owner/repo.git", "https://github.com/owner/repo")
@@ -453,6 +483,25 @@ func TestMatchingFetchRemoteIgnoresCanonicalPushURLOnForkRemote(t *testing.T) {
 	remote := matchingFetchRemote(remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")
 	if remote != "zzz-canonical" {
 		t.Fatalf("remote = %q, want zzz-canonical", remote)
+	}
+}
+
+func TestMatchingFetchRemoteAcceptsCanonicalAuthenticatedAndSCPURLs(t *testing.T) {
+	tests := []struct {
+		name      string
+		remoteURL string
+	}{
+		{name: "authenticated HTTPS", remoteURL: "https://user@github.com/org/canonical.git"},
+		{name: "SCP without user", remoteURL: "github.com:org/canonical.git"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			remotes := []byte("canonical\t" + tt.remoteURL + " (fetch)\n")
+			remote := matchingFetchRemote(remotes, "https://github.com/org/canonical", "git@github.com:org/canonical.git")
+			if remote != "canonical" {
+				t.Fatalf("remote = %q, want canonical", remote)
+			}
+		})
 	}
 }
 
