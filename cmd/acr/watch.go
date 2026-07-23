@@ -246,6 +246,25 @@ func resolveInitialTrustedReviewConfiguration(
 	return configResult{}, fmt.Errorf("trusted configuration initialization failed after %d attempts: %w", maxInitialTrustedConfigAttempts, lastErr)
 }
 
+func buildWatchReviewOpts(cfgResult configResult, wt worktreeResult, watchPR string, mode watch.PostMode, reviewedHead string, outcome *CycleOutcome) ReviewOpts {
+	return ReviewOpts{
+		ResolvedConfig:   cfgResult.resolved,
+		Verbose:          verbose,
+		AutoYes:          mode != watch.PostModeInteractive,
+		PRNumber:         watchPR,
+		DetectedPR:       watchPR,
+		UseRefFile:       refFile,
+		ExcludePatterns:  cfgResult.excludePatterns,
+		RepositoryRoot:   wt.repositoryRoot,
+		WorkDir:          wt.workDir,
+		ForcePostComment: mode == watch.PostModeComment,
+		ExpectedHeadSHA:  reviewedHead,
+		Outcome:          outcome,
+		ConfigSource:     cfgResult.source,
+		Trigger:          domain.ReviewTriggerWatch,
+	}
+}
+
 func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode watch.PostMode, logger *terminal.Logger) (watch.Cycle, error) {
 	configSource, err := resolveTrustedReviewConfigSource(ctx, noConfig)
 	if err != nil {
@@ -281,21 +300,9 @@ func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode
 	}
 
 	outcome := &CycleOutcome{}
-	opts := ReviewOpts{
-		ResolvedConfig:   cfgResult.resolved,
-		Verbose:          verbose,
-		AutoYes:          mode != watch.PostModeInteractive,
-		PRNumber:         watchPR,
-		DetectedPR:       watchPR,
-		UseRefFile:       refFile,
-		ExcludePatterns:  cfgResult.excludePatterns,
-		WorkDir:          wt.workDir,
-		ForcePostComment: mode == watch.PostModeComment,
-		ExpectedHeadSHA:  reviewedHead,
-		Outcome:          outcome,
-	}
+	opts := buildWatchReviewOpts(cfgResult, wt, watchPR, mode, reviewedHead, outcome)
 
-	code := executeLegacyReview(ctx, opts, logger)
+	run, code := executeReview(ctx, opts, logger)
 	if code == domain.ExitInterrupted {
 		return watch.Cycle{Result: watch.CycleError}, ctx.Err()
 	}
@@ -303,15 +310,11 @@ func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode
 		return watch.Cycle{Result: watch.CycleError}, fmt.Errorf("review cycle failed")
 	}
 
-	return watch.Cycle{Result: mapCycleOutcome(outcome), LGTMBody: outcome.LGTMBody, HeadSHA: reviewedHead}, nil
+	return watch.Cycle{Result: mapCycleOutcome(run, outcome), LGTMBody: outcome.LGTMBody, HeadSHA: reviewedHead}, nil
 }
 
-func mapCycleOutcome(o *CycleOutcome) watch.CycleResult {
+func mapCycleOutcome(run *domain.ReviewRun, o *CycleOutcome) watch.CycleResult {
 	switch o.Kind {
-	case OutcomeNoChanges:
-		return watch.CycleNoChanges
-	case OutcomeFindings:
-		return watch.CycleFindings
 	case OutcomeLGTMApproved:
 		return watch.CycleLGTMApproved
 	case OutcomeLGTMComment:
@@ -325,6 +328,20 @@ func mapCycleOutcome(o *CycleOutcome) watch.CycleResult {
 		return watch.CycleLGTMSkipped
 	case OutcomeStaleHead:
 		return watch.CycleStaleHead
+	}
+	if run != nil {
+		switch run.Conclusion {
+		case domain.ReviewConclusionNoChanges:
+			return watch.CycleNoChanges
+		case domain.ReviewConclusionFindings:
+			return watch.CycleFindings
+		}
+	}
+	switch o.Kind {
+	case OutcomeNoChanges:
+		return watch.CycleNoChanges
+	case OutcomeFindings:
+		return watch.CycleFindings
 	default:
 		return watch.CycleError
 	}
