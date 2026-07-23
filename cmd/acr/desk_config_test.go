@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -90,6 +91,40 @@ func TestDeskConfigValidate_DetectsInvalidOwnPRPolicy(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "error") {
 		t.Errorf("expected error message to mention errors, got: %v", err)
+	}
+}
+
+func TestDeskConfigValidate_DetectsAmbiguousRepositoryClones(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv(workspace.ConfigDirEnvVar, configDir)
+
+	reposRoot := t.TempDir()
+	for _, name := range []string{"widgets-a", "widgets-b"} {
+		dir := filepath.Join(reposRoot, name)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
+			t.Fatalf("git init failed: %v: %s", err, out)
+		}
+		if out, err := exec.Command("git", "-C", dir, "remote", "add", "origin", "https://github.com/acme/widgets.git").CombinedOutput(); err != nil {
+			t.Fatalf("git remote add failed: %v: %s", err, out)
+		}
+	}
+
+	configContent := "schema_version: 1\nidentity:\n  expected_user: octocat\nbehavior:\n  own_pr_policy: disabled\nscope:\n  repository_roots:\n    - " + reposRoot + "\n"
+	if err := os.WriteFile(filepath.Join(configDir, workspace.ConfigFileName), []byte(configContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newDeskConfigCmd()
+	buf := new(bytes.Buffer)
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{"validate"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected error for ambiguous repository clones")
 	}
 }
 

@@ -1,0 +1,422 @@
+package repos
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"path"
+	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
+
+	"github.com/richhaase/agentic-code-reviewer/internal/git"
+	"github.com/richhaase/agentic-code-reviewer/internal/github"
+	"github.com/richhaase/agentic-code-reviewer/internal/workspace"
+)
+
+const ReasonRepositoryUnavailable = "repository_unavailable"
+
+const DefaultHost = "github.com"
+
+type Status string
+
+const (
+	StatusReviewable Status = "reviewable"
+	StatusMissing    Status = "missing"
+	StatusAmbiguous  Status = "ambiguous"
+	StatusExcluded   Status = "excluded"
+	StatusInvalid    Status = "invalid"
+)
+
+type Identity struct {
+	Host  string
+	Owner string
+	Name  string
+}
+
+func (id Identity) String() string {
+	if id.Host == DefaultHost {
+		return id.Owner + "/" + id.Name
+	}
+	return id.Host + "/" + id.Owner + "/" + id.Name
+}
+
+func (id Identity) hostAgnostic() string {
+	return id.Owner + "/" + id.Name
+}
+
+type ResolvedRepository struct {
+	Identity  Identity
+	Status    Status
+	LocalPath string
+	Remote    string
+	Reason    string
+}
+
+type Resolution struct {
+	Repositories []ResolvedRepository
+	RootWarnings []string
+}
+
+type discoveredRepo struct {
+	Path   string
+	Remote string
+}
+
+func Resolve(ctx context.Context, scope workspace.ScopeConfig) (Resolution, error) {
+	if err := validatePatterns(scope.Include, scope.Exclude); err != nil {
+		return Resolution{}, err
+	}
+	if err := validatePathOverrideCollisions(scope.PathOverrides); err != nil {
+		return Resolution{}, err
+	}
+
+	discovered := map[Identity][]discoveredRepo{}
+	seenDirs := map[string]struct{}{}
+	var rootWarnings []string
+
+	for _, root := range scope.RepositoryRoots {
+		candidates, warning := scanRoot(root)
+		if warning != "" {
+			rootWarnings = append(rootWarnings, warning)
+		}
+		for _, dir := range candidates {
+			canonicalDir, err := canonicalizeDir(dir)
+			if err != nil {
+				rootWarnings = append(rootWarnings, fmt.Sprintf("%s: %v", dir, err))
+				continue
+			}
+			if _, ok := seenDirs[canonicalDir]; ok {
+				continue
+			}
+			seenDirs[canonicalDir] = struct{}{}
+
+			identity, remote, ok, err := repositoryIdentity(ctx, dir)
+			if err != nil {
+				rootWarnings = append(rootWarnings, fmt.Sprintf("%s: %v", dir, err))
+				continue
+			}
+			if !ok {
+				continue
+			}
+			discovered[identity] = append(discovered[identity], discoveredRepo{Path: dir, Remote: remote})
+		}
+	}
+
+	results := map[Identity]ResolvedRepository{}
+	for identity, entries := range discovered {
+		sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+		if len(entries) > 1 {
+			paths := make([]string, len(entries))
+			for i, entry := range entries {
+				paths[i] = entry.Path
+			}
+			results[identity] = ResolvedRepository{
+				Identity: identity,
+				Status:   StatusAmbiguous,
+				Reason:   fmt.Sprintf("multiple local clones claim %s: %s", identity, strings.Join(paths, ", ")),
+			}
+			continue
+		}
+		results[identity] = ResolvedRepository{
+			Identity:  identity,
+			Status:    StatusReviewable,
+			LocalPath: entries[0].Path,
+			Remote:    entries[0].Remote,
+		}
+	}
+
+	for raw, localPath := range scope.PathOverrides {
+		identity, err := parseIdentity(raw)
+		if err != nil {
+			rootWarnings = append(rootWarnings, fmt.Sprintf("path_overrides: %v", err))
+			continue
+		}
+		results[identity] = resolvePathOverride(ctx, identity, localPath)
+	}
+
+	for identity, result := range results {
+		if excluded, reason := matchesExclusion(identity, scope.Include, scope.Exclude); excluded {
+			result.Status = StatusExcluded
+			result.Reason = reason
+			results[identity] = result
+		}
+	}
+
+	identities := make([]Identity, 0, len(results))
+	for identity := range results {
+		identities = append(identities, identity)
+	}
+	sort.Slice(identities, func(i, j int) bool {
+		return identities[i].String() < identities[j].String()
+	})
+
+	repositories := make([]ResolvedRepository, 0, len(identities))
+	for _, identity := range identities {
+		repositories = append(repositories, results[identity])
+	}
+
+	return Resolution{Repositories: repositories, RootWarnings: rootWarnings}, nil
+}
+
+func resolvePathOverride(ctx context.Context, identity Identity, localPath string) ResolvedRepository {
+	info, err := os.Stat(localPath)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return ResolvedRepository{
+			Identity:  identity,
+			Status:    StatusMissing,
+			LocalPath: localPath,
+			Reason:    fmt.Sprintf("%s: local path %s does not exist (%s)", identity, localPath, ReasonRepositoryUnavailable),
+		}
+	case err != nil:
+		return ResolvedRepository{
+			Identity:  identity,
+			Status:    StatusInvalid,
+			LocalPath: localPath,
+			Reason:    fmt.Sprintf("%s: failed to inspect %s: %v", identity, localPath, err),
+		}
+	case !info.IsDir():
+		return ResolvedRepository{
+			Identity:  identity,
+			Status:    StatusInvalid,
+			LocalPath: localPath,
+			Reason:    fmt.Sprintf("%s: %s is not a directory", identity, localPath),
+		}
+	case !isGitRepository(localPath):
+		return ResolvedRepository{
+			Identity:  identity,
+			Status:    StatusInvalid,
+			LocalPath: localPath,
+			Reason:    fmt.Sprintf("%s: %s is not a git repository", identity, localPath),
+		}
+	default:
+		remote, err := matchingRemote(ctx, localPath, identity)
+		if err != nil {
+			return ResolvedRepository{
+				Identity:  identity,
+				Status:    StatusInvalid,
+				LocalPath: localPath,
+				Reason:    fmt.Sprintf("%s: %v", identity, err),
+			}
+		}
+		if remote == "" {
+			return ResolvedRepository{
+				Identity:  identity,
+				Status:    StatusInvalid,
+				LocalPath: localPath,
+				Reason:    fmt.Sprintf("%s: no remote in %s resolves to %s", identity, localPath, identity),
+			}
+		}
+		return ResolvedRepository{
+			Identity:  identity,
+			Status:    StatusReviewable,
+			LocalPath: localPath,
+			Remote:    remote,
+		}
+	}
+}
+
+func matchingRemote(ctx context.Context, dir string, identity Identity) (string, error) {
+	names, err := git.Remotes(ctx, dir)
+	if err != nil {
+		return "", fmt.Errorf("failed to list remotes in %s: %w", dir, err)
+	}
+
+	var matches []string
+	for _, name := range names {
+		remoteURL, err := git.RemoteURL(ctx, dir, name)
+		if err != nil {
+			continue
+		}
+		host, owner, repoName, ok := github.ParseRemoteURL(remoteURL)
+		if !ok {
+			continue
+		}
+		if (Identity{Host: host, Owner: owner, Name: repoName}) == identity {
+			matches = append(matches, name)
+		}
+	}
+
+	switch len(matches) {
+	case 0:
+		return "", nil
+	case 1:
+		return matches[0], nil
+	default:
+		sort.Strings(matches)
+		return "", fmt.Errorf("multiple remotes (%s) in %s resolve to %s; configure exactly one", strings.Join(matches, ", "), dir, identity)
+	}
+}
+
+func parseIdentity(raw string) (Identity, error) {
+	segments := strings.Split(raw, "/")
+	if slices.Contains(segments, "") {
+		return Identity{}, fmt.Errorf("invalid owner/repo identity %q", raw)
+	}
+
+	switch len(segments) {
+	case 2:
+		return Identity{Host: DefaultHost, Owner: strings.ToLower(segments[0]), Name: strings.ToLower(segments[1])}, nil
+	case 3:
+		return Identity{Host: strings.ToLower(segments[0]), Owner: strings.ToLower(segments[1]), Name: strings.ToLower(segments[2])}, nil
+	default:
+		return Identity{}, fmt.Errorf("invalid owner/repo identity %q (expected owner/repo or host/owner/repo)", raw)
+	}
+}
+
+func validatePathOverrideCollisions(overrides map[string]string) error {
+	seen := map[Identity][]string{}
+	for raw := range overrides {
+		identity, err := parseIdentity(raw)
+		if err != nil {
+			continue
+		}
+		seen[identity] = append(seen[identity], raw)
+	}
+
+	var colliding []Identity
+	for identity, raws := range seen {
+		if len(raws) > 1 {
+			colliding = append(colliding, identity)
+		}
+	}
+	if len(colliding) == 0 {
+		return nil
+	}
+
+	sort.Slice(colliding, func(i, j int) bool { return colliding[i].String() < colliding[j].String() })
+	identity := colliding[0]
+	raws := seen[identity]
+	sort.Strings(raws)
+	return fmt.Errorf("scope.path_overrides: keys %s all resolve to %s; configure exactly one", strings.Join(raws, ", "), identity)
+}
+
+func validatePatterns(include, exclude []string) error {
+	for _, pattern := range exclude {
+		if _, err := path.Match(strings.ToLower(pattern), ""); err != nil {
+			return fmt.Errorf("scope.exclude: invalid pattern %q: %w", pattern, err)
+		}
+	}
+	for _, pattern := range include {
+		if _, err := path.Match(strings.ToLower(pattern), ""); err != nil {
+			return fmt.Errorf("scope.include: invalid pattern %q: %w", pattern, err)
+		}
+	}
+	return nil
+}
+
+func matchesPattern(identity Identity, pattern string) bool {
+	pattern = strings.ToLower(pattern)
+	name := identity.hostAgnostic()
+	if strings.Count(pattern, "/") == 2 {
+		name = identity.Host + "/" + name
+	}
+	matched, _ := path.Match(pattern, name)
+	return matched
+}
+
+func matchesExclusion(identity Identity, include, exclude []string) (bool, string) {
+	for _, pattern := range exclude {
+		if matchesPattern(identity, pattern) {
+			return true, fmt.Sprintf("%s matches exclude pattern %q", identity, pattern)
+		}
+	}
+
+	if len(include) == 0 {
+		return false, ""
+	}
+	for _, pattern := range include {
+		if matchesPattern(identity, pattern) {
+			return false, ""
+		}
+	}
+	return true, fmt.Sprintf("%s does not match any configured include pattern", identity)
+}
+
+func canonicalizeDir(dir string) (string, error) {
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(absDir)
+	if err != nil {
+		return "", err
+	}
+	return resolved, nil
+}
+
+func scanRoot(root string) ([]string, string) {
+	info, err := os.Stat(root)
+	if err != nil {
+		return nil, fmt.Sprintf("repository root %s: %v", root, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Sprintf("repository root %s is not a directory", root)
+	}
+
+	candidates := []string{root}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return candidates, fmt.Sprintf("repository root %s: %v", root, err)
+	}
+	for _, entry := range entries {
+		entryPath := filepath.Join(root, entry.Name())
+		if entry.IsDir() {
+			candidates = append(candidates, entryPath)
+			continue
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			if info, err := os.Stat(entryPath); err == nil && info.IsDir() {
+				candidates = append(candidates, entryPath)
+			}
+		}
+	}
+	return candidates, ""
+}
+
+func repositoryIdentity(ctx context.Context, dir string) (Identity, string, bool, error) {
+	if !isGitRepository(dir) {
+		return Identity{}, "", false, nil
+	}
+
+	remote, ok, err := primaryRemote(ctx, dir)
+	if err != nil {
+		return Identity{}, "", false, err
+	}
+	if !ok {
+		return Identity{}, "", false, nil
+	}
+
+	remoteURL, err := git.RemoteURL(ctx, dir, remote)
+	if err != nil {
+		return Identity{}, "", false, fmt.Errorf("failed to read remote %q: %w", remote, err)
+	}
+
+	host, owner, name, ok := github.ParseRemoteURL(remoteURL)
+	if !ok {
+		return Identity{}, "", false, nil
+	}
+	return Identity{Host: host, Owner: owner, Name: name}, remote, true, nil
+}
+
+func primaryRemote(ctx context.Context, dir string) (string, bool, error) {
+	names, err := git.Remotes(ctx, dir)
+	if err != nil {
+		return "", false, fmt.Errorf("failed to list remotes: %w", err)
+	}
+	if slices.Contains(names, "origin") {
+		return "origin", true, nil
+	}
+	if len(names) == 1 {
+		return names[0], true, nil
+	}
+	return "", false, nil
+}
+
+func isGitRepository(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil
+}
