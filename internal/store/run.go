@@ -112,24 +112,30 @@ func (f *RunFailureV1) ToDomain() (*domain.ReviewFailure, error) {
 }
 
 type SummarizerOutcomeV1 struct {
-	ExitCode int           `json:"exit_code"`
-	Duration time.Duration `json:"duration"`
-	Warnings []string      `json:"warnings,omitempty"`
+	ExitCode         int           `json:"exit_code"`
+	Stderr           string        `json:"stderr,omitempty"`
+	DiagnosticOutput string        `json:"diagnostic_output,omitempty"`
+	Duration         time.Duration `json:"duration"`
+	Warnings         []string      `json:"warnings,omitempty"`
 }
 
 func ToSummarizerOutcomeSchema(s domain.SummarizerOutcome) SummarizerOutcomeV1 {
 	return SummarizerOutcomeV1{
-		ExitCode: s.ExitCode,
-		Duration: s.Duration,
-		Warnings: append([]string(nil), s.Warnings...),
+		ExitCode:         s.ExitCode,
+		Stderr:           s.Stderr,
+		DiagnosticOutput: s.DiagnosticOutput,
+		Duration:         s.Duration,
+		Warnings:         append([]string(nil), s.Warnings...),
 	}
 }
 
 func (s SummarizerOutcomeV1) ToDomain() domain.SummarizerOutcome {
 	return domain.SummarizerOutcome{
-		ExitCode: s.ExitCode,
-		Duration: s.Duration,
-		Warnings: append([]string(nil), s.Warnings...),
+		ExitCode:         s.ExitCode,
+		Stderr:           s.Stderr,
+		DiagnosticOutput: s.DiagnosticOutput,
+		Duration:         s.Duration,
+		Warnings:         append([]string(nil), s.Warnings...),
 	}
 }
 

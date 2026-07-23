@@ -194,6 +194,43 @@ func TestReviewRunV1_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestReviewRunV1_PreservesSummarizerDiagnosticsForFailedRuns(t *testing.T) {
+	run := buildTestReviewRun(t, domain.ReviewStatusFailed)
+	run.Summarizer.Stderr = "summarizer stderr: connection reset\n[truncated]"
+	run.Summarizer.DiagnosticOutput = "partial summarizer stdout before failure\n[truncated]"
+
+	schema, err := ToReviewRunSchema(run, RenderedOutcomeV1{})
+	if err != nil {
+		t.Fatalf("ToReviewRunSchema: %v", err)
+	}
+	if schema.Summarizer.Stderr != run.Summarizer.Stderr {
+		t.Fatalf("schema stderr = %q, want %q", schema.Summarizer.Stderr, run.Summarizer.Stderr)
+	}
+	if schema.Summarizer.DiagnosticOutput != run.Summarizer.DiagnosticOutput {
+		t.Fatalf("schema diagnostic output = %q, want %q", schema.Summarizer.DiagnosticOutput, run.Summarizer.DiagnosticOutput)
+	}
+
+	data, err := json.Marshal(schema)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var decoded ReviewRunV1
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	gotRun, _, err := FromReviewRunSchema(decoded)
+	if err != nil {
+		t.Fatalf("FromReviewRunSchema: %v", err)
+	}
+	if gotRun.Summarizer.Stderr != run.Summarizer.Stderr {
+		t.Fatalf("a failed run's stored summarizer stderr must survive a restart: got %q, want %q", gotRun.Summarizer.Stderr, run.Summarizer.Stderr)
+	}
+	if gotRun.Summarizer.DiagnosticOutput != run.Summarizer.DiagnosticOutput {
+		t.Fatalf("a failed run's stored summarizer diagnostic output must survive a restart: got %q, want %q", gotRun.Summarizer.DiagnosticOutput, run.Summarizer.DiagnosticOutput)
+	}
+}
+
 func TestReviewRunV1_RejectsUnsupportedSchemaVersion(t *testing.T) {
 	run := buildTestReviewRun(t, domain.ReviewStatusCompleted)
 	schema, err := ToReviewRunSchema(run, RenderedOutcomeV1{})

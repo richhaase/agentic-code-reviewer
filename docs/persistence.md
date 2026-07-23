@@ -90,10 +90,15 @@ one.
 Stored records are local application data, not a general audit log intended
 for sharing. In particular:
 
-- **No full diffs and no raw agent transcripts are persisted by default.**
-  `ReviewRunV1` stores the structured findings, dispositions, and summarizer/
-  false-positive-filter outcomes produced during a run, not the diff that was
-  reviewed or the raw stdout/stderr of the underlying LLM CLI invocations.
+- **No full diffs and no raw, unbounded agent transcripts are persisted by
+  default.** `ReviewRunV1` stores the structured findings, dispositions, and
+  summarizer/false-positive-filter outcomes produced during a run, not the
+  diff that was reviewed. `SummarizerOutcomeV1.Stderr`/`DiagnosticOutput` are
+  the exception: they carry the same size-bounded (at most ten lines or
+  4096 bytes, truncated with a marker) summarizer failure excerpt already
+  shown in terminal output when a review fails, so a failed run stored on
+  disk stays diagnosable. They are never the full, unbounded subprocess
+  transcript.
 - **Findings may contain code excerpts.** Reviewer output (`FindingV1.Text`,
   `FindingGroupV1.Messages`/`Summary`, adjudication `Rationale`/`Evidence`)
   can quote snippets of the reviewed code. Treat the data directory as
