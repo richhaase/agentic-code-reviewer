@@ -196,15 +196,15 @@ func ParseRemoteURL(raw string) (host, owner, repo string, ok bool) {
 		return "", "", "", false
 	}
 
-	trimmedPath := strings.Trim(strings.TrimSpace(rawPath), "/")
+	trimmedPath := strings.ToLower(strings.Trim(strings.TrimSpace(rawPath), "/"))
 	trimmedPath = strings.TrimSuffix(trimmedPath, ".git")
 	segments := strings.Split(trimmedPath, "/")
 	if len(segments) < 2 {
 		return "", "", "", false
 	}
 
-	owner = strings.ToLower(segments[len(segments)-2])
-	repo = strings.ToLower(segments[len(segments)-1])
+	owner = segments[len(segments)-2]
+	repo = segments[len(segments)-1]
 	if owner == "" || repo == "" {
 		return "", "", "", false
 	}

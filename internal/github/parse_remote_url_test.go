@@ -44,6 +44,20 @@ func TestParseRemoteURL_CaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestParseRemoteURL_StripsUppercaseGitSuffix(t *testing.T) {
+	host, owner, repo, ok := ParseRemoteURL("https://GitHub.com/OWNER/REPO.GIT")
+	if !ok || host != "github.com" || owner != "owner" || repo != "repo" {
+		t.Fatalf("unexpected result: host=%q owner=%q repo=%q ok=%v", host, owner, repo, ok)
+	}
+}
+
+func TestParseRemoteURL_StripsMixedCaseGitSuffix(t *testing.T) {
+	host, owner, repo, ok := ParseRemoteURL("git@github.com:owner/repo.Git")
+	if !ok || host != "github.com" || owner != "owner" || repo != "repo" {
+		t.Fatalf("unexpected result: host=%q owner=%q repo=%q ok=%v", host, owner, repo, ok)
+	}
+}
+
 func TestParseRemoteURL_RejectsHostless(t *testing.T) {
 	if _, _, _, ok := ParseRemoteURL("owner/repo"); ok {
 		t.Fatal("expected hostless path to be rejected")
