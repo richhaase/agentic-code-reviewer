@@ -74,15 +74,15 @@ func TestMapCycleOutcome(t *testing.T) {
 		{"stale head", nil, CycleOutcome{Kind: OutcomeStaleHead}, watch.CycleStaleHead},
 		{"unrecorded is an error with nil run", nil, CycleOutcome{}, watch.CycleError},
 		{
-			"run conclusion no changes drives result over a mismatched outcome",
+			"run conclusion no changes drives result when no action outcome was recorded",
 			&domain.ReviewRun{Conclusion: domain.ReviewConclusionNoChanges},
-			CycleOutcome{Kind: OutcomeLGTMApproved},
+			CycleOutcome{Kind: OutcomeNoChanges},
 			watch.CycleNoChanges,
 		},
 		{
-			"run conclusion findings drives result over a mismatched outcome",
+			"run conclusion findings drives result when no action outcome was recorded",
 			&domain.ReviewRun{Conclusion: domain.ReviewConclusionFindings},
-			CycleOutcome{Kind: OutcomeLGTMApproved},
+			CycleOutcome{Kind: OutcomeFindings},
 			watch.CycleFindings,
 		},
 		{
@@ -90,6 +90,24 @@ func TestMapCycleOutcome(t *testing.T) {
 			&domain.ReviewRun{Conclusion: domain.ReviewConclusionClean},
 			CycleOutcome{Kind: OutcomeLGTMApproved},
 			watch.CycleLGTMApproved,
+		},
+		{
+			"explicit LGTM approval overrides a findings run conclusion",
+			&domain.ReviewRun{Conclusion: domain.ReviewConclusionFindings},
+			CycleOutcome{Kind: OutcomeLGTMApproved},
+			watch.CycleLGTMApproved,
+		},
+		{
+			"explicit LGTM decline overrides a findings run conclusion",
+			&domain.ReviewRun{Conclusion: domain.ReviewConclusionFindings},
+			CycleOutcome{Kind: OutcomeLGTMDeclined},
+			watch.CycleLGTMDeclined,
+		},
+		{
+			"explicit stale head overrides a findings run conclusion",
+			&domain.ReviewRun{Conclusion: domain.ReviewConclusionFindings},
+			CycleOutcome{Kind: OutcomeStaleHead},
+			watch.CycleStaleHead,
 		},
 	}
 	for _, tt := range tests {

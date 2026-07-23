@@ -314,19 +314,7 @@ func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode
 }
 
 func mapCycleOutcome(run *domain.ReviewRun, o *CycleOutcome) watch.CycleResult {
-	if run != nil {
-		switch run.Conclusion {
-		case domain.ReviewConclusionNoChanges:
-			return watch.CycleNoChanges
-		case domain.ReviewConclusionFindings:
-			return watch.CycleFindings
-		}
-	}
 	switch o.Kind {
-	case OutcomeNoChanges:
-		return watch.CycleNoChanges
-	case OutcomeFindings:
-		return watch.CycleFindings
 	case OutcomeLGTMApproved:
 		return watch.CycleLGTMApproved
 	case OutcomeLGTMComment:
@@ -340,6 +328,20 @@ func mapCycleOutcome(run *domain.ReviewRun, o *CycleOutcome) watch.CycleResult {
 		return watch.CycleLGTMSkipped
 	case OutcomeStaleHead:
 		return watch.CycleStaleHead
+	}
+	if run != nil {
+		switch run.Conclusion {
+		case domain.ReviewConclusionNoChanges:
+			return watch.CycleNoChanges
+		case domain.ReviewConclusionFindings:
+			return watch.CycleFindings
+		}
+	}
+	switch o.Kind {
+	case OutcomeNoChanges:
+		return watch.CycleNoChanges
+	case OutcomeFindings:
+		return watch.CycleFindings
 	default:
 		return watch.CycleError
 	}
