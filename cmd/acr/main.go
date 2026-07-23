@@ -537,7 +537,8 @@ func runReview(cmd *cobra.Command, _ []string) error {
 		RepositoryRoot:  repositoryRoot,
 		WorkDir:         reviewWorktreeRoot,
 		ConfigSource:    cfgResult.source,
+		Trigger:         domain.ReviewTriggerManual,
 	}
-	code := executeReview(ctx, opts, logger)
+	_, code := executeReview(ctx, opts, logger)
 	return exitCode(code)
 }
