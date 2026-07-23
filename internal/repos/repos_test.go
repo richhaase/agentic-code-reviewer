@@ -86,7 +86,7 @@ func TestResolve_PathOverrideMissing(t *testing.T) {
 	}
 }
 
-func TestResolve_PathOverrideInvalidWithoutOriginRemote(t *testing.T) {
+func TestResolve_PathOverrideInvalidWithoutAnyRemote(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "no-origin")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -103,7 +103,49 @@ func TestResolve_PathOverrideInvalidWithoutOriginRemote(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(resolution.Repositories) != 1 || resolution.Repositories[0].Status != StatusInvalid {
-		t.Fatalf("expected invalid status for a checkout without an origin remote, got %+v", resolution.Repositories)
+		t.Fatalf("expected invalid status for a checkout without any remote, got %+v", resolution.Repositories)
+	}
+}
+
+func TestResolve_PathOverrideInvalidWhenOriginDoesNotMatchIdentity(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "gizmos")
+	initGitRepoWithRemote(t, dir, "https://github.com/acme/gizmos.git")
+
+	resolution, err := Resolve(context.Background(), workspace.ScopeConfig{
+		PathOverrides: map[string]string{"acme/widgets": dir},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resolution.Repositories) != 1 || resolution.Repositories[0].Status != StatusInvalid {
+		t.Fatalf("expected a typo'd override pointing at a different repo to be invalid, got %+v", resolution.Repositories)
+	}
+}
+
+func TestResolve_PathOverrideMatchesNonOriginRemote(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "fork")
+	initGitRepoWithRemote(t, dir, "https://github.com/my-fork/widgets.git")
+	if out, err := exec.Command("git", "-C", dir, "remote", "add", "upstream", "https://github.com/acme/widgets.git").CombinedOutput(); err != nil {
+		t.Fatalf("git remote add failed: %v: %s", err, out)
+	}
+
+	resolution, err := Resolve(context.Background(), workspace.ScopeConfig{
+		PathOverrides: map[string]string{"acme/widgets": dir},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resolution.Repositories) != 1 {
+		t.Fatalf("expected 1 repository, got %+v", resolution.Repositories)
+	}
+	got := resolution.Repositories[0]
+	if got.Status != StatusReviewable {
+		t.Fatalf("expected the canonical identity to resolve via the upstream remote, got %s (%s)", got.Status, got.Reason)
+	}
+	if got.Remote != "upstream" {
+		t.Errorf("expected the matching remote to be reported as upstream, got %q", got.Remote)
 	}
 }
 

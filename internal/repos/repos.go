@@ -181,7 +181,7 @@ func resolvePathOverride(ctx context.Context, identity Identity, localPath strin
 			Reason:    fmt.Sprintf("%s: %s is not a git repository", identity, localPath),
 		}
 	default:
-		hasOrigin, err := git.RemoteExists(ctx, localPath, "origin")
+		remote, err := matchingRemote(ctx, localPath, identity)
 		if err != nil {
 			return ResolvedRepository{
 				Identity:  identity,
@@ -190,21 +190,42 @@ func resolvePathOverride(ctx context.Context, identity Identity, localPath strin
 				Reason:    fmt.Sprintf("%s: failed to inspect remotes for %s: %v", identity, localPath, err),
 			}
 		}
-		if !hasOrigin {
+		if remote == "" {
 			return ResolvedRepository{
 				Identity:  identity,
 				Status:    StatusInvalid,
 				LocalPath: localPath,
-				Reason:    fmt.Sprintf("%s: %s has no origin remote configured", identity, localPath),
+				Reason:    fmt.Sprintf("%s: no remote in %s resolves to %s", identity, localPath, identity),
 			}
 		}
 		return ResolvedRepository{
 			Identity:  identity,
 			Status:    StatusReviewable,
 			LocalPath: localPath,
-			Remote:    "origin",
+			Remote:    remote,
 		}
 	}
+}
+
+func matchingRemote(ctx context.Context, dir string, identity Identity) (string, error) {
+	names, err := git.Remotes(ctx, dir)
+	if err != nil {
+		return "", err
+	}
+	for _, name := range names {
+		remoteURL, err := git.RemoteURL(ctx, dir, name)
+		if err != nil {
+			continue
+		}
+		host, owner, repoName, ok := github.ParseRemoteURL(remoteURL)
+		if !ok {
+			continue
+		}
+		if (Identity{Host: host, Owner: owner, Name: repoName}) == identity {
+			return name, nil
+		}
+	}
+	return "", nil
 }
 
 func parseIdentity(raw string) (Identity, error) {
