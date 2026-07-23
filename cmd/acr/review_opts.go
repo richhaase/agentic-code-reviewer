@@ -20,6 +20,7 @@ type ReviewOpts struct {
 	WorkDir         string
 	PullRequest     *domain.PullRequestKey
 	ConfigSource    config.SourceIdentity
+	Trigger         domain.ReviewTrigger
 
 	ForcePostComment bool
 	ExpectedHeadSHA  string

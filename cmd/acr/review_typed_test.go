@@ -70,6 +70,7 @@ func typedReviewOpts() ReviewOpts {
 			ConfigPresent: true,
 			ConfigDigest:  "trusted-digest",
 		},
+		Trigger: domain.ReviewTriggerManual,
 	}
 }
 
@@ -139,9 +140,12 @@ func TestExecuteTypedReviewPassesRequestAndHandlesNoChanges(t *testing.T) {
 		}},
 	}}
 	sink := &noopReviewEventSink{}
-	code := executeTypedReview(context.Background(), opts, "origin/main", service, sink, terminal.NewLogger())
+	run, code := executeTypedReview(context.Background(), opts, "origin/main", service, sink, terminal.NewLogger())
 	if code != domain.ExitNoFindings || outcome.Kind != OutcomeNoChanges {
 		t.Fatalf("code = %d, outcome = %d", code, outcome.Kind)
+	}
+	if run != service.run {
+		t.Fatalf("run = %#v, want %#v", run, service.run)
 	}
 	if service.request.Trigger != domain.ReviewTriggerManual || service.request.Events != sink {
 		t.Fatalf("request = %#v", service.request)
@@ -308,9 +312,12 @@ func TestHandleTypedReviewFailureRendersRetainedSummarizerTimeoutDiagnosticOnce(
 
 func TestExecuteTypedReviewPreservesServiceErrors(t *testing.T) {
 	service := &capturedReviewService{err: errors.New("service unavailable")}
-	code := executeTypedReview(context.Background(), typedReviewOpts(), "origin/main", service, nil, terminal.NewLogger())
+	run, code := executeTypedReview(context.Background(), typedReviewOpts(), "origin/main", service, nil, terminal.NewLogger())
 	if code != domain.ExitError {
 		t.Fatalf("exit = %d", code)
+	}
+	if run != nil {
+		t.Fatalf("run = %#v, want nil", run)
 	}
 }
 
@@ -326,4 +333,105 @@ func TestCLIReviewEventsCompletesEveryProgressPhase(t *testing.T) {
 	events.HandleReviewEvent(reviewpkg.Event{Kind: reviewpkg.EventPhaseCompleted, Phase: domain.ReviewPhaseFalsePositiveFilter})
 	events.HandleReviewEvent(reviewpkg.Event{Kind: reviewpkg.EventRunCompleted})
 	events.Close()
+}
+
+func TestUsesGeminiAgent(t *testing.T) {
+	tests := []struct {
+		name string
+		opts ReviewOpts
+		want bool
+	}{
+		{
+			name: "reviewer agent gemini",
+			opts: ReviewOpts{
+				ResolvedConfig: config.ResolvedConfig{
+					ReviewerAgents:  []string{"agy", "gemini", "codex"},
+					SummarizerAgent: "codex",
+				},
+			},
+			want: true,
+		},
+		{
+			name: "summarizer agent gemini",
+			opts: ReviewOpts{
+				ResolvedConfig: config.ResolvedConfig{
+					ReviewerAgents:  []string{"agy", "codex"},
+					SummarizerAgent: "gemini",
+				},
+			},
+			want: true,
+		},
+		{
+			name: "explicit pr feedback agent gemini",
+			opts: ReviewOpts{
+				ResolvedConfig: config.ResolvedConfig{
+					ReviewerAgents:    []string{"agy", "codex"},
+					SummarizerAgent:   "codex",
+					PRFeedbackEnabled: true,
+					PRFeedbackAgent:   "gemini",
+					FPFilterEnabled:   true,
+				},
+				DetectedPR: "123",
+			},
+			want: true,
+		},
+		{
+			name: "pr feedback agent gemini without detected pr is not used",
+			opts: ReviewOpts{
+				ResolvedConfig: config.ResolvedConfig{
+					ReviewerAgents:    []string{"agy", "codex"},
+					SummarizerAgent:   "codex",
+					PRFeedbackEnabled: true,
+					PRFeedbackAgent:   "gemini",
+					FPFilterEnabled:   true,
+				},
+			},
+			want: false,
+		},
+		{
+			name: "pr feedback agent gemini with fp filter disabled is not used",
+			opts: ReviewOpts{
+				ResolvedConfig: config.ResolvedConfig{
+					ReviewerAgents:    []string{"agy", "codex"},
+					SummarizerAgent:   "codex",
+					PRFeedbackEnabled: true,
+					PRFeedbackAgent:   "gemini",
+					FPFilterEnabled:   false,
+				},
+				DetectedPR: "123",
+			},
+			want: false,
+		},
+		{
+			name: "disabled pr feedback agent gemini is not used",
+			opts: ReviewOpts{
+				ResolvedConfig: config.ResolvedConfig{
+					ReviewerAgents:    []string{"agy", "codex"},
+					SummarizerAgent:   "codex",
+					PRFeedbackEnabled: false,
+					PRFeedbackAgent:   "gemini",
+				},
+			},
+			want: false,
+		},
+		{
+			name: "no gemini",
+			opts: ReviewOpts{
+				ResolvedConfig: config.ResolvedConfig{
+					ReviewerAgents:    []string{"agy", "codex", "claude"},
+					SummarizerAgent:   "codex",
+					PRFeedbackEnabled: true,
+				},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := usesGeminiAgent(tt.opts); got != tt.want {
+				t.Errorf("usesGeminiAgent() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }

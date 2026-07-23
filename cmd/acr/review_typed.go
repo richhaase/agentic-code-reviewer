@@ -15,11 +15,13 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 )
 
+const geminiDeprecationWarning = "Gemini CLI is deprecated for consumer use. ACR still supports gemini for enterprise Gemini CLI users, but use agy for new or non-enterprise Google-agent usage. Google says individual Gemini CLI requests stop serving on June 18, 2026: https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/"
+
 type semanticReviewService interface {
 	Run(context.Context, reviewpkg.Request) (*domain.ReviewRun, error)
 }
 
-func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger) domain.ExitCode {
+func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger) (*domain.ReviewRun, domain.ExitCode) {
 	logReviewStart(opts, logger)
 
 	if usesGeminiAgent(opts) {
@@ -28,7 +30,7 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 
 	reviewAgents, ready := prepareReviewAgents(opts, logger)
 	if !ready {
-		return domain.ExitError
+		return nil, domain.ExitError
 	}
 	logAgentDistribution(opts, reviewAgents, logger)
 
@@ -59,7 +61,7 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 	}))
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Review failed: %v", err)
-		return domain.ExitError
+		return nil, domain.ExitError
 	}
 
 	return executeTypedReview(ctx, opts, resolvedBaseRef, service, events, logger)
@@ -132,21 +134,21 @@ func resolveReviewBase(ctx context.Context, opts ReviewOpts, logger *terminal.Lo
 	return resolvedBaseRef
 }
 
-func executeTypedReview(ctx context.Context, opts ReviewOpts, resolvedBaseRef string, service semanticReviewService, events reviewpkg.EventSink, logger *terminal.Logger) domain.ExitCode {
+func executeTypedReview(ctx context.Context, opts ReviewOpts, resolvedBaseRef string, service semanticReviewService, events reviewpkg.EventSink, logger *terminal.Logger) (*domain.ReviewRun, domain.ExitCode) {
 	request, err := newReviewRequest(opts, resolvedBaseRef, events)
 	if err != nil {
 		logger.Logf(terminal.StyleError, "Review failed: %v", err)
-		return domain.ExitError
+		return nil, domain.ExitError
 	}
 	run, err := service.Run(ctx, request)
 	if err != nil {
 		if ctx.Err() != nil {
-			return domain.ExitInterrupted
+			return run, domain.ExitInterrupted
 		}
 		logger.Logf(terminal.StyleError, "Review failed: %v", err)
-		return domain.ExitError
+		return run, domain.ExitError
 	}
-	return handleTypedReviewRun(ctx, opts, run, logger)
+	return run, handleTypedReviewRun(ctx, opts, run, logger)
 }
 
 func newReviewRequest(opts ReviewOpts, resolvedBaseRef string, events reviewpkg.EventSink) (reviewpkg.Request, error) {
@@ -183,7 +185,7 @@ func newReviewRequest(opts ReviewOpts, resolvedBaseRef string, events reviewpkg.
 			},
 			PullRequest: opts.PullRequest,
 		},
-		Trigger:             domain.ReviewTriggerManual,
+		Trigger:             opts.Trigger,
 		Engine:              domain.ReviewEngine{Name: "acr", Version: engineVersion},
 		Configuration:       configuration,
 		ConfigurationSource: configurationSourceIdentity(opts.ConfigSource),
@@ -312,4 +314,23 @@ func configurationSourceIdentity(source config.SourceIdentity) domain.Configurat
 		ConfigPresent: source.ConfigPresent,
 		ConfigDigest:  source.ConfigDigest,
 	}
+}
+
+func usesGeminiAgent(opts ReviewOpts) bool {
+	for _, reviewerAgent := range opts.ReviewerAgents {
+		if reviewerAgent == "gemini" {
+			return true
+		}
+	}
+	if opts.SummarizerAgent == "gemini" {
+		return true
+	}
+	if opts.PRFeedbackEnabled && opts.DetectedPR != "" && opts.FPFilterEnabled {
+		feedbackAgent := opts.PRFeedbackAgent
+		if feedbackAgent == "" {
+			feedbackAgent = opts.SummarizerAgent
+		}
+		return feedbackAgent == "gemini"
+	}
+	return false
 }

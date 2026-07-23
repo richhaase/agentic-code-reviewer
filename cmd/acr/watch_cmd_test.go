@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/config"
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 	"github.com/richhaase/agentic-code-reviewer/internal/watch"
 )
@@ -59,21 +60,40 @@ func TestWatchAcceptsSharedAndWatchFlags(t *testing.T) {
 func TestMapCycleOutcome(t *testing.T) {
 	tests := []struct {
 		name    string
+		run     *domain.ReviewRun
 		outcome CycleOutcome
 		want    watch.CycleResult
 	}{
-		{"no changes", CycleOutcome{Kind: OutcomeNoChanges}, watch.CycleNoChanges},
-		{"findings", CycleOutcome{Kind: OutcomeFindings}, watch.CycleFindings},
-		{"approved", CycleOutcome{Kind: OutcomeLGTMApproved}, watch.CycleLGTMApproved},
-		{"comment", CycleOutcome{Kind: OutcomeLGTMComment}, watch.CycleLGTMComment},
-		{"comment via CI downgrade", CycleOutcome{Kind: OutcomeLGTMComment, CIDowngraded: true}, watch.CycleLGTMCommentCIPending},
-		{"declined", CycleOutcome{Kind: OutcomeLGTMDeclined}, watch.CycleLGTMDeclined},
-		{"skipped", CycleOutcome{Kind: OutcomeLGTMSkipped}, watch.CycleLGTMSkipped},
-		{"stale head", CycleOutcome{Kind: OutcomeStaleHead}, watch.CycleStaleHead},
-		{"unrecorded is an error", CycleOutcome{}, watch.CycleError},
+		{"no changes", nil, CycleOutcome{Kind: OutcomeNoChanges}, watch.CycleNoChanges},
+		{"findings", nil, CycleOutcome{Kind: OutcomeFindings}, watch.CycleFindings},
+		{"approved", nil, CycleOutcome{Kind: OutcomeLGTMApproved}, watch.CycleLGTMApproved},
+		{"comment", nil, CycleOutcome{Kind: OutcomeLGTMComment}, watch.CycleLGTMComment},
+		{"comment via CI downgrade", nil, CycleOutcome{Kind: OutcomeLGTMComment, CIDowngraded: true}, watch.CycleLGTMCommentCIPending},
+		{"declined", nil, CycleOutcome{Kind: OutcomeLGTMDeclined}, watch.CycleLGTMDeclined},
+		{"skipped", nil, CycleOutcome{Kind: OutcomeLGTMSkipped}, watch.CycleLGTMSkipped},
+		{"stale head", nil, CycleOutcome{Kind: OutcomeStaleHead}, watch.CycleStaleHead},
+		{"unrecorded is an error with nil run", nil, CycleOutcome{}, watch.CycleError},
+		{
+			"run conclusion no changes drives result over a mismatched outcome",
+			&domain.ReviewRun{Conclusion: domain.ReviewConclusionNoChanges},
+			CycleOutcome{Kind: OutcomeLGTMApproved},
+			watch.CycleNoChanges,
+		},
+		{
+			"run conclusion findings drives result over a mismatched outcome",
+			&domain.ReviewRun{Conclusion: domain.ReviewConclusionFindings},
+			CycleOutcome{Kind: OutcomeLGTMApproved},
+			watch.CycleFindings,
+		},
+		{
+			"run conclusion clean falls back to the outcome kind",
+			&domain.ReviewRun{Conclusion: domain.ReviewConclusionClean},
+			CycleOutcome{Kind: OutcomeLGTMApproved},
+			watch.CycleLGTMApproved,
+		},
 	}
 	for _, tt := range tests {
-		if got := mapCycleOutcome(&tt.outcome); got != tt.want {
+		if got := mapCycleOutcome(tt.run, &tt.outcome); got != tt.want {
 			t.Errorf("%s: mapCycleOutcome = %v, want %v", tt.name, got, tt.want)
 		}
 	}
@@ -266,6 +286,70 @@ func TestTrustedConfigSourceReturningNoResultFailsClosed(t *testing.T) {
 	}
 	if !strings.Contains(output, "trusted review configuration source returned no result") {
 		t.Fatalf("stderr = %q", output)
+	}
+}
+
+func TestBuildWatchReviewOptsProducesRequestScopedToWatchTrigger(t *testing.T) {
+	cfgResult := configResult{
+		resolved: config.ResolvedConfig{
+			Reviewers:         2,
+			Concurrency:       2,
+			Base:              "main",
+			Timeout:           2 * time.Minute,
+			ReviewerAgents:    []string{"codex"},
+			SummarizerAgent:   "codex",
+			SummarizerTimeout: 3 * time.Minute,
+			FPFilterTimeout:   3 * time.Minute,
+			FPThreshold:       75,
+		},
+		source: config.SourceIdentity{
+			Kind:          config.SourceKindRepositoryRevision,
+			Locator:       "/canonical/repo",
+			Ref:           "refs/acr/trusted-config/origin/main",
+			Revision:      "canonical-revision",
+			ConfigPresent: true,
+			ConfigDigest:  "canonical-digest",
+		},
+	}
+	wt := worktreeResult{
+		repositoryRoot: "/canonical/repo",
+		workDir:        "/canonical/repo/.worktrees/pr-42",
+	}
+	outcome := &CycleOutcome{}
+	opts := buildWatchReviewOpts(cfgResult, wt, "42", watch.PostModeComment, "deadbeef", outcome)
+
+	if opts.Trigger != domain.ReviewTriggerWatch {
+		t.Fatalf("opts.Trigger = %q, want %q", opts.Trigger, domain.ReviewTriggerWatch)
+	}
+	if opts.RepositoryRoot != wt.repositoryRoot {
+		t.Fatalf("opts.RepositoryRoot = %q, want %q", opts.RepositoryRoot, wt.repositoryRoot)
+	}
+	if opts.ConfigSource != cfgResult.source {
+		t.Fatalf("opts.ConfigSource = %#v, want %#v", opts.ConfigSource, cfgResult.source)
+	}
+
+	sink := &noopReviewEventSink{}
+	request, err := newReviewRequest(opts, cfgResult.resolved.Base, sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &capturedReviewService{run: &domain.ReviewRun{
+		Status:     domain.ReviewStatusCompleted,
+		Conclusion: domain.ReviewConclusionNoChanges,
+	}}
+	if _, err := service.Run(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+
+	if service.request.Trigger != domain.ReviewTriggerWatch {
+		t.Fatalf("request.Trigger = %q, want %q", service.request.Trigger, domain.ReviewTriggerWatch)
+	}
+	if service.request.Target.RepositoryRoot != wt.repositoryRoot {
+		t.Fatalf("request.Target.RepositoryRoot = %q, want %q", service.request.Target.RepositoryRoot, wt.repositoryRoot)
+	}
+	wantConfigurationSource := configurationSourceIdentity(cfgResult.source)
+	if service.request.ConfigurationSource != wantConfigurationSource {
+		t.Fatalf("request.ConfigurationSource = %#v, want %#v", service.request.ConfigurationSource, wantConfigurationSource)
 	}
 }
 
