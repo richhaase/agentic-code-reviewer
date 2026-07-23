@@ -369,6 +369,60 @@ func TestResolve_NonGitDirectoryIsIgnoredNotReported(t *testing.T) {
 	}
 }
 
+func TestResolve_DiscoversSoleNonOriginRemote(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "widgets")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init failed: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", dir, "remote", "add", "upstream", "https://github.com/acme/widgets.git").CombinedOutput(); err != nil {
+		t.Fatalf("git remote add failed: %v: %s", err, out)
+	}
+
+	resolution, err := Resolve(context.Background(), workspace.ScopeConfig{RepositoryRoots: []string{root}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resolution.Repositories) != 1 {
+		t.Fatalf("expected 1 repository, got %+v", resolution.Repositories)
+	}
+	got := resolution.Repositories[0]
+	if got.Status != StatusReviewable {
+		t.Fatalf("expected reviewable, got %s (%s)", got.Status, got.Reason)
+	}
+	if got.Remote != "upstream" {
+		t.Errorf("expected the sole remote upstream to be used, got %q", got.Remote)
+	}
+}
+
+func TestResolve_DoesNotGuessAmongMultipleNonOriginRemotes(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "widgets")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init failed: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", dir, "remote", "add", "upstream", "https://github.com/acme/widgets.git").CombinedOutput(); err != nil {
+		t.Fatalf("git remote add failed: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", dir, "remote", "add", "backup", "https://github.com/other/project.git").CombinedOutput(); err != nil {
+		t.Fatalf("git remote add failed: %v: %s", err, out)
+	}
+
+	resolution, err := Resolve(context.Background(), workspace.ScopeConfig{RepositoryRoots: []string{root}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resolution.Repositories) != 0 {
+		t.Fatalf("expected no repository entries when multiple non-origin remotes exist with nothing to disambiguate them, got %+v", resolution.Repositories)
+	}
+}
+
 func TestIdentity_StringHidesDefaultHostOnly(t *testing.T) {
 	githubCom := Identity{Host: DefaultHost, Owner: "acme", Name: "widgets"}
 	if githubCom.String() != "acme/widgets" {

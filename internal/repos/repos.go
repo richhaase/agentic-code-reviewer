@@ -60,12 +60,17 @@ type Resolution struct {
 	RootWarnings []string
 }
 
+type discoveredRepo struct {
+	Path   string
+	Remote string
+}
+
 func Resolve(ctx context.Context, scope workspace.ScopeConfig) (Resolution, error) {
 	if err := validatePatterns(scope.Include, scope.Exclude); err != nil {
 		return Resolution{}, err
 	}
 
-	discovered := map[Identity][]string{}
+	discovered := map[Identity][]discoveredRepo{}
 	seenDirs := map[string]struct{}{}
 	var rootWarnings []string
 
@@ -85,7 +90,7 @@ func Resolve(ctx context.Context, scope workspace.ScopeConfig) (Resolution, erro
 			}
 			seenDirs[canonicalDir] = struct{}{}
 
-			identity, ok, err := repositoryIdentity(ctx, dir)
+			identity, remote, ok, err := repositoryIdentity(ctx, dir)
 			if err != nil {
 				rootWarnings = append(rootWarnings, fmt.Sprintf("%s: %v", dir, err))
 				continue
@@ -93,14 +98,18 @@ func Resolve(ctx context.Context, scope workspace.ScopeConfig) (Resolution, erro
 			if !ok {
 				continue
 			}
-			discovered[identity] = append(discovered[identity], dir)
+			discovered[identity] = append(discovered[identity], discoveredRepo{Path: dir, Remote: remote})
 		}
 	}
 
 	results := map[Identity]ResolvedRepository{}
-	for identity, paths := range discovered {
-		sort.Strings(paths)
-		if len(paths) > 1 {
+	for identity, entries := range discovered {
+		sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+		if len(entries) > 1 {
+			paths := make([]string, len(entries))
+			for i, entry := range entries {
+				paths[i] = entry.Path
+			}
 			results[identity] = ResolvedRepository{
 				Identity: identity,
 				Status:   StatusAmbiguous,
@@ -111,8 +120,8 @@ func Resolve(ctx context.Context, scope workspace.ScopeConfig) (Resolution, erro
 		results[identity] = ResolvedRepository{
 			Identity:  identity,
 			Status:    StatusReviewable,
-			LocalPath: paths[0],
-			Remote:    "origin",
+			LocalPath: entries[0].Path,
+			Remote:    entries[0].Remote,
 		}
 	}
 
@@ -331,21 +340,40 @@ func scanRoot(root string) ([]string, string) {
 	return candidates, ""
 }
 
-func repositoryIdentity(ctx context.Context, dir string) (Identity, bool, error) {
+func repositoryIdentity(ctx context.Context, dir string) (Identity, string, bool, error) {
 	if !isGitRepository(dir) {
-		return Identity{}, false, nil
+		return Identity{}, "", false, nil
 	}
 
-	remoteURL, err := git.RemoteURL(ctx, dir, "origin")
+	remote, ok := primaryRemote(ctx, dir)
+	if !ok {
+		return Identity{}, "", false, nil
+	}
+
+	remoteURL, err := git.RemoteURL(ctx, dir, remote)
 	if err != nil {
-		return Identity{}, false, nil
+		return Identity{}, "", false, nil
 	}
 
 	host, owner, name, ok := github.ParseRemoteURL(remoteURL)
 	if !ok {
-		return Identity{}, false, nil
+		return Identity{}, "", false, nil
 	}
-	return Identity{Host: host, Owner: owner, Name: name}, true, nil
+	return Identity{Host: host, Owner: owner, Name: name}, remote, true, nil
+}
+
+func primaryRemote(ctx context.Context, dir string) (string, bool) {
+	names, err := git.Remotes(ctx, dir)
+	if err != nil {
+		return "", false
+	}
+	if slices.Contains(names, "origin") {
+		return "origin", true
+	}
+	if len(names) == 1 {
+		return names[0], true
+	}
+	return "", false
 }
 
 func isGitRepository(dir string) bool {
