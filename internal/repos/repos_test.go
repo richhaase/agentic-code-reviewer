@@ -35,7 +35,7 @@ func TestResolve_FindsReviewableRepository(t *testing.T) {
 		t.Fatalf("expected 1 repository, got %d: %+v", len(resolution.Repositories), resolution.Repositories)
 	}
 	got := resolution.Repositories[0]
-	if got.Identity != (Identity{Owner: "acme", Name: "widgets"}) {
+	if got.Identity != (Identity{Host: DefaultHost, Owner: "acme", Name: "widgets"}) {
 		t.Errorf("unexpected identity: %+v", got.Identity)
 	}
 	if got.Status != StatusReviewable {
@@ -277,6 +277,106 @@ func TestResolve_NonGitDirectoryIsIgnoredNotReported(t *testing.T) {
 	}
 	if len(resolution.Repositories) != 0 {
 		t.Fatalf("expected no repository entries for an unconfigured plain directory, got %+v", resolution.Repositories)
+	}
+}
+
+func TestIdentity_StringHidesDefaultHostOnly(t *testing.T) {
+	githubCom := Identity{Host: DefaultHost, Owner: "acme", Name: "widgets"}
+	if githubCom.String() != "acme/widgets" {
+		t.Errorf("expected default host to be hidden, got %q", githubCom.String())
+	}
+
+	enterprise := Identity{Host: "github.example.com", Owner: "acme", Name: "widgets"}
+	if enterprise.String() != "github.example.com/acme/widgets" {
+		t.Errorf("expected non-default host to be shown, got %q", enterprise.String())
+	}
+}
+
+func TestResolve_SameOwnerRepoOnDifferentHostsAreDistinctIdentities(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets-github"), "https://github.com/acme/widgets.git")
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets-enterprise"), "https://github.example.com/acme/widgets.git")
+
+	resolution, err := Resolve(context.Background(), workspace.ScopeConfig{RepositoryRoots: []string{root}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resolution.Repositories) != 2 {
+		t.Fatalf("expected 2 distinct repositories, got %d: %+v", len(resolution.Repositories), resolution.Repositories)
+	}
+	for _, r := range resolution.Repositories {
+		if r.Status != StatusReviewable {
+			t.Errorf("expected %s to be reviewable, got %s (%s)", r.Identity, r.Status, r.Reason)
+		}
+	}
+}
+
+func TestResolve_PathOverrideWithExplicitHost(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "enterprise-widgets"), "https://github.example.com/acme/widgets.git")
+
+	resolution, err := Resolve(context.Background(), workspace.ScopeConfig{
+		PathOverrides: map[string]string{"github.example.com/acme/widgets": filepath.Join(root, "enterprise-widgets")},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resolution.Repositories) != 1 {
+		t.Fatalf("expected 1 repository, got %+v", resolution.Repositories)
+	}
+	got := resolution.Repositories[0]
+	if got.Status != StatusReviewable {
+		t.Fatalf("expected reviewable, got %s (%s)", got.Status, got.Reason)
+	}
+	if got.Identity.Host != "github.example.com" {
+		t.Errorf("expected host github.example.com, got %q", got.Identity.Host)
+	}
+}
+
+func TestResolve_ExcludePatternWithTwoSegmentsIsHostAgnostic(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets-github"), "https://github.com/acme/widgets.git")
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets-enterprise"), "https://github.example.com/acme/widgets.git")
+
+	resolution, err := Resolve(context.Background(), workspace.ScopeConfig{
+		RepositoryRoots: []string{root},
+		Exclude:         []string{"acme/widgets"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resolution.Repositories) != 2 {
+		t.Fatalf("expected 2 repositories, got %+v", resolution.Repositories)
+	}
+	for _, r := range resolution.Repositories {
+		if r.Status != StatusExcluded {
+			t.Errorf("expected %s to be excluded by the host-agnostic pattern, got %s", r.Identity, r.Status)
+		}
+	}
+}
+
+func TestResolve_ExcludePatternWithHostOnlyMatchesThatHost(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets-github"), "https://github.com/acme/widgets.git")
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets-enterprise"), "https://github.example.com/acme/widgets.git")
+
+	resolution, err := Resolve(context.Background(), workspace.ScopeConfig{
+		RepositoryRoots: []string{root},
+		Exclude:         []string{"github.example.com/acme/widgets"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	statuses := map[string]Status{}
+	for _, r := range resolution.Repositories {
+		statuses[r.Identity.String()] = r.Status
+	}
+	if statuses["acme/widgets"] != StatusReviewable {
+		t.Errorf("expected the github.com repo to remain reviewable, got %s", statuses["acme/widgets"])
+	}
+	if statuses["github.example.com/acme/widgets"] != StatusExcluded {
+		t.Errorf("expected the enterprise repo to be excluded, got %s", statuses["github.example.com/acme/widgets"])
 	}
 }
 

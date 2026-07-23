@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -16,6 +17,8 @@ import (
 )
 
 const ReasonRepositoryUnavailable = "repository_unavailable"
+
+const DefaultHost = "github.com"
 
 type Status string
 
@@ -28,11 +31,19 @@ const (
 )
 
 type Identity struct {
+	Host  string
 	Owner string
 	Name  string
 }
 
 func (id Identity) String() string {
+	if id.Host == DefaultHost {
+		return id.Owner + "/" + id.Name
+	}
+	return id.Host + "/" + id.Owner + "/" + id.Name
+}
+
+func (id Identity) hostAgnostic() string {
 	return id.Owner + "/" + id.Name
 }
 
@@ -198,10 +209,18 @@ func resolvePathOverride(ctx context.Context, identity Identity, localPath strin
 
 func parseIdentity(raw string) (Identity, error) {
 	segments := strings.Split(raw, "/")
-	if len(segments) != 2 || segments[0] == "" || segments[1] == "" {
+	if slices.Contains(segments, "") {
 		return Identity{}, fmt.Errorf("invalid owner/repo identity %q", raw)
 	}
-	return Identity{Owner: strings.ToLower(segments[0]), Name: strings.ToLower(segments[1])}, nil
+
+	switch len(segments) {
+	case 2:
+		return Identity{Host: DefaultHost, Owner: strings.ToLower(segments[0]), Name: strings.ToLower(segments[1])}, nil
+	case 3:
+		return Identity{Host: strings.ToLower(segments[0]), Owner: strings.ToLower(segments[1]), Name: strings.ToLower(segments[2])}, nil
+	default:
+		return Identity{}, fmt.Errorf("invalid owner/repo identity %q (expected owner/repo or host/owner/repo)", raw)
+	}
 }
 
 func validatePatterns(include, exclude []string) error {
@@ -218,11 +237,19 @@ func validatePatterns(include, exclude []string) error {
 	return nil
 }
 
-func matchesExclusion(identity Identity, include, exclude []string) (bool, string) {
-	name := strings.ToLower(identity.String())
+func matchesPattern(identity Identity, pattern string) bool {
+	pattern = strings.ToLower(pattern)
+	name := identity.hostAgnostic()
+	if strings.Count(pattern, "/") == 2 {
+		name = identity.Host + "/" + name
+	}
+	matched, _ := path.Match(pattern, name)
+	return matched
+}
 
+func matchesExclusion(identity Identity, include, exclude []string) (bool, string) {
 	for _, pattern := range exclude {
-		if matched, _ := path.Match(strings.ToLower(pattern), name); matched {
+		if matchesPattern(identity, pattern) {
 			return true, fmt.Sprintf("%s matches exclude pattern %q", identity, pattern)
 		}
 	}
@@ -231,7 +258,7 @@ func matchesExclusion(identity Identity, include, exclude []string) (bool, strin
 		return false, ""
 	}
 	for _, pattern := range include {
-		if matched, _ := path.Match(strings.ToLower(pattern), name); matched {
+		if matchesPattern(identity, pattern) {
 			return false, ""
 		}
 	}
@@ -270,11 +297,11 @@ func repositoryIdentity(ctx context.Context, dir string) (Identity, bool, error)
 		return Identity{}, false, nil
 	}
 
-	_, owner, name, ok := github.ParseRemoteURL(remoteURL)
+	host, owner, name, ok := github.ParseRemoteURL(remoteURL)
 	if !ok {
 		return Identity{}, false, nil
 	}
-	return Identity{Owner: owner, Name: name}, true, nil
+	return Identity{Host: host, Owner: owner, Name: name}, true, nil
 }
 
 func isGitRepository(dir string) bool {
