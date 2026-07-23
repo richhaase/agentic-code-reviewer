@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/workspace"
@@ -146,6 +147,52 @@ func TestResolve_PathOverrideMatchesNonOriginRemote(t *testing.T) {
 	}
 	if got.Remote != "upstream" {
 		t.Errorf("expected the matching remote to be reported as upstream, got %q", got.Remote)
+	}
+}
+
+func TestResolve_PathOverrideInvalidWhenMultipleRemotesMatch(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "mirrored")
+	initGitRepoWithRemote(t, dir, "https://github.com/acme/widgets.git")
+	if out, err := exec.Command("git", "-C", dir, "remote", "add", "upstream", "https://github.com/acme/widgets.git").CombinedOutput(); err != nil {
+		t.Fatalf("git remote add failed: %v: %s", err, out)
+	}
+
+	resolution, err := Resolve(context.Background(), workspace.ScopeConfig{
+		PathOverrides: map[string]string{"acme/widgets": dir},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resolution.Repositories) != 1 || resolution.Repositories[0].Status != StatusInvalid {
+		t.Fatalf("expected multiple matching remotes to fail closed as invalid, got %+v", resolution.Repositories)
+	}
+}
+
+func TestResolve_SymlinkedRootDoesNotFalselyReportAmbiguity(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks require elevated privileges on windows")
+	}
+
+	root := t.TempDir()
+	realDir := filepath.Join(root, "real")
+	initGitRepoWithRemote(t, realDir, "https://github.com/acme/widgets.git")
+	linkDir := filepath.Join(root, "link")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Fatal(err)
+	}
+
+	resolution, err := Resolve(context.Background(), workspace.ScopeConfig{
+		RepositoryRoots: []string{realDir, linkDir},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resolution.Repositories) != 1 {
+		t.Fatalf("expected exactly 1 repository entry, got %d: %+v", len(resolution.Repositories), resolution.Repositories)
+	}
+	if resolution.Repositories[0].Status != StatusReviewable {
+		t.Fatalf("expected reviewable, got %s (%s)", resolution.Repositories[0].Status, resolution.Repositories[0].Reason)
 	}
 }
 

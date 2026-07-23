@@ -75,15 +75,15 @@ func Resolve(ctx context.Context, scope workspace.ScopeConfig) (Resolution, erro
 			rootWarnings = append(rootWarnings, warning)
 		}
 		for _, dir := range candidates {
-			absDir, err := filepath.Abs(dir)
+			canonicalDir, err := canonicalizeDir(dir)
 			if err != nil {
 				rootWarnings = append(rootWarnings, fmt.Sprintf("%s: %v", dir, err))
 				continue
 			}
-			if _, ok := seenDirs[absDir]; ok {
+			if _, ok := seenDirs[canonicalDir]; ok {
 				continue
 			}
-			seenDirs[absDir] = struct{}{}
+			seenDirs[canonicalDir] = struct{}{}
 
 			identity, ok, err := repositoryIdentity(ctx, dir)
 			if err != nil {
@@ -187,7 +187,7 @@ func resolvePathOverride(ctx context.Context, identity Identity, localPath strin
 				Identity:  identity,
 				Status:    StatusInvalid,
 				LocalPath: localPath,
-				Reason:    fmt.Sprintf("%s: failed to inspect remotes for %s: %v", identity, localPath, err),
+				Reason:    fmt.Sprintf("%s: %v", identity, err),
 			}
 		}
 		if remote == "" {
@@ -210,8 +210,10 @@ func resolvePathOverride(ctx context.Context, identity Identity, localPath strin
 func matchingRemote(ctx context.Context, dir string, identity Identity) (string, error) {
 	names, err := git.Remotes(ctx, dir)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to list remotes in %s: %w", dir, err)
 	}
+
+	var matches []string
 	for _, name := range names {
 		remoteURL, err := git.RemoteURL(ctx, dir, name)
 		if err != nil {
@@ -222,10 +224,19 @@ func matchingRemote(ctx context.Context, dir string, identity Identity) (string,
 			continue
 		}
 		if (Identity{Host: host, Owner: owner, Name: repoName}) == identity {
-			return name, nil
+			matches = append(matches, name)
 		}
 	}
-	return "", nil
+
+	switch len(matches) {
+	case 0:
+		return "", nil
+	case 1:
+		return matches[0], nil
+	default:
+		sort.Strings(matches)
+		return "", fmt.Errorf("multiple remotes (%s) in %s resolve to %s; configure exactly one", strings.Join(matches, ", "), dir, identity)
+	}
 }
 
 func parseIdentity(raw string) (Identity, error) {
@@ -284,6 +295,18 @@ func matchesExclusion(identity Identity, include, exclude []string) (bool, strin
 		}
 	}
 	return true, fmt.Sprintf("%s does not match any configured include pattern", identity)
+}
+
+func canonicalizeDir(dir string) (string, error) {
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(absDir)
+	if err != nil {
+		return "", err
+	}
+	return resolved, nil
 }
 
 func scanRoot(root string) ([]string, string) {
