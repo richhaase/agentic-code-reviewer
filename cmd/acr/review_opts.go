@@ -1,6 +1,9 @@
 package main
 
-import "github.com/richhaase/agentic-code-reviewer/internal/config"
+import (
+	"github.com/richhaase/agentic-code-reviewer/internal/config"
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
+)
 
 type ReviewOpts struct {
 	config.ResolvedConfig
@@ -13,7 +16,10 @@ type ReviewOpts struct {
 	WorktreeBranch  string
 	UseRefFile      bool
 	ExcludePatterns []string
+	RepositoryRoot  string
 	WorkDir         string
+	PullRequest     *domain.PullRequestKey
+	ConfigSource    config.SourceIdentity
 
 	ForcePostComment bool
 	ExpectedHeadSHA  string

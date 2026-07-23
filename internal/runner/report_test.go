@@ -567,6 +567,31 @@ func TestRenderReport_WithAuthFailedWarning(t *testing.T) {
 	})
 }
 
+func TestRenderReviewRunUsesTypedSemanticResult(t *testing.T) {
+	terminal.WithColorsDisabled(func() {
+		run := domain.ReviewRun{
+			Stats: domain.ReviewStats{TotalReviewers: 3, SuccessfulReviewers: 2, FailedReviewers: []int{3}},
+			Summarizer: domain.SummarizerOutcome{
+				ExitCode: 0,
+				Duration: time.Second,
+			},
+			Findings: []domain.ReviewFinding{{
+				ID:   "finding-001",
+				Kind: domain.ReviewFindingActionable,
+				Group: domain.FindingGroup{
+					Title:         "Typed finding",
+					Summary:       "Rendered from ReviewRun.",
+					ReviewerCount: 2,
+				},
+			}},
+		}
+		result := RenderReviewRun(run)
+		if !strings.Contains(result, "Typed finding") || !strings.Contains(result, "Failed reviewers") {
+			t.Fatalf("rendered report = %q", result)
+		}
+	})
+}
+
 func TestRenderDismissedLGTMMarkdown_BasicFormat(t *testing.T) {
 	findings := []domain.FindingGroup{
 		{Title: "Potential nil dereference"},

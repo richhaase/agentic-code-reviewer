@@ -20,7 +20,7 @@ import (
 
 const geminiDeprecationWarning = "Gemini CLI is deprecated for consumer use. ACR still supports gemini for enterprise Gemini CLI users, but use agy for new or non-enterprise Google-agent usage. Google says individual Gemini CLI requests stop serving on June 18, 2026: https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/"
 
-func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger) domain.ExitCode {
+func executeLegacyReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger) domain.ExitCode {
 	if opts.Concurrency < opts.Reviewers {
 		logger.Logf(terminal.StyleInfo, "Starting review %s(%d reviewers, %d concurrent, base=%s)%s",
 			terminal.Color(terminal.Dim), opts.Reviewers, opts.Concurrency, opts.Base, terminal.Color(terminal.Reset))
