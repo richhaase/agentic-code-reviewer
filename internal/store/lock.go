@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 )
 
 const LockFileName = "desk.lock"
@@ -25,9 +24,9 @@ func AcquireWriteLock(dataDir string) (*WriteLock, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open desk lock file %s: %w", path, err)
 	}
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := lockFile(file); err != nil {
 		file.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) {
+		if errors.Is(err, ErrWriterLocked) {
 			return nil, fmt.Errorf("acquire desk lock %s: %w", path, ErrWriterLocked)
 		}
 		return nil, fmt.Errorf("acquire desk lock %s: %w", path, err)
@@ -39,7 +38,7 @@ func (l *WriteLock) Release() error {
 	if l == nil || l.file == nil {
 		return nil
 	}
-	err := syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN)
+	err := unlockFile(l.file)
 	closeErr := l.file.Close()
 	l.file = nil
 	if err != nil {
