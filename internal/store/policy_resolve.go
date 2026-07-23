@@ -7,15 +7,6 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/config"
 )
 
-// ResolveAdjudicationPolicy loads adjudication memory's budget policy, stop
-// policy, and evaluation guidance from source, the same config.Source
-// abstraction issue #220 established for review configuration, and returns
-// the resulting AdjudicationPolicyV1 along with any non-fatal warnings from
-// loading it. It rejects a source whose resolved kind is untrusted or whose
-// resolved revision is the pull request head under review, via
-// PolicySourceV1.Validate and ValidatePolicySourceOutsideReview, so a
-// reviewed pull request's own head or worktree can never supply or alter
-// the returned policy.
 func ResolveAdjudicationPolicy(ctx context.Context, source config.Source, target ReviewTargetV1) (AdjudicationPolicyV1, []string, error) {
 	result, err := source.LoadWithWarnings(ctx)
 	if err != nil {

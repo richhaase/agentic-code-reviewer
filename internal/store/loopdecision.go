@@ -5,8 +5,6 @@ import (
 	"time"
 )
 
-// LoopDecisionKindV1 is the outcome of one convergence-loop decision, from
-// issue #223.
 type LoopDecisionKindV1 string
 
 const (
@@ -24,10 +22,6 @@ func (k LoopDecisionKindV1) Validate() error {
 	}
 }
 
-// BudgetStateV1 is the budget counters in effect when a loop decision was
-// made. Known distinguishes a genuinely unmeasured/unbounded budget state
-// from a zero one, matching the same explicit-unavailability contract as
-// ProviderUsageV1.
 type BudgetStateV1 struct {
 	Known           bool    `json:"known"`
 	IterationsUsed  int     `json:"iterations_used"`
@@ -46,9 +40,6 @@ func (b BudgetStateV1) Validate() error {
 	return nil
 }
 
-// LoopDecisionV1 records one continue/stop/escalation decision made by the
-// review convergence loop, with the reason, counters, budget state, and
-// supporting finding adjudications behind it. See issue #223.
 type LoopDecisionV1 struct {
 	SchemaVersion             int                `json:"schema_version"`
 	ID                        string             `json:"id"`

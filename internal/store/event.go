@@ -5,8 +5,6 @@ import (
 	"time"
 )
 
-// ReviewEventTypeV1 enumerates the append-only pull-request history event
-// vocabulary from epic #191's Core Domain Model / ReviewEvent section.
 type ReviewEventTypeV1 string
 
 const (
@@ -82,11 +80,6 @@ func (t ReviewEventTypeV1) requiresActor() bool {
 	}
 }
 
-// ReviewEventV1 is one immutable, append-only entry in a pull request's local
-// history. Fields are a flat superset across the event vocabulary; only the
-// fields relevant to a given Type are required. Events are never rewritten in
-// place: a correction or later observation is recorded as an additional
-// event, preserving the original.
 type ReviewEventV1 struct {
 	SchemaVersion     int               `json:"schema_version"`
 	ID                string            `json:"id"`

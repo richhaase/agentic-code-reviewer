@@ -70,12 +70,6 @@ type Config struct {
 	Adjudication      AdjudicationConfig `yaml:"adjudication"`
 }
 
-// AdjudicationConfig carries the review convergence loop's budget policy,
-// stop policy, and evaluation guidance. Unlike every other Config field,
-// callers must never resolve this section from a plain filesystem or
-// worktree read: it is only ever meaningful when loaded from a trusted
-// control-plane source outside the reviewed pull request head and worktree,
-// via internal/store's ResolveAdjudicationPolicy.
 type AdjudicationConfig struct {
 	MaxIterations       *int     `yaml:"max_iterations"`
 	MaxCostUSD          *float64 `yaml:"max_cost_usd"`

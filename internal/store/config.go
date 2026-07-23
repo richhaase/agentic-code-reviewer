@@ -127,14 +127,6 @@ func (c ReviewConfigurationV1) ToDomain() (domain.ReviewConfiguration, error) {
 	return cfg, nil
 }
 
-// PolicySourceV1 records the provenance of a trusted control-plane input used
-// to seed adjudication memory, budget policy, stop policy, or evaluation
-// guidance. It mirrors config.SourceIdentity, the trust boundary established
-// by issue #220, rather than inventing a second one. Only sources capable of
-// resolving to a pinned, non-PR-relative input are accepted; a raw filesystem
-// read (config.SourceKindFilesystem) is never a valid policy source because it
-// resolves relative to whatever directory a caller passes at run time,
-// including a reviewed PR's own worktree.
 type PolicySourceV1 struct {
 	Kind          string `json:"kind"`
 	Locator       string `json:"locator"`
@@ -179,12 +171,6 @@ func (s PolicySourceV1) Validate() error {
 	}
 }
 
-// ValidatePolicySourceOutsideReview rejects a policy source that resolves to
-// the head revision of the pull request under review. A pinned
-// repository-revision source is otherwise trusted, but it must not pin the
-// very head the review is evaluating: that would let the reviewed PR content
-// supply its own adjudication memory, budget policy, stop policy, or
-// evaluation guidance.
 func ValidatePolicySourceOutsideReview(source PolicySourceV1, target ReviewTargetV1) error {
 	if err := source.Validate(); err != nil {
 		return err

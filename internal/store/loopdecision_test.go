@@ -94,6 +94,7 @@ func TestLoopDecisionV1_Validate(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "valid", mutate: func(d *LoopDecisionV1) {}, wantErr: false},
+		{name: "unsupported schema version", mutate: func(d *LoopDecisionV1) { d.SchemaVersion = 99 }, wantErr: true},
 		{name: "unknown decision kind", mutate: func(d *LoopDecisionV1) { d.Decision = "retry" }, wantErr: true},
 		{name: "missing reason", mutate: func(d *LoopDecisionV1) { d.Reason = "" }, wantErr: true},
 		{name: "negative iteration count", mutate: func(d *LoopDecisionV1) { d.IterationCount = -1 }, wantErr: true},

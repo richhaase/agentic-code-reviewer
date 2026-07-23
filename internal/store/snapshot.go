@@ -38,8 +38,6 @@ func (k ReviewRequestKindV1) Validate() error {
 	}
 }
 
-// ReviewRequestV1 is a pending reviewer or team requested on the pull
-// request, as observed at snapshot time.
 type ReviewRequestV1 struct {
 	Kind  ReviewRequestKindV1 `json:"kind"`
 	Login string              `json:"login"`
@@ -52,9 +50,6 @@ func (r ReviewRequestV1) Validate() error {
 	return validateNonEmpty("review request login", r.Login)
 }
 
-// LatestReviewV1 is one submitted GitHub review, as observed at snapshot
-// time. State follows GitHub's pull-request review states (for example
-// APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED, PENDING).
 type LatestReviewV1 struct {
 	Author      string    `json:"author"`
 	State       string    `json:"state"`
@@ -68,10 +63,6 @@ func (r LatestReviewV1) Validate() error {
 	return validateNonEmpty("review state", r.State)
 }
 
-// PRSnapshotV1 is a timestamped, immutable observation of GitHub pull-request
-// state, used as input to classification and history. It has no domain
-// in-memory counterpart yet; the desk workspace/discovery phase that
-// consumes it is introduced by a later issue in this epic.
 type PRSnapshotV1 struct {
 	SchemaVersion    int                `json:"schema_version"`
 	PullRequest      PullRequestKeyV1   `json:"pull_request"`

@@ -102,11 +102,12 @@ func TestProviderUsageV1_ValidateRejectsUnknownWithNonzeroMeasurements(t *testin
 	}
 }
 
-func TestReviewEconomicsV1_ValidateRejectsNegativeCounters(t *testing.T) {
+func TestReviewEconomicsV1_ValidateRejectsInvalidFields(t *testing.T) {
 	tests := []struct {
 		name   string
 		mutate func(e *ReviewEconomicsV1)
 	}{
+		{name: "unsupported schema version", mutate: func(e *ReviewEconomicsV1) { e.SchemaVersion = 99 }},
 		{name: "negative reviewer call count", mutate: func(e *ReviewEconomicsV1) { e.ReviewerCallCount = -1 }},
 		{name: "negative model call count", mutate: func(e *ReviewEconomicsV1) { e.ModelCallCount = -1 }},
 		{name: "negative duration", mutate: func(e *ReviewEconomicsV1) { e.Duration = -time.Second }},

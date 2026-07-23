@@ -5,11 +5,6 @@ import (
 	"time"
 )
 
-// ProviderUsageV1 records provider token usage and cost for one reviewer or
-// model invocation. Known distinguishes genuinely unavailable usage data from
-// zero usage: when Known is false, the numeric fields must be zero and are
-// not to be read as measured values. See issue #223: unavailable usage or
-// cost must remain visibly unknown rather than being estimated as zero.
 type ProviderUsageV1 struct {
 	Known        bool    `json:"known"`
 	InputTokens  int64   `json:"input_tokens"`
@@ -28,8 +23,6 @@ func (u ProviderUsageV1) Validate() error {
 	return nil
 }
 
-// ProviderUsageRecordV1 attributes a ProviderUsageV1 measurement to the
-// provider and model that produced it.
 type ProviderUsageRecordV1 struct {
 	Provider string          `json:"provider"`
 	Model    string          `json:"model"`
@@ -43,9 +36,6 @@ func (r ProviderUsageRecordV1) Validate() error {
 	return r.Usage.Validate()
 }
 
-// ReviewEconomicsV1 records the measured cost of running one review: how
-// many reviewer and model calls it took, how long it took, and what provider
-// usage/cost data is available for it. See issue #223.
 type ReviewEconomicsV1 struct {
 	SchemaVersion     int                     `json:"schema_version"`
 	RunID             string                  `json:"run_id"`

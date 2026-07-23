@@ -211,23 +211,11 @@ func (o ExcludeFilterOutcomeV1) ToDomain() (domain.ExcludeFilterOutcome, error) 
 	}, nil
 }
 
-// RenderedOutcomeV1 preserves the exact review and LGTM bodies that were
-// rendered for this run, if any were rendered. Text is preserved verbatim
-// rather than being re-derived from other stored fields on read, so a later
-// change to rendering logic cannot rewrite what a user actually saw or
-// posted. Both fields are commonly empty: many runs are never rendered for
-// posting (for example a clean run, or a run inspected only in history).
 type RenderedOutcomeV1 struct {
 	ReviewBody string `json:"review_body"`
 	LGTMBody   string `json:"lgtm_body"`
 }
 
-// RunLifecycleV1 records desk-level transitions applied to an already
-// completed, failed, or interrupted run after the fact. These transitions
-// never rewrite the original terminal outcome; they are recorded alongside
-// it so history stays honest about both what happened during execution and
-// what the desk later learned (for example, that the head moved and the
-// result is now stale).
 type RunLifecycleV1 struct {
 	Stale             bool      `json:"stale"`
 	StaleReason       string    `json:"stale_reason,omitempty"`
