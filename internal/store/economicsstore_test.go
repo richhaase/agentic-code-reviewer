@@ -111,6 +111,31 @@ func TestFilesystemEconomicsStore_RefusesDuplicateSave(t *testing.T) {
 	}
 }
 
+func TestFilesystemEconomicsStore_RefusesDuplicateRunIDWithDifferentTimestamp(t *testing.T) {
+	dir := t.TempDir()
+	store := NewFilesystemEconomicsStore(dir)
+	key := testPullRequestKey()
+	economics := testReviewEconomics("run-dup")
+
+	if _, err := store.SaveEconomics(key, time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC), economics); err != nil {
+		t.Fatalf("first save: %v", err)
+	}
+	if _, err := store.SaveEconomics(key, time.Date(2026, 7, 22, 13, 0, 0, 0, time.UTC), economics); err == nil {
+		t.Fatal("expected an error re-saving economics for the same run id under a different timestamp")
+	}
+
+	records, corrupt, err := store.ListEconomics(key)
+	if err != nil {
+		t.Fatalf("list economics: %v", err)
+	}
+	if len(corrupt) != 0 {
+		t.Fatalf("expected no corrupt records, got %v", corrupt)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected exactly one stored economics record for the duplicated run id, got %d", len(records))
+	}
+}
+
 func TestFilesystemEconomicsStore_RejectsZeroRecordedAt(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFilesystemEconomicsStore(dir)

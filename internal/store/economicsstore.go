@@ -34,6 +34,15 @@ func (s *FilesystemEconomicsStore) SaveEconomics(key PullRequestKeyV1, recordedA
 	if recordedAt.IsZero() {
 		return "", fmt.Errorf("review economics %s: recorded_at is required", economics.RunID)
 	}
+	existing, _, err := s.ListEconomics(key)
+	if err != nil {
+		return "", err
+	}
+	for _, e := range existing {
+		if e.Economics.RunID == economics.RunID {
+			return "", fmt.Errorf("review economics for run %s already exists for %s", economics.RunID, key.String())
+		}
+	}
 	dir, err := economicsDir(s.dataDir, key)
 	if err != nil {
 		return "", err
