@@ -23,8 +23,8 @@ func NewFilesystemRunStore(dataDir string) *FilesystemRunStore {
 var _ RunStore = (*FilesystemRunStore)(nil)
 
 func (s *FilesystemRunStore) SaveRun(run ReviewRunV1) (string, error) {
-	if err := validateSchemaVersion("review run", run.SchemaVersion); err != nil {
-		return "", err
+	if _, _, err := FromReviewRunSchema(run); err != nil {
+		return "", fmt.Errorf("review run %s: %w", run.ID, err)
 	}
 	if run.Target.PullRequest == nil {
 		return "", fmt.Errorf("review run %s: target has no pull request key; runs can only be stored for pull request reviews", run.ID)
@@ -47,7 +47,7 @@ func (s *FilesystemRunStore) SaveRun(run ReviewRunV1) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("marshal review run %s: %w", run.ID, err)
 	}
-	if err := writeNewFile(path, data, 0o644); err != nil {
+	if err := writeNewFile(path, data, 0o600); err != nil {
 		return "", fmt.Errorf("save review run %s: %w", run.ID, err)
 	}
 	return path, nil

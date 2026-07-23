@@ -14,11 +14,17 @@ type ProviderUsageV1 struct {
 }
 
 func (u ProviderUsageV1) Validate() error {
-	if u.Known {
+	if !u.Known {
+		if u.InputTokens != 0 || u.OutputTokens != 0 || u.TotalTokens != 0 || u.CostUSD != 0 {
+			return fmt.Errorf("provider usage marked unknown must not carry nonzero measurements")
+		}
 		return nil
 	}
-	if u.InputTokens != 0 || u.OutputTokens != 0 || u.TotalTokens != 0 || u.CostUSD != 0 {
-		return fmt.Errorf("provider usage marked unknown must not carry nonzero measurements")
+	if u.InputTokens < 0 || u.OutputTokens < 0 || u.TotalTokens < 0 {
+		return fmt.Errorf("known provider usage token counts must not be negative")
+	}
+	if u.CostUSD < 0 {
+		return fmt.Errorf("known provider usage cost must not be negative")
 	}
 	return nil
 }

@@ -178,8 +178,11 @@ func ValidatePolicySourceOutsideReview(source PolicySourceV1, target ReviewTarge
 	if source.Kind != config.SourceKindRepositoryRevision {
 		return nil
 	}
-	if source.Revision == "" || target.Revision.HeadObjectID == "" {
-		return nil
+	if source.Revision == "" {
+		return fmt.Errorf("adjudication policy source revision is required to verify it is outside the reviewed pull request head")
+	}
+	if target.Revision.HeadObjectID == "" {
+		return fmt.Errorf("reviewed pull request head revision is required to verify adjudication policy source %q is outside the reviewed head", source.Revision)
 	}
 	if source.Revision == target.Revision.HeadObjectID {
 		return fmt.Errorf("adjudication policy source revision %q matches the reviewed pull request head; policy must come from a source outside the reviewed head and worktree", source.Revision)

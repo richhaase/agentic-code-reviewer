@@ -151,14 +151,41 @@ func (r AdjudicationRecordV1) Validate() error {
 }
 
 func ResolveFindingAdjudication(records []AdjudicationRecordV1, ref AdjudicationFindingRefV1, scope AdjudicationScopeV1) (AdjudicationRecordV1, bool) {
-	var latest AdjudicationRecordV1
-	found := false
+	matches := make([]AdjudicationRecordV1, 0, len(records))
 	for _, record := range records {
 		if record.FindingRef != ref || record.Scope != scope {
 			continue
 		}
-		latest = record
-		found = true
+		matches = append(matches, record)
+	}
+	if len(matches) == 0 {
+		return AdjudicationRecordV1{}, false
+	}
+
+	superseded := make(map[string]bool, len(matches))
+	for _, record := range matches {
+		if record.SupersedesRecordID != "" {
+			superseded[record.SupersedesRecordID] = true
+		}
+	}
+
+	if latest, ok := latestRecordedAdjudication(matches, func(r AdjudicationRecordV1) bool { return !superseded[r.ID] }); ok {
+		return latest, true
+	}
+	return latestRecordedAdjudication(matches, func(AdjudicationRecordV1) bool { return true })
+}
+
+func latestRecordedAdjudication(records []AdjudicationRecordV1, include func(AdjudicationRecordV1) bool) (AdjudicationRecordV1, bool) {
+	var latest AdjudicationRecordV1
+	found := false
+	for _, record := range records {
+		if !include(record) {
+			continue
+		}
+		if !found || record.RecordedAt.After(latest.RecordedAt) || (record.RecordedAt.Equal(latest.RecordedAt) && record.ID > latest.ID) {
+			latest = record
+			found = true
+		}
 	}
 	return latest, found
 }

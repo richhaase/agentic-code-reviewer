@@ -112,30 +112,24 @@ func (f *RunFailureV1) ToDomain() (*domain.ReviewFailure, error) {
 }
 
 type SummarizerOutcomeV1 struct {
-	ExitCode         int           `json:"exit_code"`
-	Stderr           string        `json:"stderr"`
-	DiagnosticOutput string        `json:"diagnostic_output"`
-	Duration         time.Duration `json:"duration"`
-	Warnings         []string      `json:"warnings,omitempty"`
+	ExitCode int           `json:"exit_code"`
+	Duration time.Duration `json:"duration"`
+	Warnings []string      `json:"warnings,omitempty"`
 }
 
 func ToSummarizerOutcomeSchema(s domain.SummarizerOutcome) SummarizerOutcomeV1 {
 	return SummarizerOutcomeV1{
-		ExitCode:         s.ExitCode,
-		Stderr:           s.Stderr,
-		DiagnosticOutput: s.DiagnosticOutput,
-		Duration:         s.Duration,
-		Warnings:         append([]string(nil), s.Warnings...),
+		ExitCode: s.ExitCode,
+		Duration: s.Duration,
+		Warnings: append([]string(nil), s.Warnings...),
 	}
 }
 
 func (s SummarizerOutcomeV1) ToDomain() domain.SummarizerOutcome {
 	return domain.SummarizerOutcome{
-		ExitCode:         s.ExitCode,
-		Stderr:           s.Stderr,
-		DiagnosticOutput: s.DiagnosticOutput,
-		Duration:         s.Duration,
-		Warnings:         append([]string(nil), s.Warnings...),
+		ExitCode: s.ExitCode,
+		Duration: s.Duration,
+		Warnings: append([]string(nil), s.Warnings...),
 	}
 }
 
@@ -216,14 +210,6 @@ type RenderedOutcomeV1 struct {
 	LGTMBody   string `json:"lgtm_body"`
 }
 
-type RunLifecycleV1 struct {
-	Stale             bool      `json:"stale"`
-	StaleReason       string    `json:"stale_reason,omitempty"`
-	StaleAt           time.Time `json:"stale_at,omitempty"`
-	SupersededByRunID string    `json:"superseded_by_run_id,omitempty"`
-	SupersededAt      time.Time `json:"superseded_at,omitempty"`
-}
-
 type ReviewRunV1 struct {
 	SchemaVersion            int                           `json:"schema_version"`
 	ID                       string                        `json:"id"`
@@ -251,7 +237,6 @@ type ReviewRunV1 struct {
 	ExcludeFilter            ExcludeFilterOutcomeV1        `json:"exclude_filter"`
 	Dispositions             map[int]DispositionV1         `json:"dispositions"`
 	Rendered                 RenderedOutcomeV1             `json:"rendered"`
-	Lifecycle                RunLifecycleV1                `json:"lifecycle"`
 }
 
 func ToReviewRunSchema(run domain.ReviewRun, rendered RenderedOutcomeV1) (ReviewRunV1, error) {
@@ -348,6 +333,12 @@ func FromReviewRunSchema(schema ReviewRunV1) (domain.ReviewRun, RenderedOutcomeV
 	configuration, err := schema.Configuration.ToDomain()
 	if err != nil {
 		return domain.ReviewRun{}, RenderedOutcomeV1{}, fmt.Errorf("run %s: %w", schema.ID, err)
+	}
+	if schema.ConfigurationFingerprint != configuration.Fingerprint() {
+		return domain.ReviewRun{}, RenderedOutcomeV1{}, fmt.Errorf(
+			"run %s: top-level configuration_fingerprint %q does not match configuration fingerprint %q; record may be corrupt",
+			schema.ID, schema.ConfigurationFingerprint, configuration.Fingerprint(),
+		)
 	}
 
 	configurationSource := schema.ConfigurationSource.ToDomain()

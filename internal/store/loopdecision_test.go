@@ -75,6 +75,25 @@ func TestBudgetStateV1_ValidateRejectsUnknownWithNonzeroMeasurements(t *testing.
 	}
 }
 
+func TestBudgetStateV1_ValidateRejectsNegativeKnownMeasurements(t *testing.T) {
+	tests := []struct {
+		name   string
+		budget BudgetStateV1
+	}{
+		{name: "negative iterations used", budget: BudgetStateV1{Known: true, IterationsUsed: -1}},
+		{name: "negative iterations limit", budget: BudgetStateV1{Known: true, IterationsLimit: -1}},
+		{name: "negative cost used", budget: BudgetStateV1{Known: true, CostUSDUsed: -0.01}},
+		{name: "negative cost limit", budget: BudgetStateV1{Known: true, CostUSDLimit: -0.01}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.budget.Validate(); err == nil {
+				t.Fatalf("expected an error for known budget state with a negative measurement: %+v", tt.budget)
+			}
+		})
+	}
+}
+
 func TestLoopDecisionV1_Validate(t *testing.T) {
 	valid := func() LoopDecisionV1 {
 		return LoopDecisionV1{

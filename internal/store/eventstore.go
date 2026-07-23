@@ -39,7 +39,7 @@ func (s *FilesystemEventStore) AppendEvent(event ReviewEventV1) (string, error) 
 	if err != nil {
 		return "", fmt.Errorf("marshal review event %s: %w", event.ID, err)
 	}
-	if err := writeNewFile(path, data, 0o644); err != nil {
+	if err := writeNewFile(path, data, 0o600); err != nil {
 		return "", fmt.Errorf("append review event %s: %w", event.ID, err)
 	}
 	return path, nil

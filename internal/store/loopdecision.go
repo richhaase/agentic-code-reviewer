@@ -31,11 +31,17 @@ type BudgetStateV1 struct {
 }
 
 func (b BudgetStateV1) Validate() error {
-	if b.Known {
+	if !b.Known {
+		if b.IterationsUsed != 0 || b.IterationsLimit != 0 || b.CostUSDUsed != 0 || b.CostUSDLimit != 0 {
+			return fmt.Errorf("budget state marked unknown must not carry nonzero measurements")
+		}
 		return nil
 	}
-	if b.IterationsUsed != 0 || b.IterationsLimit != 0 || b.CostUSDUsed != 0 || b.CostUSDLimit != 0 {
-		return fmt.Errorf("budget state marked unknown must not carry nonzero measurements")
+	if b.IterationsUsed < 0 || b.IterationsLimit < 0 {
+		return fmt.Errorf("known budget iteration counts must not be negative")
+	}
+	if b.CostUSDUsed < 0 || b.CostUSDLimit < 0 {
+		return fmt.Errorf("known budget cost must not be negative")
 	}
 	return nil
 }

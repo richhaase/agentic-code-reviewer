@@ -39,7 +39,7 @@ func (s *FilesystemLoopDecisionStore) SaveLoopDecision(decision LoopDecisionV1) 
 	if err != nil {
 		return "", fmt.Errorf("marshal loop decision %s: %w", decision.ID, err)
 	}
-	if err := writeNewFile(path, data, 0o644); err != nil {
+	if err := writeNewFile(path, data, 0o600); err != nil {
 		return "", fmt.Errorf("save loop decision %s: %w", decision.ID, err)
 	}
 	return path, nil

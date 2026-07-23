@@ -1,9 +1,11 @@
 package store
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -59,6 +61,42 @@ func TestAtomicWriteFile_StrayTempFileIgnoredByCaller(t *testing.T) {
 		if !strings.HasPrefix(entry.Name(), ".") {
 			t.Fatalf("expected only hidden stray files, found %q", entry.Name())
 		}
+	}
+}
+
+func TestWriteNewFile_ConcurrentWritersToTheSamePathNeverBothSucceed(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "record.json")
+
+	const writers = 20
+	var wg sync.WaitGroup
+	results := make([]error, writers)
+	wg.Add(writers)
+	for i := 0; i < writers; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			results[i] = writeNewFile(path, []byte(fmt.Sprintf(`{"writer":%d}`, i)), 0o600)
+		}()
+	}
+	wg.Wait()
+
+	successes := 0
+	for _, err := range results {
+		if err == nil {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("expected exactly one of %d concurrent writers to the same path to succeed, got %d", writers, successes)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "record.json" {
+		t.Fatalf("expected exactly one surviving record and no leftover temp files, got %v", entries)
 	}
 }
 

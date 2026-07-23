@@ -153,12 +153,6 @@ func renderRunEntry(timestamp string, run *store.ReviewRunV1) {
 	}
 	fmt.Printf("                            findings: raw=%d aggregated=%d fp_filtered=%d exclude_filtered=%d final=%d info=%d\n",
 		len(run.RawFindings), len(run.AggregatedFindings), len(run.FalsePositiveFilter.Removed), len(run.ExcludeFilter.Removed), len(run.Findings), len(run.Info))
-	if run.Lifecycle.Stale {
-		fmt.Printf("                            lifecycle: stale (%s)\n", run.Lifecycle.StaleReason)
-	}
-	if run.Lifecycle.SupersededByRunID != "" {
-		fmt.Printf("                            lifecycle: superseded by %s\n", run.Lifecycle.SupersededByRunID)
-	}
 }
 
 func renderAdjudicationEntry(timestamp string, record *store.AdjudicationRecordV1) {

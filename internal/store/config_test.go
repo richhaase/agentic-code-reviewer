@@ -167,6 +167,11 @@ func TestValidatePolicySourceOutsideReview(t *testing.T) {
 			source:  PolicySourceV1{Kind: config.SourceKindFilesystem},
 			wantErr: true,
 		},
+		{
+			name:    "missing source revision fails closed rather than passing",
+			source:  PolicySourceV1{Kind: config.SourceKindRepositoryRevision, Revision: ""},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -179,6 +184,15 @@ func TestValidatePolicySourceOutsideReview(t *testing.T) {
 				t.Fatalf("expected no error, got %v", err)
 			}
 		})
+	}
+}
+
+func TestValidatePolicySourceOutsideReview_MissingTargetHeadFailsClosed(t *testing.T) {
+	incompleteTarget := ReviewTargetV1{Revision: RevisionEvidenceV1{HeadObjectID: ""}}
+	source := PolicySourceV1{Kind: config.SourceKindRepositoryRevision, Revision: "trusted-branch-sha"}
+
+	if err := ValidatePolicySourceOutsideReview(source, incompleteTarget); err == nil {
+		t.Fatal("expected an error when the reviewed target has no head revision to compare against; missing evidence must not be treated as a passing check")
 	}
 }
 

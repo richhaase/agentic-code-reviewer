@@ -48,7 +48,7 @@ func (s *FilesystemEconomicsStore) SaveEconomics(key PullRequestKeyV1, recordedA
 	if err != nil {
 		return "", fmt.Errorf("marshal review economics %s: %w", economics.RunID, err)
 	}
-	if err := writeNewFile(path, data, 0o644); err != nil {
+	if err := writeNewFile(path, data, 0o600); err != nil {
 		return "", fmt.Errorf("save review economics %s: %w", economics.RunID, err)
 	}
 	return path, nil

@@ -225,6 +225,19 @@ func TestReviewRunV1_RejectsCorruptedConfigurationFingerprint(t *testing.T) {
 	}
 }
 
+func TestReviewRunV1_RejectsMismatchedTopLevelConfigurationFingerprint(t *testing.T) {
+	run := buildTestReviewRun(t, domain.ReviewStatusCompleted)
+	schema, err := ToReviewRunSchema(run, RenderedOutcomeV1{})
+	if err != nil {
+		t.Fatalf("ToReviewRunSchema: %v", err)
+	}
+	schema.ConfigurationFingerprint = "sha256:top-level-mismatch"
+
+	if _, _, err := FromReviewRunSchema(schema); err == nil {
+		t.Fatal("expected an explicit error when the top-level configuration_fingerprint disagrees with the nested configuration fingerprint")
+	}
+}
+
 func TestReviewRunV1_RejectsUnknownStatus(t *testing.T) {
 	run := buildTestReviewRun(t, domain.ReviewStatusCompleted)
 	schema, err := ToReviewRunSchema(run, RenderedOutcomeV1{})
@@ -238,20 +251,24 @@ func TestReviewRunV1_RejectsUnknownStatus(t *testing.T) {
 	}
 }
 
-func TestRunLifecycleV1_PreservesOriginalOutcomeWhenMarkedStaleOrSuperseded(t *testing.T) {
+func TestReviewRunV1_StaleAndSupersededTransitionsAreSeparateEventsNotRunMutations(t *testing.T) {
 	run := buildTestReviewRun(t, domain.ReviewStatusCompleted)
 	schema, err := ToReviewRunSchema(run, RenderedOutcomeV1{})
 	if err != nil {
 		t.Fatalf("ToReviewRunSchema: %v", err)
 	}
 
-	staleAt := run.CompletedAt.Add(time.Hour)
-	schema.Lifecycle = RunLifecycleV1{
-		Stale:             true,
-		StaleReason:       "head moved",
-		StaleAt:           staleAt,
-		SupersededByRunID: "run-2",
-		SupersededAt:      staleAt,
+	staleEvent := ReviewEventV1{
+		SchemaVersion: CurrentSchemaVersion,
+		ID:            "event-stale-1",
+		PullRequest:   testPullRequestKey(),
+		Type:          EventTypeReviewStale,
+		OccurredAt:    run.CompletedAt.Add(time.Hour),
+		RunID:         schema.ID,
+		Reason:        "head moved",
+	}
+	if err := staleEvent.Validate(); err != nil {
+		t.Fatalf("stale event Validate: %v", err)
 	}
 
 	data, err := json.Marshal(schema)
@@ -262,12 +279,8 @@ func TestRunLifecycleV1_PreservesOriginalOutcomeWhenMarkedStaleOrSuperseded(t *t
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-
-	if decoded.Lifecycle.Stale != true || decoded.Lifecycle.SupersededByRunID != "run-2" {
-		t.Fatalf("lifecycle round trip mismatch: got %+v", decoded.Lifecycle)
-	}
 	if decoded.Status != string(domain.ReviewStatusCompleted) {
-		t.Fatalf("marking a run stale must not rewrite its original terminal status: got %q", decoded.Status)
+		t.Fatalf("a later stale/superseded event must not rewrite the run's original terminal status: got %q", decoded.Status)
 	}
 
 	gotRun, _, err := FromReviewRunSchema(decoded)

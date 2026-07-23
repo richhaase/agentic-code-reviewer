@@ -33,7 +33,7 @@ func (s *FilesystemSnapshotStore) SaveSnapshot(snapshot PRSnapshotV1) error {
 	if err != nil {
 		return fmt.Errorf("marshal pull request snapshot: %w", err)
 	}
-	if err := atomicWriteFile(path, data, 0o644); err != nil {
+	if err := atomicWriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("save pull request snapshot for %s: %w", snapshot.PullRequest.String(), err)
 	}
 	return nil

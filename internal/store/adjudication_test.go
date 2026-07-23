@@ -182,6 +182,44 @@ func TestResolveFindingAdjudication_ReturnsMostRecentInSupersessionChain(t *test
 	}
 }
 
+func TestResolveFindingAdjudication_SelectionIsIndependentOfSliceOrder(t *testing.T) {
+	original := validAdjudicationRecord()
+	original.ID = "adjudication-1"
+
+	corrected := validAdjudicationRecord()
+	corrected.ID = "adjudication-2"
+	corrected.Disposition = AdjudicationFalsePositive
+	corrected.RelationToPrior = AdjudicationRelationCorrected
+	corrected.SupersedesRecordID = original.ID
+	corrected.RecordedAt = original.RecordedAt.Add(time.Hour)
+
+	forward, ok := ResolveFindingAdjudication([]AdjudicationRecordV1{original, corrected}, original.FindingRef, original.Scope)
+	if !ok || forward.ID != corrected.ID {
+		t.Fatalf("expected the correction regardless of order, got %+v (ok=%v)", forward, ok)
+	}
+
+	reversed, ok := ResolveFindingAdjudication([]AdjudicationRecordV1{corrected, original}, original.FindingRef, original.Scope)
+	if !ok || reversed.ID != corrected.ID {
+		t.Fatalf("expected the correction even when it sorts before the original in the input slice, got %+v (ok=%v)", reversed, ok)
+	}
+}
+
+func TestResolveFindingAdjudication_TiedTimestampPrefersSupersedingRecord(t *testing.T) {
+	original := validAdjudicationRecord()
+	original.ID = "adjudication-1"
+
+	corrected := validAdjudicationRecord()
+	corrected.ID = "adjudication-2"
+	corrected.Disposition = AdjudicationFalsePositive
+	corrected.RelationToPrior = AdjudicationRelationCorrected
+	corrected.SupersedesRecordID = original.ID
+
+	found, ok := ResolveFindingAdjudication([]AdjudicationRecordV1{corrected, original}, original.FindingRef, original.Scope)
+	if !ok || found.ID != corrected.ID {
+		t.Fatalf("expected the record that supersedes the other to win a recorded_at tie, got %+v (ok=%v)", found, ok)
+	}
+}
+
 func TestResolveFindingAdjudication_UncertaintyStaysVisibleAcrossScopeChanges(t *testing.T) {
 	record := validAdjudicationRecord()
 

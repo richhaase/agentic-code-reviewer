@@ -102,6 +102,25 @@ func TestProviderUsageV1_ValidateRejectsUnknownWithNonzeroMeasurements(t *testin
 	}
 }
 
+func TestProviderUsageV1_ValidateRejectsNegativeKnownMeasurements(t *testing.T) {
+	tests := []struct {
+		name  string
+		usage ProviderUsageV1
+	}{
+		{name: "negative input tokens", usage: ProviderUsageV1{Known: true, InputTokens: -1}},
+		{name: "negative output tokens", usage: ProviderUsageV1{Known: true, OutputTokens: -1}},
+		{name: "negative total tokens", usage: ProviderUsageV1{Known: true, TotalTokens: -1}},
+		{name: "negative cost", usage: ProviderUsageV1{Known: true, CostUSD: -0.01}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.usage.Validate(); err == nil {
+				t.Fatalf("expected an error for known usage with a negative measurement: %+v", tt.usage)
+			}
+		})
+	}
+}
+
 func TestReviewEconomicsV1_ValidateRejectsInvalidFields(t *testing.T) {
 	tests := []struct {
 		name   string

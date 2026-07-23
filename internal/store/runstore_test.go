@@ -172,6 +172,26 @@ func TestFilesystemRunStore_LoadRunNotFound(t *testing.T) {
 	}
 }
 
+func TestFilesystemRunStore_SaveRunRejectsInvalidRecord(t *testing.T) {
+	dir := t.TempDir()
+	store := NewFilesystemRunStore(dir)
+	schema := buildTestReviewRunSchema(t, "run-invalid", time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC))
+	schema.ConfigurationFingerprint = "sha256:corrupted-before-save"
+
+	if _, err := store.SaveRun(schema); err == nil {
+		t.Fatal("expected SaveRun to reject a record ListRuns would later consider corrupt")
+	}
+
+	key := testPullRequestKey()
+	runs, corrupt, err := store.ListRuns(key)
+	if err != nil {
+		t.Fatalf("list runs: %v", err)
+	}
+	if len(runs) != 0 || len(corrupt) != 0 {
+		t.Fatalf("expected nothing to have been written for a rejected save, got runs=%v corrupt=%v", runs, corrupt)
+	}
+}
+
 func TestFilesystemRunStore_SaveRunRequiresPullRequestTarget(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFilesystemRunStore(dir)

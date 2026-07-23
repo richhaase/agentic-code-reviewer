@@ -45,9 +45,10 @@ one.
   the false-positive and exclude-filter dispositions, final findings and
   informational results, and the terminal status/conclusion/failure. A
   successful, failed, or interrupted run's original outcome is never
-  rewritten in place: `RunLifecycleV1` records later desk-level observations
-  (the run became `stale` because the head moved, or was `superseded` by a
-  later run) alongside the original record, not instead of it.
+  rewritten in place: a run becoming `stale` (the head moved) or `superseded`
+  (by a later run) is recorded as a separate `review_stale` /
+  `review_superseded` `ReviewEventV1` referencing the run's ID, not as a
+  mutation of the original run record.
 - **`ReviewEventV1`** — an append-only entry in a pull request's local
   history. `ReviewEventTypeV1` enumerates the full event vocabulary from epic
   #191's Core Domain Model: PR discovery/refresh; review queued, started,

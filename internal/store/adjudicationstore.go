@@ -39,7 +39,7 @@ func (s *FilesystemAdjudicationStore) SaveAdjudication(record AdjudicationRecord
 	if err != nil {
 		return "", fmt.Errorf("marshal adjudication record %s: %w", record.ID, err)
 	}
-	if err := writeNewFile(path, data, 0o644); err != nil {
+	if err := writeNewFile(path, data, 0o600); err != nil {
 		return "", fmt.Errorf("save adjudication record %s: %w", record.ID, err)
 	}
 	return path, nil
