@@ -20,6 +20,7 @@ func newDeskCmd() *cobra.Command {
 
 	cmd.AddCommand(newDeskHistoryCmd())
 	cmd.AddCommand(newDeskForgetCmd())
+	cmd.AddCommand(newDeskConfigCmd())
 
 	return cmd
 }
