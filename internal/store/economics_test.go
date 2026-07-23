@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -111,6 +112,8 @@ func TestProviderUsageV1_ValidateRejectsNegativeKnownMeasurements(t *testing.T) 
 		{name: "negative output tokens", usage: ProviderUsageV1{Known: true, OutputTokens: -1}},
 		{name: "negative total tokens", usage: ProviderUsageV1{Known: true, TotalTokens: -1}},
 		{name: "negative cost", usage: ProviderUsageV1{Known: true, CostUSD: -0.01}},
+		{name: "NaN cost", usage: ProviderUsageV1{Known: true, CostUSD: math.NaN()}},
+		{name: "infinite cost", usage: ProviderUsageV1{Known: true, CostUSD: math.Inf(1)}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

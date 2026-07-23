@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -84,6 +85,8 @@ func TestBudgetStateV1_ValidateRejectsNegativeKnownMeasurements(t *testing.T) {
 		{name: "negative iterations limit", budget: BudgetStateV1{Known: true, IterationsLimit: -1}},
 		{name: "negative cost used", budget: BudgetStateV1{Known: true, CostUSDUsed: -0.01}},
 		{name: "negative cost limit", budget: BudgetStateV1{Known: true, CostUSDLimit: -0.01}},
+		{name: "NaN cost used", budget: BudgetStateV1{Known: true, CostUSDUsed: math.NaN()}},
+		{name: "infinite cost limit", budget: BudgetStateV1{Known: true, CostUSDLimit: math.Inf(1)}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

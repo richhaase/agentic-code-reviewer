@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -40,10 +41,14 @@ func (b BudgetStateV1) Validate() error {
 	if b.IterationsUsed < 0 || b.IterationsLimit < 0 {
 		return fmt.Errorf("known budget iteration counts must not be negative")
 	}
-	if b.CostUSDUsed < 0 || b.CostUSDLimit < 0 {
-		return fmt.Errorf("known budget cost must not be negative")
+	if isInvalidKnownCost(b.CostUSDUsed) || isInvalidKnownCost(b.CostUSDLimit) {
+		return fmt.Errorf("known budget cost must be a finite number that is not negative")
 	}
 	return nil
+}
+
+func isInvalidKnownCost(cost float64) bool {
+	return cost < 0 || math.IsNaN(cost) || math.IsInf(cost, 0)
 }
 
 type LoopDecisionV1 struct {

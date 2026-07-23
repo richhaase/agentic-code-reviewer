@@ -1,6 +1,7 @@
 package config
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1743,6 +1744,34 @@ func TestValidate_AdjudicationBounds(t *testing.T) {
 		if !found {
 			t.Errorf("expected validation error mentioning %s, got %v", want, errs)
 		}
+	}
+}
+
+func TestValidate_AdjudicationMaxCostUSDRejectsNonFiniteValues(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		cost float64
+	}{
+		{name: "NaN", cost: math.NaN()},
+		{name: "positive infinity", cost: math.Inf(1)},
+		{name: "negative infinity", cost: math.Inf(-1)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			resolved := Defaults
+			resolved.AdjudicationMaxCostUSD = tt.cost
+
+			errs := resolved.ValidateAll()
+			found := false
+			for _, e := range errs {
+				if strings.Contains(e, "adjudication.max_cost_usd") {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("expected a validation error for a non-finite adjudication.max_cost_usd (%v), got %v", tt.cost, errs)
+			}
+		})
 	}
 }
 

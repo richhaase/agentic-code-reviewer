@@ -86,9 +86,12 @@ func newDeskForgetCmd() *cobra.Command {
 }
 
 func renderHistory(history desk.History) {
-	if len(history.Entries) == 0 {
+	switch {
+	case len(history.Entries) == 0 && len(history.Corrupt) == 0:
 		fmt.Printf("No stored history found for %s.\n", history.PullRequest.String())
-	} else {
+	case len(history.Entries) == 0:
+		fmt.Printf("No readable history found for %s.\n", history.PullRequest.String())
+	default:
 		fmt.Printf("History for %s (%d record(s)):\n\n", history.PullRequest.String(), len(history.Entries))
 		for _, entry := range history.Entries {
 			renderTimelineEntry(entry)

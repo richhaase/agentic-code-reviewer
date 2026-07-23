@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -50,6 +51,48 @@ func TestDeskHistory_NoStoredHistory(t *testing.T) {
 	}
 	if !strings.Contains(output, "No stored history found for github.com/richhaase/agentic-code-reviewer#198") {
 		t.Fatalf("unexpected output: %q", output)
+	}
+}
+
+func TestDeskHistory_CorruptOnlyHistoryIsNotReportedAsMissing(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("ACR_DATA_DIR", dataDir)
+
+	key := store.PullRequestKeyV1{Host: "github.com", Owner: "richhaase", Repository: "agentic-code-reviewer", Number: 198}
+	event := store.ReviewEventV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		ID:            "event-good",
+		PullRequest:   key,
+		Type:          store.EventTypePRDiscovered,
+		OccurredAt:    time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC),
+	}
+	path, err := store.NewFilesystemEventStore(dataDir).AppendEvent(event)
+	if err != nil {
+		t.Fatalf("append event: %v", err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove the only readable record, leaving a corrupt-only history: %v", err)
+	}
+	corruptPath := filepath.Join(filepath.Dir(path), "20260722T120000.000000000Z-event-corrupt.json")
+	if err := os.WriteFile(corruptPath, []byte(`{"schema_version": 1, "id": "event-corrupt", "truncated`), 0o600); err != nil {
+		t.Fatalf("seed corrupt record: %v", err)
+	}
+
+	cmd := newDeskCmd()
+	cmd.SetArgs([]string{"history", "richhaase/agentic-code-reviewer#198"})
+	var runErr error
+	output := captureStdout(t, func() {
+		runErr = cmd.Execute()
+	})
+	if runErr != nil {
+		t.Fatalf("unexpected error: %v", runErr)
+	}
+
+	if strings.Contains(output, "No stored history found") {
+		t.Fatalf("a corrupt-only history must not be reported as missing, got:\n%s", output)
+	}
+	if !strings.Contains(output, "could not be read") {
+		t.Fatalf("expected the corrupt record to be reported, got:\n%s", output)
 	}
 }
 

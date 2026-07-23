@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -411,8 +412,8 @@ func (r *ResolvedConfig) ValidateAll() []string {
 	if r.AdjudicationMaxIterations < 0 {
 		errs = append(errs, fmt.Sprintf("adjudication.max_iterations must be >= 0, got %d", r.AdjudicationMaxIterations))
 	}
-	if r.AdjudicationMaxCostUSD < 0 {
-		errs = append(errs, fmt.Sprintf("adjudication.max_cost_usd must be >= 0, got %g", r.AdjudicationMaxCostUSD))
+	if r.AdjudicationMaxCostUSD < 0 || math.IsNaN(r.AdjudicationMaxCostUSD) || math.IsInf(r.AdjudicationMaxCostUSD, 0) {
+		errs = append(errs, fmt.Sprintf("adjudication.max_cost_usd must be a finite number >= 0, got %g", r.AdjudicationMaxCostUSD))
 	}
 	return errs
 }

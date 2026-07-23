@@ -1,6 +1,9 @@
 package store
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+)
 
 type BudgetPolicyV1 struct {
 	MaxIterations int     `json:"max_iterations"`
@@ -11,8 +14,8 @@ func (p BudgetPolicyV1) Validate() error {
 	if p.MaxIterations < 0 {
 		return fmt.Errorf("budget policy max_iterations must not be negative")
 	}
-	if p.MaxCostUSD < 0 {
-		return fmt.Errorf("budget policy max_cost_usd must not be negative")
+	if p.MaxCostUSD < 0 || math.IsNaN(p.MaxCostUSD) || math.IsInf(p.MaxCostUSD, 0) {
+		return fmt.Errorf("budget policy max_cost_usd must be a finite number that is not negative")
 	}
 	return nil
 }

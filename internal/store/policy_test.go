@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"math"
 	"reflect"
 	"testing"
 
@@ -61,6 +62,8 @@ func TestAdjudicationPolicyV1_Validate(t *testing.T) {
 		{name: "empty source kind rejected", mutate: func(p *AdjudicationPolicyV1) { p.Source = PolicySourceV1{} }, wantErr: true},
 		{name: "negative max iterations", mutate: func(p *AdjudicationPolicyV1) { p.Budget.MaxIterations = -1 }, wantErr: true},
 		{name: "negative max cost", mutate: func(p *AdjudicationPolicyV1) { p.Budget.MaxCostUSD = -1 }, wantErr: true},
+		{name: "NaN max cost", mutate: func(p *AdjudicationPolicyV1) { p.Budget.MaxCostUSD = math.NaN() }, wantErr: true},
+		{name: "infinite max cost", mutate: func(p *AdjudicationPolicyV1) { p.Budget.MaxCostUSD = math.Inf(1) }, wantErr: true},
 	}
 
 	for _, tt := range tests {

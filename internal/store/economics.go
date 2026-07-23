@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -23,8 +24,8 @@ func (u ProviderUsageV1) Validate() error {
 	if u.InputTokens < 0 || u.OutputTokens < 0 || u.TotalTokens < 0 {
 		return fmt.Errorf("known provider usage token counts must not be negative")
 	}
-	if u.CostUSD < 0 {
-		return fmt.Errorf("known provider usage cost must not be negative")
+	if u.CostUSD < 0 || math.IsNaN(u.CostUSD) || math.IsInf(u.CostUSD, 0) {
+		return fmt.Errorf("known provider usage cost must be a finite number that is not negative")
 	}
 	return nil
 }
