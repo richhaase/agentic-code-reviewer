@@ -33,8 +33,9 @@ func TestTrustedSource_ResolvesFromTheRepositoryItselfWithNoNetworkAccess(t *tes
 	workDir := t.TempDir()
 	runGit(t, workDir, "init", "-q")
 	runGit(t, workDir, "checkout", "-q", "-b", "main")
-	runGit(t, workDir, "commit", "-q", "--allow-empty", "-m", "init",
-		"--author=Test <test@example.com>")
+	runGit(t, workDir, "config", "user.email", "test@example.com")
+	runGit(t, workDir, "config", "user.name", "Test")
+	runGit(t, workDir, "commit", "-q", "--allow-empty", "-m", "init")
 	runGit(t, workDir, "remote", "add", "origin", bareDir)
 	runGit(t, workDir, "push", "-q", "origin", "main")
 	runGit(t, bareDir, "symbolic-ref", "HEAD", "refs/heads/main")
