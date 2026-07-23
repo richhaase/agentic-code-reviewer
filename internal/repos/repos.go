@@ -69,6 +69,9 @@ func Resolve(ctx context.Context, scope workspace.ScopeConfig) (Resolution, erro
 	if err := validatePatterns(scope.Include, scope.Exclude); err != nil {
 		return Resolution{}, err
 	}
+	if err := validatePathOverrideCollisions(scope.PathOverrides); err != nil {
+		return Resolution{}, err
+	}
 
 	discovered := map[Identity][]discoveredRepo{}
 	seenDirs := map[string]struct{}{}
@@ -264,6 +267,33 @@ func parseIdentity(raw string) (Identity, error) {
 	}
 }
 
+func validatePathOverrideCollisions(overrides map[string]string) error {
+	seen := map[Identity][]string{}
+	for raw := range overrides {
+		identity, err := parseIdentity(raw)
+		if err != nil {
+			continue
+		}
+		seen[identity] = append(seen[identity], raw)
+	}
+
+	var colliding []Identity
+	for identity, raws := range seen {
+		if len(raws) > 1 {
+			colliding = append(colliding, identity)
+		}
+	}
+	if len(colliding) == 0 {
+		return nil
+	}
+
+	sort.Slice(colliding, func(i, j int) bool { return colliding[i].String() < colliding[j].String() })
+	identity := colliding[0]
+	raws := seen[identity]
+	sort.Strings(raws)
+	return fmt.Errorf("scope.path_overrides: keys %s all resolve to %s; configure exactly one", strings.Join(raws, ", "), identity)
+}
+
 func validatePatterns(include, exclude []string) error {
 	for _, pattern := range exclude {
 		if _, err := path.Match(strings.ToLower(pattern), ""); err != nil {
@@ -333,8 +363,15 @@ func scanRoot(root string) ([]string, string) {
 		return candidates, fmt.Sprintf("repository root %s: %v", root, err)
 	}
 	for _, entry := range entries {
+		entryPath := filepath.Join(root, entry.Name())
 		if entry.IsDir() {
-			candidates = append(candidates, filepath.Join(root, entry.Name()))
+			candidates = append(candidates, entryPath)
+			continue
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			if info, err := os.Stat(entryPath); err == nil && info.IsDir() {
+				candidates = append(candidates, entryPath)
+			}
 		}
 	}
 	return candidates, ""
@@ -345,14 +382,17 @@ func repositoryIdentity(ctx context.Context, dir string) (Identity, string, bool
 		return Identity{}, "", false, nil
 	}
 
-	remote, ok := primaryRemote(ctx, dir)
+	remote, ok, err := primaryRemote(ctx, dir)
+	if err != nil {
+		return Identity{}, "", false, err
+	}
 	if !ok {
 		return Identity{}, "", false, nil
 	}
 
 	remoteURL, err := git.RemoteURL(ctx, dir, remote)
 	if err != nil {
-		return Identity{}, "", false, nil
+		return Identity{}, "", false, fmt.Errorf("failed to read remote %q: %w", remote, err)
 	}
 
 	host, owner, name, ok := github.ParseRemoteURL(remoteURL)
@@ -362,18 +402,18 @@ func repositoryIdentity(ctx context.Context, dir string) (Identity, string, bool
 	return Identity{Host: host, Owner: owner, Name: name}, remote, true, nil
 }
 
-func primaryRemote(ctx context.Context, dir string) (string, bool) {
+func primaryRemote(ctx context.Context, dir string) (string, bool, error) {
 	names, err := git.Remotes(ctx, dir)
 	if err != nil {
-		return "", false
+		return "", false, fmt.Errorf("failed to list remotes: %w", err)
 	}
 	if slices.Contains(names, "origin") {
-		return "origin", true
+		return "origin", true, nil
 	}
 	if len(names) == 1 {
-		return names[0], true
+		return names[0], true, nil
 	}
-	return "", false
+	return "", false, nil
 }
 
 func isGitRepository(dir string) bool {

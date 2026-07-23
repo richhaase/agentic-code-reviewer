@@ -423,6 +423,67 @@ func TestResolve_DoesNotGuessAmongMultipleNonOriginRemotes(t *testing.T) {
 	}
 }
 
+func TestResolve_SurfacesGitInspectionFailureAsRootWarning(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "broken")
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	resolution, err := Resolve(context.Background(), workspace.ScopeConfig{RepositoryRoots: []string{root}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resolution.Repositories) != 0 {
+		t.Fatalf("expected no reviewable repository for a broken git directory, got %+v", resolution.Repositories)
+	}
+	if len(resolution.RootWarnings) == 0 {
+		t.Fatal("expected a root warning surfacing the broken git directory instead of silently ignoring it")
+	}
+}
+
+func TestResolve_DiscoversSymlinkedChildRepo(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks require elevated privileges on windows")
+	}
+
+	actualRepo := filepath.Join(t.TempDir(), "actual-widgets")
+	initGitRepoWithRemote(t, actualRepo, "https://github.com/acme/widgets.git")
+
+	root := t.TempDir()
+	linkPath := filepath.Join(root, "widgets-link")
+	if err := os.Symlink(actualRepo, linkPath); err != nil {
+		t.Fatal(err)
+	}
+
+	resolution, err := Resolve(context.Background(), workspace.ScopeConfig{RepositoryRoots: []string{root}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resolution.Repositories) != 1 {
+		t.Fatalf("expected 1 repository via the symlinked child, got %+v", resolution.Repositories)
+	}
+	if resolution.Repositories[0].Status != StatusReviewable {
+		t.Fatalf("expected reviewable, got %s (%s)", resolution.Repositories[0].Status, resolution.Repositories[0].Reason)
+	}
+}
+
+func TestResolve_RejectsDuplicateNormalizedPathOverrides(t *testing.T) {
+	root := t.TempDir()
+	pathA := filepath.Join(root, "a")
+	pathB := filepath.Join(root, "b")
+
+	_, err := Resolve(context.Background(), workspace.ScopeConfig{
+		PathOverrides: map[string]string{
+			"acme/widgets":            pathA,
+			"github.com/acme/widgets": pathB,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected an error for two path_overrides keys that normalize to the same identity")
+	}
+}
+
 func TestIdentity_StringHidesDefaultHostOnly(t *testing.T) {
 	githubCom := Identity{Host: DefaultHost, Owner: "acme", Name: "widgets"}
 	if githubCom.String() != "acme/widgets" {
