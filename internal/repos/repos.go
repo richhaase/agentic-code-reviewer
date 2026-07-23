@@ -50,7 +50,12 @@ type Resolution struct {
 }
 
 func Resolve(ctx context.Context, scope workspace.ScopeConfig) (Resolution, error) {
+	if err := validatePatterns(scope.Include, scope.Exclude); err != nil {
+		return Resolution{}, err
+	}
+
 	discovered := map[Identity][]string{}
+	seenDirs := map[string]struct{}{}
 	var rootWarnings []string
 
 	for _, root := range scope.RepositoryRoots {
@@ -59,6 +64,16 @@ func Resolve(ctx context.Context, scope workspace.ScopeConfig) (Resolution, erro
 			rootWarnings = append(rootWarnings, warning)
 		}
 		for _, dir := range candidates {
+			absDir, err := filepath.Abs(dir)
+			if err != nil {
+				rootWarnings = append(rootWarnings, fmt.Sprintf("%s: %v", dir, err))
+				continue
+			}
+			if _, ok := seenDirs[absDir]; ok {
+				continue
+			}
+			seenDirs[absDir] = struct{}{}
+
 			identity, ok, err := repositoryIdentity(ctx, dir)
 			if err != nil {
 				rootWarnings = append(rootWarnings, fmt.Sprintf("%s: %v", dir, err))
@@ -96,7 +111,7 @@ func Resolve(ctx context.Context, scope workspace.ScopeConfig) (Resolution, erro
 			rootWarnings = append(rootWarnings, fmt.Sprintf("path_overrides: %v", err))
 			continue
 		}
-		results[identity] = resolvePathOverride(identity, localPath)
+		results[identity] = resolvePathOverride(ctx, identity, localPath)
 	}
 
 	for identity, result := range results {
@@ -123,7 +138,7 @@ func Resolve(ctx context.Context, scope workspace.ScopeConfig) (Resolution, erro
 	return Resolution{Repositories: repositories, RootWarnings: rootWarnings}, nil
 }
 
-func resolvePathOverride(identity Identity, localPath string) ResolvedRepository {
+func resolvePathOverride(ctx context.Context, identity Identity, localPath string) ResolvedRepository {
 	info, err := os.Stat(localPath)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -155,6 +170,23 @@ func resolvePathOverride(identity Identity, localPath string) ResolvedRepository
 			Reason:    fmt.Sprintf("%s: %s is not a git repository", identity, localPath),
 		}
 	default:
+		hasOrigin, err := git.RemoteExists(ctx, localPath, "origin")
+		if err != nil {
+			return ResolvedRepository{
+				Identity:  identity,
+				Status:    StatusInvalid,
+				LocalPath: localPath,
+				Reason:    fmt.Sprintf("%s: failed to inspect remotes for %s: %v", identity, localPath, err),
+			}
+		}
+		if !hasOrigin {
+			return ResolvedRepository{
+				Identity:  identity,
+				Status:    StatusInvalid,
+				LocalPath: localPath,
+				Reason:    fmt.Sprintf("%s: %s has no origin remote configured", identity, localPath),
+			}
+		}
 		return ResolvedRepository{
 			Identity:  identity,
 			Status:    StatusReviewable,
@@ -170,6 +202,20 @@ func parseIdentity(raw string) (Identity, error) {
 		return Identity{}, fmt.Errorf("invalid owner/repo identity %q", raw)
 	}
 	return Identity{Owner: strings.ToLower(segments[0]), Name: strings.ToLower(segments[1])}, nil
+}
+
+func validatePatterns(include, exclude []string) error {
+	for _, pattern := range exclude {
+		if _, err := path.Match(strings.ToLower(pattern), ""); err != nil {
+			return fmt.Errorf("scope.exclude: invalid pattern %q: %w", pattern, err)
+		}
+	}
+	for _, pattern := range include {
+		if _, err := path.Match(strings.ToLower(pattern), ""); err != nil {
+			return fmt.Errorf("scope.include: invalid pattern %q: %w", pattern, err)
+		}
+	}
+	return nil
 }
 
 func matchesExclusion(identity Identity, include, exclude []string) (bool, string) {

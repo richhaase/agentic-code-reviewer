@@ -86,6 +86,68 @@ func TestResolve_PathOverrideMissing(t *testing.T) {
 	}
 }
 
+func TestResolve_PathOverrideInvalidWithoutOriginRemote(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "no-origin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init failed: %v: %s", err, out)
+	}
+
+	resolution, err := Resolve(context.Background(), workspace.ScopeConfig{
+		PathOverrides: map[string]string{"acme/no-origin": dir},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resolution.Repositories) != 1 || resolution.Repositories[0].Status != StatusInvalid {
+		t.Fatalf("expected invalid status for a checkout without an origin remote, got %+v", resolution.Repositories)
+	}
+}
+
+func TestResolve_OverlappingRootsDoNotFalselyReportAmbiguity(t *testing.T) {
+	root := t.TempDir()
+	repoDir := filepath.Join(root, "widgets")
+	initGitRepoWithRemote(t, repoDir, "https://github.com/acme/widgets.git")
+
+	resolution, err := Resolve(context.Background(), workspace.ScopeConfig{
+		RepositoryRoots: []string{root, repoDir, root},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resolution.Repositories) != 1 {
+		t.Fatalf("expected exactly 1 repository entry, got %d: %+v", len(resolution.Repositories), resolution.Repositories)
+	}
+	if resolution.Repositories[0].Status != StatusReviewable {
+		t.Fatalf("expected reviewable, got %s (%s)", resolution.Repositories[0].Status, resolution.Repositories[0].Reason)
+	}
+}
+
+func TestResolve_RejectsMalformedExcludePattern(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/acme/widgets.git")
+
+	_, err := Resolve(context.Background(), workspace.ScopeConfig{
+		RepositoryRoots: []string{root},
+		Exclude:         []string{"acme/[widgets"},
+	})
+	if err == nil {
+		t.Fatal("expected an error for a malformed exclude pattern")
+	}
+}
+
+func TestResolve_RejectsMalformedIncludePattern(t *testing.T) {
+	_, err := Resolve(context.Background(), workspace.ScopeConfig{
+		Include: []string{"acme/[widgets"},
+	})
+	if err == nil {
+		t.Fatal("expected an error for a malformed include pattern")
+	}
+}
+
 func TestResolve_PathOverrideInvalidNotAGitRepo(t *testing.T) {
 	root := t.TempDir()
 	plainDir := filepath.Join(root, "plain")
