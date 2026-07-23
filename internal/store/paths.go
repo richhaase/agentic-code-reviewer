@@ -9,10 +9,13 @@ import (
 )
 
 const (
-	prsDirName       = "prs"
-	runsDirName      = "runs"
-	eventsDirName    = "events"
-	snapshotFileName = "snapshot.json"
+	prsDirName           = "prs"
+	runsDirName          = "runs"
+	eventsDirName        = "events"
+	snapshotFileName     = "snapshot.json"
+	adjudicationsDirName = "adjudications"
+	loopDecisionsDirName = "loop_decisions"
+	economicsDirName     = "economics"
 )
 
 func pullRequestDir(dataDir string, key PullRequestKeyV1) (string, error) {
@@ -44,6 +47,30 @@ func snapshotFilePath(dataDir string, key PullRequestKeyV1) (string, error) {
 		return "", err
 	}
 	return filepath.Join(prDir, snapshotFileName), nil
+}
+
+func adjudicationsDir(dataDir string, key PullRequestKeyV1) (string, error) {
+	prDir, err := pullRequestDir(dataDir, key)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(prDir, adjudicationsDirName), nil
+}
+
+func loopDecisionsDir(dataDir string, key PullRequestKeyV1) (string, error) {
+	prDir, err := pullRequestDir(dataDir, key)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(prDir, loopDecisionsDirName), nil
+}
+
+func economicsDir(dataDir string, key PullRequestKeyV1) (string, error) {
+	prDir, err := pullRequestDir(dataDir, key)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(prDir, economicsDirName), nil
 }
 
 func validateRecordID(kind, id string) error {

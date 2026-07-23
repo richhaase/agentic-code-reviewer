@@ -169,3 +169,27 @@ func (r AdjudicationRecordV1) Validate() error {
 	}
 	return nil
 }
+
+// ResolveFindingAdjudication returns the most recently recorded adjudication
+// in records whose finding reference and scope match ref and scope exactly,
+// and reports whether one was found. records is expected in chronological
+// order, as returned by AdjudicationStore.ListAdjudications, so the last
+// match is the newest entry in that finding's reopen/correct/supersede
+// history. Matching requires the pull request, head object id, and
+// configuration fingerprint to all be identical: an adjudication is only
+// ever reused for a genuine exact repeat. A finding observed under a
+// different head or configuration is semantically uncertain and must not
+// silently inherit a prior decision, so it reports no match and remains
+// visible rather than being suppressed.
+func ResolveFindingAdjudication(records []AdjudicationRecordV1, ref AdjudicationFindingRefV1, scope AdjudicationScopeV1) (AdjudicationRecordV1, bool) {
+	var latest AdjudicationRecordV1
+	found := false
+	for _, record := range records {
+		if record.FindingRef != ref || record.Scope != scope {
+			continue
+		}
+		latest = record
+		found = true
+	}
+	return latest, found
+}

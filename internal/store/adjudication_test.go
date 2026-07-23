@@ -149,3 +149,80 @@ func TestAdjudicationRecordV1_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveFindingAdjudication_ExactRepeatReturnsPriorDecisionWithoutBecomingNewlyActionable(t *testing.T) {
+	record := validAdjudicationRecord()
+
+	found, ok := ResolveFindingAdjudication([]AdjudicationRecordV1{record}, record.FindingRef, record.Scope)
+	if !ok {
+		t.Fatal("expected an exact repeat to resolve a prior adjudication")
+	}
+	if found.ID != record.ID || found.Disposition != record.Disposition {
+		t.Fatalf("expected the prior decision to be returned unchanged, got %+v", found)
+	}
+}
+
+func TestResolveFindingAdjudication_ReturnsMostRecentInSupersessionChain(t *testing.T) {
+	original := validAdjudicationRecord()
+	original.ID = "adjudication-1"
+
+	corrected := validAdjudicationRecord()
+	corrected.ID = "adjudication-2"
+	corrected.Disposition = AdjudicationFalsePositive
+	corrected.RelationToPrior = AdjudicationRelationCorrected
+	corrected.SupersedesRecordID = original.ID
+	corrected.RecordedAt = original.RecordedAt.Add(time.Hour)
+
+	found, ok := ResolveFindingAdjudication([]AdjudicationRecordV1{original, corrected}, original.FindingRef, original.Scope)
+	if !ok {
+		t.Fatal("expected a match")
+	}
+	if found.ID != corrected.ID {
+		t.Fatalf("expected the most recent record in the chain, got %+v", found)
+	}
+}
+
+func TestResolveFindingAdjudication_UncertaintyStaysVisibleAcrossScopeChanges(t *testing.T) {
+	record := validAdjudicationRecord()
+
+	tests := []struct {
+		name  string
+		scope AdjudicationScopeV1
+	}{
+		{
+			name: "different head object id",
+			scope: AdjudicationScopeV1{
+				PullRequest:              record.Scope.PullRequest,
+				HeadObjectID:             "different-head",
+				ConfigurationFingerprint: record.Scope.ConfigurationFingerprint,
+			},
+		},
+		{
+			name: "different configuration fingerprint",
+			scope: AdjudicationScopeV1{
+				PullRequest:              record.Scope.PullRequest,
+				HeadObjectID:             record.Scope.HeadObjectID,
+				ConfigurationFingerprint: "sha256:different",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, ok := ResolveFindingAdjudication([]AdjudicationRecordV1{record}, record.FindingRef, tt.scope)
+			if ok {
+				t.Fatal("expected no match for a scope that differs from the recorded decision; uncertainty must stay visible")
+			}
+		})
+	}
+}
+
+func TestResolveFindingAdjudication_DifferentFindingRefDoesNotMatch(t *testing.T) {
+	record := validAdjudicationRecord()
+	otherRef := AdjudicationFindingRefV1{FindingID: "finding-2"}
+
+	_, ok := ResolveFindingAdjudication([]AdjudicationRecordV1{record}, otherRef, record.Scope)
+	if ok {
+		t.Fatal("expected no match for an unrelated finding reference")
+	}
+}

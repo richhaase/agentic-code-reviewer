@@ -646,6 +646,72 @@ func TestLoadFromPathWithWarnings_UnknownFilterKey(t *testing.T) {
 	}
 }
 
+func TestLoadFromPathWithWarnings_AdjudicationSection(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	content := `adjudication:
+  max_iterations: 5
+  max_cost_usd: 2.5
+  stop_on_clean_run: true
+  stop_on_no_new_findings: false
+  evaluation_guidance: prefer precision over recall
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := LoadFromPathWithWarnings(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Warnings) != 0 {
+		t.Fatalf("expected no warnings, got %v", result.Warnings)
+	}
+
+	adjudication := result.Config.Adjudication
+	if adjudication.MaxIterations == nil || *adjudication.MaxIterations != 5 {
+		t.Errorf("expected max_iterations=5, got %v", adjudication.MaxIterations)
+	}
+	if adjudication.MaxCostUSD == nil || *adjudication.MaxCostUSD != 2.5 {
+		t.Errorf("expected max_cost_usd=2.5, got %v", adjudication.MaxCostUSD)
+	}
+	if adjudication.StopOnCleanRun == nil || !*adjudication.StopOnCleanRun {
+		t.Errorf("expected stop_on_clean_run=true, got %v", adjudication.StopOnCleanRun)
+	}
+	if adjudication.StopOnNoNewFindings == nil || *adjudication.StopOnNoNewFindings {
+		t.Errorf("expected stop_on_no_new_findings=false, got %v", adjudication.StopOnNoNewFindings)
+	}
+	if adjudication.EvaluationGuidance == nil || *adjudication.EvaluationGuidance != "prefer precision over recall" {
+		t.Errorf("expected evaluation_guidance to round trip, got %v", adjudication.EvaluationGuidance)
+	}
+}
+
+func TestLoadFromPathWithWarnings_UnknownAdjudicationKey(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".acr.yaml")
+
+	content := `adjudication:
+  max_iteration: 5
+`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := LoadFromPathWithWarnings(configPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d: %v", len(result.Warnings), result.Warnings)
+	}
+	expected := `unknown key "max_iteration" in adjudication section of .acr.yaml (did you mean "max_iterations"?)`
+	if result.Warnings[0] != expected {
+		t.Errorf("expected warning %q, got %q", expected, result.Warnings[0])
+	}
+}
+
 func TestLoadFromPathWithWarnings_MultipleUnknownKeys(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".acr.yaml")

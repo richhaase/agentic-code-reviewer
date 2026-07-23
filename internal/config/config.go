@@ -49,24 +49,39 @@ func (d Duration) AsDuration() time.Duration {
 }
 
 type Config struct {
-	Reviewers         *int             `yaml:"reviewers"`
-	Concurrency       *int             `yaml:"concurrency"`
-	Base              *string          `yaml:"base"`
-	Timeout           *Duration        `yaml:"timeout"`
-	Retries           *int             `yaml:"retries"`
-	Fetch             *bool            `yaml:"fetch"`
-	ReviewerAgent     *string          `yaml:"reviewer_agent"`
-	ReviewerAgents    []string         `yaml:"reviewer_agents"`
-	SummarizerAgent   *string          `yaml:"summarizer_agent"`
-	ReviewerModel     *string          `yaml:"reviewer_model"`
-	SummarizerModel   *string          `yaml:"summarizer_model"`
-	SummarizerTimeout *Duration        `yaml:"summarizer_timeout"`
-	FPFilterTimeout   *Duration        `yaml:"fp_filter_timeout"`
-	GuidanceFile      *string          `yaml:"guidance_file"`
-	Filters           FilterConfig     `yaml:"filters"`
-	FPFilter          FPFilterConfig   `yaml:"fp_filter"`
-	PRFeedback        PRFeedbackConfig `yaml:"pr_feedback"`
-	Watch             WatchConfig      `yaml:"watch"`
+	Reviewers         *int               `yaml:"reviewers"`
+	Concurrency       *int               `yaml:"concurrency"`
+	Base              *string            `yaml:"base"`
+	Timeout           *Duration          `yaml:"timeout"`
+	Retries           *int               `yaml:"retries"`
+	Fetch             *bool              `yaml:"fetch"`
+	ReviewerAgent     *string            `yaml:"reviewer_agent"`
+	ReviewerAgents    []string           `yaml:"reviewer_agents"`
+	SummarizerAgent   *string            `yaml:"summarizer_agent"`
+	ReviewerModel     *string            `yaml:"reviewer_model"`
+	SummarizerModel   *string            `yaml:"summarizer_model"`
+	SummarizerTimeout *Duration          `yaml:"summarizer_timeout"`
+	FPFilterTimeout   *Duration          `yaml:"fp_filter_timeout"`
+	GuidanceFile      *string            `yaml:"guidance_file"`
+	Filters           FilterConfig       `yaml:"filters"`
+	FPFilter          FPFilterConfig     `yaml:"fp_filter"`
+	PRFeedback        PRFeedbackConfig   `yaml:"pr_feedback"`
+	Watch             WatchConfig        `yaml:"watch"`
+	Adjudication      AdjudicationConfig `yaml:"adjudication"`
+}
+
+// AdjudicationConfig carries the review convergence loop's budget policy,
+// stop policy, and evaluation guidance. Unlike every other Config field,
+// callers must never resolve this section from a plain filesystem or
+// worktree read: it is only ever meaningful when loaded from a trusted
+// control-plane source outside the reviewed pull request head and worktree,
+// via internal/store's ResolveAdjudicationPolicy.
+type AdjudicationConfig struct {
+	MaxIterations       *int     `yaml:"max_iterations"`
+	MaxCostUSD          *float64 `yaml:"max_cost_usd"`
+	StopOnCleanRun      *bool    `yaml:"stop_on_clean_run"`
+	StopOnNoNewFindings *bool    `yaml:"stop_on_no_new_findings"`
+	EvaluationGuidance  *string  `yaml:"evaluation_guidance"`
 }
 
 type WatchConfig struct {
@@ -170,7 +185,7 @@ func (c *Config) validatePatterns() error {
 	return nil
 }
 
-var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "fetch", "reviewer_agent", "reviewer_agents", "summarizer_agent", "reviewer_model", "summarizer_model", "summarizer_timeout", "fp_filter_timeout", "guidance_file", "filters", "fp_filter", "pr_feedback", "watch"}
+var knownTopLevelKeys = []string{"reviewers", "concurrency", "base", "timeout", "retries", "fetch", "reviewer_agent", "reviewer_agents", "summarizer_agent", "reviewer_model", "summarizer_model", "summarizer_timeout", "fp_filter_timeout", "guidance_file", "filters", "fp_filter", "pr_feedback", "watch", "adjudication"}
 
 var knownFPFilterKeys = []string{"enabled", "threshold"}
 
@@ -179,6 +194,8 @@ var knownPRFeedbackKeys = []string{"enabled", "agent"}
 var knownWatchKeys = []string{"poll_interval", "settle_time", "max_reviews", "max_duration"}
 
 var knownFilterKeys = []string{"exclude_patterns"}
+
+var knownAdjudicationKeys = []string{"max_iterations", "max_cost_usd", "stop_on_clean_run", "stop_on_no_new_findings", "evaluation_guidance"}
 
 func checkUnknownKeys(data []byte) []string {
 	var warnings []string
@@ -240,6 +257,18 @@ func checkUnknownKeys(data []byte) []string {
 			if !slices.Contains(knownWatchKeys, key) {
 				warning := fmt.Sprintf("unknown key %q in watch section of %s", key, ConfigFileName)
 				if suggestion := findSimilar(key, knownWatchKeys); suggestion != "" {
+					warning += fmt.Sprintf(" (did you mean %q?)", suggestion)
+				}
+				warnings = append(warnings, warning)
+			}
+		}
+	}
+
+	if adjudication, ok := raw["adjudication"].(map[string]any); ok {
+		for key := range adjudication {
+			if !slices.Contains(knownAdjudicationKeys, key) {
+				warning := fmt.Sprintf("unknown key %q in adjudication section of %s", key, ConfigFileName)
+				if suggestion := findSimilar(key, knownAdjudicationKeys); suggestion != "" {
 					warning += fmt.Sprintf(" (did you mean %q?)", suggestion)
 				}
 				warnings = append(warnings, warning)
