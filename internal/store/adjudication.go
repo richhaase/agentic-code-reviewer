@@ -83,6 +83,9 @@ func (r AdjudicationFindingRefV1) Validate() error {
 	if r.FindingID == "" && r.ClusterID == "" {
 		return fmt.Errorf("adjudication finding reference requires a finding_id or cluster_id")
 	}
+	if r.FindingID != "" && r.ClusterID != "" {
+		return fmt.Errorf("adjudication finding reference must not set both finding_id and cluster_id: exact-match resolution cannot later find it by either alone")
+	}
 	return nil
 }
 

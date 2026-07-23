@@ -29,6 +29,15 @@ func (s *FilesystemRunStore) SaveRun(run ReviewRunV1) (string, error) {
 	if run.Target.PullRequest == nil {
 		return "", fmt.Errorf("review run %s: target has no pull request key; runs can only be stored for pull request reviews", run.ID)
 	}
+	existing, _, err := s.ListRuns(*run.Target.PullRequest)
+	if err != nil {
+		return "", err
+	}
+	for _, e := range existing {
+		if e.ID == run.ID {
+			return "", fmt.Errorf("review run %s already exists for %s", run.ID, run.Target.PullRequest.String())
+		}
+	}
 	dir, err := runsDir(s.dataDir, *run.Target.PullRequest)
 	if err != nil {
 		return "", err

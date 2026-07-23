@@ -92,6 +92,33 @@ func TestFilesystemRunStore_RefusesDuplicateSave(t *testing.T) {
 	}
 }
 
+func TestFilesystemRunStore_RefusesDuplicateRunIDWithDifferentTimestamp(t *testing.T) {
+	dir := t.TempDir()
+	store := NewFilesystemRunStore(dir)
+	key := testPullRequestKey()
+
+	first := buildTestReviewRunSchema(t, "run-dup", time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC))
+	if _, err := store.SaveRun(first); err != nil {
+		t.Fatalf("first save: %v", err)
+	}
+
+	second := buildTestReviewRunSchema(t, "run-dup", time.Date(2026, 7, 22, 13, 0, 0, 0, time.UTC))
+	if _, err := store.SaveRun(second); err == nil {
+		t.Fatal("expected a second save of the same run id under a different timestamp to fail")
+	}
+
+	runs, corrupt, err := store.ListRuns(key)
+	if err != nil {
+		t.Fatalf("list runs: %v", err)
+	}
+	if len(corrupt) != 0 {
+		t.Fatalf("expected no corrupt records, got %v", corrupt)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected exactly one stored run for the duplicated id, got %d", len(runs))
+	}
+}
+
 func TestFilesystemRunStore_IsolatesCorruptRecords(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFilesystemRunStore(dir)

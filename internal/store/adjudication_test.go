@@ -114,6 +114,13 @@ func TestAdjudicationRecordV1_Validate(t *testing.T) {
 		{name: "unsupported schema version", mutate: func(r *AdjudicationRecordV1) { r.SchemaVersion = 99 }, wantErr: true},
 		{name: "missing finding and cluster reference", mutate: func(r *AdjudicationRecordV1) { r.FindingRef = AdjudicationFindingRefV1{} }, wantErr: true},
 		{name: "cluster reference is sufficient", mutate: func(r *AdjudicationRecordV1) { r.FindingRef = AdjudicationFindingRefV1{ClusterID: "cluster-1"} }, wantErr: false},
+		{
+			name: "both finding and cluster reference set is ambiguous",
+			mutate: func(r *AdjudicationRecordV1) {
+				r.FindingRef = AdjudicationFindingRefV1{FindingID: "finding-1", ClusterID: "cluster-1"}
+			},
+			wantErr: true,
+		},
 		{name: "unknown disposition", mutate: func(r *AdjudicationRecordV1) { r.Disposition = "wontfix" }, wantErr: true},
 		{name: "missing deciding actor identity", mutate: func(r *AdjudicationRecordV1) { r.DecidingActor.Identity = "" }, wantErr: true},
 		{name: "missing scope configuration fingerprint", mutate: func(r *AdjudicationRecordV1) { r.Scope.ConfigurationFingerprint = "" }, wantErr: true},
