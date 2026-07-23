@@ -116,6 +116,7 @@ func TestAdjudicationRecordV1_Validate(t *testing.T) {
 		{name: "cluster reference is sufficient", mutate: func(r *AdjudicationRecordV1) { r.FindingRef = AdjudicationFindingRefV1{ClusterID: "cluster-1"} }, wantErr: false},
 		{name: "unknown disposition", mutate: func(r *AdjudicationRecordV1) { r.Disposition = "wontfix" }, wantErr: true},
 		{name: "missing deciding actor identity", mutate: func(r *AdjudicationRecordV1) { r.DecidingActor.Identity = "" }, wantErr: true},
+		{name: "missing scope configuration fingerprint", mutate: func(r *AdjudicationRecordV1) { r.Scope.ConfigurationFingerprint = "" }, wantErr: true},
 		{name: "zero recorded_at", mutate: func(r *AdjudicationRecordV1) { r.RecordedAt = time.Time{} }, wantErr: true},
 		{
 			name: "relation without supersedes id",

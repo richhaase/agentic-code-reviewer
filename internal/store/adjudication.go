@@ -96,7 +96,10 @@ func (s AdjudicationScopeV1) Validate() error {
 	if err := s.PullRequest.Validate(); err != nil {
 		return err
 	}
-	return validateNonEmpty("adjudication scope head object id", s.HeadObjectID)
+	if err := validateNonEmpty("adjudication scope head object id", s.HeadObjectID); err != nil {
+		return err
+	}
+	return validateNonEmpty("adjudication scope configuration fingerprint", s.ConfigurationFingerprint)
 }
 
 type AdjudicationRecordV1 struct {

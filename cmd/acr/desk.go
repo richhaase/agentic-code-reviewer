@@ -26,7 +26,7 @@ func newDeskCmd() *cobra.Command {
 
 func newDeskHistoryCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "history <owner/repo#number>",
+		Use:   "history <[host/]owner/repo#number>",
 		Short: "Show the chronological review history for a pull request",
 		Long:  "Render every stored run, event, adjudication, loop decision, and economics record for a pull request as one chronological timeline.",
 		Args:  cobra.ExactArgs(1),
@@ -51,7 +51,7 @@ func newDeskHistoryCmd() *cobra.Command {
 
 func newDeskForgetCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "forget <owner/repo#number>",
+		Use:   "forget <[host/]owner/repo#number>",
 		Short: "Permanently delete a pull request's stored review history",
 		Long:  "Delete every stored run, event, adjudication, loop decision, economics record, and snapshot for a pull request. Refuses while another acr process owns the workspace.",
 		Args:  cobra.ExactArgs(1),

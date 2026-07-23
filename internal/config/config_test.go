@@ -1726,6 +1726,44 @@ func TestValidate_WatchBounds(t *testing.T) {
 	}
 }
 
+func TestValidate_AdjudicationBounds(t *testing.T) {
+	resolved := Defaults
+	resolved.AdjudicationMaxIterations = -1
+	resolved.AdjudicationMaxCostUSD = -0.01
+
+	errs := resolved.ValidateAll()
+	for _, want := range []string{"adjudication.max_iterations", "adjudication.max_cost_usd"} {
+		found := false
+		for _, e := range errs {
+			if strings.Contains(e, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected validation error mentioning %s, got %v", want, errs)
+		}
+	}
+}
+
+func TestResolve_AdjudicationBudget(t *testing.T) {
+	maxIterations := -1
+	maxCostUSD := -0.01
+	cfg := &Config{Adjudication: AdjudicationConfig{MaxIterations: &maxIterations, MaxCostUSD: &maxCostUSD}}
+
+	resolved := Resolve(cfg, EnvState{}, FlagState{}, ResolvedConfig{})
+	if resolved.AdjudicationMaxIterations != maxIterations {
+		t.Errorf("AdjudicationMaxIterations = %d, want %d", resolved.AdjudicationMaxIterations, maxIterations)
+	}
+	if resolved.AdjudicationMaxCostUSD != maxCostUSD {
+		t.Errorf("AdjudicationMaxCostUSD = %g, want %g", resolved.AdjudicationMaxCostUSD, maxCostUSD)
+	}
+
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("expected acr config validate to reject a negative adjudication budget instead of accepting it")
+	}
+}
+
 func TestLoadFromPathWithWarnings_WatchSection(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ConfigFileName)

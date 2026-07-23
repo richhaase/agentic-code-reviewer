@@ -408,6 +408,12 @@ func (r *ResolvedConfig) ValidateAll() []string {
 	if r.WatchMaxDuration <= 0 {
 		errs = append(errs, fmt.Sprintf("watch.max_duration must be > 0, got %s", r.WatchMaxDuration))
 	}
+	if r.AdjudicationMaxIterations < 0 {
+		errs = append(errs, fmt.Sprintf("adjudication.max_iterations must be >= 0, got %d", r.AdjudicationMaxIterations))
+	}
+	if r.AdjudicationMaxCostUSD < 0 {
+		errs = append(errs, fmt.Sprintf("adjudication.max_cost_usd must be >= 0, got %g", r.AdjudicationMaxCostUSD))
+	}
 	return errs
 }
 
@@ -463,6 +469,9 @@ type ResolvedConfig struct {
 	WatchSettleTime   time.Duration
 	WatchMaxReviews   int
 	WatchMaxDuration  time.Duration
+
+	AdjudicationMaxIterations int
+	AdjudicationMaxCostUSD    float64
 }
 
 type FlagState struct {
@@ -758,6 +767,12 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 		}
 		if cfg.Watch.MaxDuration != nil {
 			result.WatchMaxDuration = cfg.Watch.MaxDuration.AsDuration()
+		}
+		if cfg.Adjudication.MaxIterations != nil {
+			result.AdjudicationMaxIterations = *cfg.Adjudication.MaxIterations
+		}
+		if cfg.Adjudication.MaxCostUSD != nil {
+			result.AdjudicationMaxCostUSD = *cfg.Adjudication.MaxCostUSD
 		}
 	}
 
