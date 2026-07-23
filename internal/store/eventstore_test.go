@@ -69,6 +69,33 @@ func TestFilesystemEventStore_RefusesDuplicateAppend(t *testing.T) {
 	}
 }
 
+func TestFilesystemEventStore_RefusesDuplicateIDWithDifferentTimestamp(t *testing.T) {
+	dir := t.TempDir()
+	store := NewFilesystemEventStore(dir)
+	key := testPullRequestKey()
+
+	first := testReviewEvent("event-dup", time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC))
+	if _, err := store.AppendEvent(first); err != nil {
+		t.Fatalf("first append: %v", err)
+	}
+
+	second := testReviewEvent("event-dup", time.Date(2026, 7, 22, 13, 0, 0, 0, time.UTC))
+	if _, err := store.AppendEvent(second); err == nil {
+		t.Fatal("expected an error re-appending the same event id under a different timestamp")
+	}
+
+	events, corrupt, err := store.ListEvents(key)
+	if err != nil {
+		t.Fatalf("list events: %v", err)
+	}
+	if len(corrupt) != 0 {
+		t.Fatalf("expected no corrupt events, got %v", corrupt)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected exactly one stored event for the duplicated id, got %d", len(events))
+	}
+}
+
 func TestFilesystemEventStore_SurvivesRestart(t *testing.T) {
 	dir := t.TempDir()
 	key := testPullRequestKey()

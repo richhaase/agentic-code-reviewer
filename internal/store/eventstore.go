@@ -25,6 +25,15 @@ func (s *FilesystemEventStore) AppendEvent(event ReviewEventV1) (string, error) 
 	if err := event.Validate(); err != nil {
 		return "", err
 	}
+	existing, _, err := s.ListEvents(event.PullRequest)
+	if err != nil {
+		return "", err
+	}
+	for _, e := range existing {
+		if e.ID == event.ID {
+			return "", fmt.Errorf("review event %s already exists for %s", event.ID, event.PullRequest.String())
+		}
+	}
 	dir, err := eventsDir(s.dataDir, event.PullRequest)
 	if err != nil {
 		return "", err

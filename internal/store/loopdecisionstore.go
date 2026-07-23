@@ -25,6 +25,15 @@ func (s *FilesystemLoopDecisionStore) SaveLoopDecision(decision LoopDecisionV1) 
 	if err := decision.Validate(); err != nil {
 		return "", err
 	}
+	existing, _, err := s.ListLoopDecisions(decision.PullRequest)
+	if err != nil {
+		return "", err
+	}
+	for _, e := range existing {
+		if e.ID == decision.ID {
+			return "", fmt.Errorf("loop decision %s already exists for %s", decision.ID, decision.PullRequest.String())
+		}
+	}
 	dir, err := loopDecisionsDir(s.dataDir, decision.PullRequest)
 	if err != nil {
 		return "", err

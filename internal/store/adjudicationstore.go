@@ -25,6 +25,15 @@ func (s *FilesystemAdjudicationStore) SaveAdjudication(record AdjudicationRecord
 	if err := record.Validate(); err != nil {
 		return "", err
 	}
+	existing, _, err := s.ListAdjudications(record.Scope.PullRequest)
+	if err != nil {
+		return "", err
+	}
+	for _, e := range existing {
+		if e.ID == record.ID {
+			return "", fmt.Errorf("adjudication record %s already exists for %s", record.ID, record.Scope.PullRequest.String())
+		}
+	}
 	dir, err := adjudicationsDir(s.dataDir, record.Scope.PullRequest)
 	if err != nil {
 		return "", err

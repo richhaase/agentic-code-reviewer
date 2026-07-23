@@ -60,6 +60,33 @@ func TestFilesystemLoopDecisionStore_RefusesDuplicateSave(t *testing.T) {
 	}
 }
 
+func TestFilesystemLoopDecisionStore_RefusesDuplicateIDWithDifferentTimestamp(t *testing.T) {
+	dir := t.TempDir()
+	store := NewFilesystemLoopDecisionStore(dir)
+	key := testPullRequestKey()
+
+	first := testLoopDecision("loop-decision-dup", time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC))
+	if _, err := store.SaveLoopDecision(first); err != nil {
+		t.Fatalf("first save: %v", err)
+	}
+
+	second := testLoopDecision("loop-decision-dup", time.Date(2026, 7, 22, 13, 0, 0, 0, time.UTC))
+	if _, err := store.SaveLoopDecision(second); err == nil {
+		t.Fatal("expected an error re-saving the same loop decision id under a different timestamp")
+	}
+
+	decisions, corrupt, err := store.ListLoopDecisions(key)
+	if err != nil {
+		t.Fatalf("list loop decisions: %v", err)
+	}
+	if len(corrupt) != 0 {
+		t.Fatalf("expected no corrupt records, got %v", corrupt)
+	}
+	if len(decisions) != 1 {
+		t.Fatalf("expected exactly one stored decision for the duplicated id, got %d", len(decisions))
+	}
+}
+
 func TestFilesystemLoopDecisionStore_RejectsInvalidDecision(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFilesystemLoopDecisionStore(dir)

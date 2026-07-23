@@ -64,6 +64,33 @@ func TestFilesystemAdjudicationStore_RefusesDuplicateSave(t *testing.T) {
 	}
 }
 
+func TestFilesystemAdjudicationStore_RefusesDuplicateIDWithDifferentTimestamp(t *testing.T) {
+	dir := t.TempDir()
+	store := NewFilesystemAdjudicationStore(dir)
+	key := testPullRequestKey()
+
+	first := testAdjudicationRecord("adjudication-dup", time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC))
+	if _, err := store.SaveAdjudication(first); err != nil {
+		t.Fatalf("first save: %v", err)
+	}
+
+	second := testAdjudicationRecord("adjudication-dup", time.Date(2026, 7, 22, 13, 0, 0, 0, time.UTC))
+	if _, err := store.SaveAdjudication(second); err == nil {
+		t.Fatal("expected an error re-saving the same adjudication id under a different timestamp")
+	}
+
+	records, corrupt, err := store.ListAdjudications(key)
+	if err != nil {
+		t.Fatalf("list adjudications: %v", err)
+	}
+	if len(corrupt) != 0 {
+		t.Fatalf("expected no corrupt records, got %v", corrupt)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected exactly one stored record for the duplicated id, got %d", len(records))
+	}
+}
+
 func TestFilesystemAdjudicationStore_RejectsInvalidRecord(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFilesystemAdjudicationStore(dir)
