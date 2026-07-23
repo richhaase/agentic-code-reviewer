@@ -91,6 +91,17 @@ type PRSnapshotV1 struct {
 	CapturedAt       time.Time          `json:"captured_at"`
 }
 
+func (s PRSnapshotV1) Age(now time.Time) time.Duration {
+	if s.CapturedAt.IsZero() {
+		return 0
+	}
+	age := now.Sub(s.CapturedAt)
+	if age < 0 {
+		return 0
+	}
+	return age
+}
+
 func (s PRSnapshotV1) Validate() error {
 	if err := validateSchemaVersion("pull request snapshot", s.SchemaVersion); err != nil {
 		return err

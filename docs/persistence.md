@@ -100,8 +100,58 @@ for sharing. In particular:
   added in a later issue) so a user can remove a PR's stored history.
   Deletion applies to the record kinds above; it is not yet implemented by
   this issue.
-- **The data directory location is out of scope for this issue.** It is
-  established by issue #197 using the standard library's user-data-directory
-  resolution plus an `ACR_DATA_DIR` override, following the same
-  flags-over-env-vars-over-config-over-defaults precedence style already used
-  elsewhere in this repo.
+- **The data directory location and filesystem store are implemented by issue
+  #197.** See the section below.
+
+## Filesystem storage (issue #197)
+
+`store.DataDir()` resolves the application-data directory: an `ACR_DATA_DIR`
+environment variable override, or `os.UserCacheDir()/acr` by default. Every
+write goes through `atomicWriteFile`: content is written to a hidden temporary
+sibling file (`.tmp-<name>-*`) in the same directory, `fsync`'d, `chmod`'d,
+then atomically renamed over the destination; the containing directory is
+`fsync`'d afterward on a best-effort basis. A reader never observes a partial
+write, and a stray temporary file left behind by a killed process is ignored
+by every reader because its hidden name never matches the `*.json` pattern
+readers scan for.
+
+Records live under:
+
+```text
+<data-dir>/
+  desk.lock
+  prs/
+    <host>/<owner>/<repository>/<number>/
+      snapshot.json
+      events/
+        <timestamp>-<event-id>.json
+      runs/
+        <timestamp>-<run-id>.json
+```
+
+`RunStore` and `EventStore` (`internal/store/runstore.go`,
+`internal/store/eventstore.go`) are append-only: `SaveRun`/`AppendEvent`
+refuse to overwrite an existing record at the same path rather than silently
+replacing history. `SnapshotStore` (`internal/store/snapshotstore.go`) is the
+one mutable record per PR — each poll's `PRSnapshotV1` atomically replaces the
+previous one — and `PRSnapshotV1.Age(now)` reports how stale a loaded snapshot
+is relative to its `CapturedAt`, which is how a reader (for example `acr desk
+--once` rendering a stored snapshot without refreshing it) knows the data's
+age.
+
+Listing a PR's runs or events (`ListRuns`/`ListEvents`) never fails outright
+because of one bad record: each file is decoded and, for runs and events,
+independently validated (`FromReviewRunSchema` / `ReviewEventV1.Validate`);
+a file that fails either check is reported as a `store.CorruptRecord{Path,
+Err}` alongside the still-readable history rather than aborting the whole
+listing. `LoadRun` mentions how many corrupt records were also present so a
+user is not left wondering whether their history is silently incomplete.
+
+`AcquireWriteLock(dataDir)` takes an exclusive, non-blocking `flock` on
+`desk.lock`; a second call while the first still holds it returns
+`ErrWriterLocked` immediately instead of hanging or allowing a second writer.
+Because the lock is an OS-level `flock` on the open file description, it is
+automatically released if the owning process dies, so a crashed writer never
+leaves a stale lock behind. Read-only access through `RunStore`, `EventStore`,
+and `SnapshotStore` never takes this lock; only a process that intends to
+write acquires it.
