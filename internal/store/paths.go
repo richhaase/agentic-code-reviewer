@@ -85,9 +85,22 @@ func validateRecordID(kind, id string) error {
 
 const recordTimestampFormat = "20060102T150405.000000000Z"
 
+const recordTimestampLen = len(recordTimestampFormat)
+
 func recordFileName(kind, id string, ts time.Time) (string, error) {
 	if err := validateRecordID(kind, id); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("%s-%s.json", ts.UTC().Format(recordTimestampFormat), id), nil
+}
+
+func parseRecordTimestamp(name string) (time.Time, error) {
+	if len(name) <= recordTimestampLen || name[recordTimestampLen] != '-' {
+		return time.Time{}, fmt.Errorf("record filename %q does not start with a timestamp", name)
+	}
+	ts, err := time.Parse(recordTimestampFormat, name[:recordTimestampLen])
+	if err != nil {
+		return time.Time{}, fmt.Errorf("record filename %q has an invalid timestamp: %w", name, err)
+	}
+	return ts, nil
 }

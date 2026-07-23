@@ -7,9 +7,14 @@ import (
 	"time"
 )
 
+type EconomicsRecordV1 struct {
+	RecordedAt time.Time
+	Economics  ReviewEconomicsV1
+}
+
 type EconomicsStore interface {
 	SaveEconomics(key PullRequestKeyV1, recordedAt time.Time, economics ReviewEconomicsV1) (string, error)
-	ListEconomics(key PullRequestKeyV1) ([]ReviewEconomicsV1, []CorruptRecord, error)
+	ListEconomics(key PullRequestKeyV1) ([]EconomicsRecordV1, []CorruptRecord, error)
 }
 
 type FilesystemEconomicsStore struct {
@@ -49,10 +54,18 @@ func (s *FilesystemEconomicsStore) SaveEconomics(key PullRequestKeyV1, recordedA
 	return path, nil
 }
 
-func (s *FilesystemEconomicsStore) ListEconomics(key PullRequestKeyV1) ([]ReviewEconomicsV1, []CorruptRecord, error) {
+func (s *FilesystemEconomicsStore) ListEconomics(key PullRequestKeyV1) ([]EconomicsRecordV1, []CorruptRecord, error) {
 	dir, err := economicsDir(s.dataDir, key)
 	if err != nil {
 		return nil, nil, err
 	}
-	return listRecords(dir, decodeReviewEconomics)
+	timestamped, corrupt, err := listTimestampedRecords(dir, decodeReviewEconomics)
+	if err != nil {
+		return nil, nil, err
+	}
+	records := make([]EconomicsRecordV1, 0, len(timestamped))
+	for _, t := range timestamped {
+		records = append(records, EconomicsRecordV1{RecordedAt: t.recordedAt, Economics: t.record})
+	}
+	return records, corrupt, nil
 }
