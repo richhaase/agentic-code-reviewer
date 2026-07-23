@@ -169,7 +169,7 @@ func parseRemoteHostAndPath(raw string) (host, path string, hasHost bool) {
 
 	colon := strings.Index(raw, ":")
 	slash := strings.Index(raw, "/")
-	if colon > 0 && (slash == -1 || colon < slash) {
+	if !strings.Contains(raw, "://") && colon > 0 && (slash == -1 || colon < slash) {
 		return raw[:colon], raw[colon+1:], true
 	}
 
@@ -199,12 +199,12 @@ func ParseRemoteURL(raw string) (host, owner, repo string, ok bool) {
 	trimmedPath := strings.ToLower(strings.Trim(strings.TrimSpace(rawPath), "/"))
 	trimmedPath = strings.TrimSuffix(trimmedPath, ".git")
 	segments := strings.Split(trimmedPath, "/")
-	if len(segments) < 2 {
+	if len(segments) != 2 {
 		return "", "", "", false
 	}
 
-	owner = segments[len(segments)-2]
-	repo = segments[len(segments)-1]
+	owner = segments[0]
+	repo = segments[1]
 	if owner == "" || repo == "" {
 		return "", "", "", false
 	}

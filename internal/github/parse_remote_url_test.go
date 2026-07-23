@@ -58,6 +58,18 @@ func TestParseRemoteURL_StripsMixedCaseGitSuffix(t *testing.T) {
 	}
 }
 
+func TestParseRemoteURL_RejectsFileURL(t *testing.T) {
+	if _, _, _, ok := ParseRemoteURL("file:///tmp/acme/widgets.git"); ok {
+		t.Fatal("expected a hostless file:// URL to be rejected, not misparsed as an scp-style host")
+	}
+}
+
+func TestParseRemoteURL_RejectsExtraPathSegments(t *testing.T) {
+	if _, _, _, ok := ParseRemoteURL("https://github.com/acme/widgets/tree/main"); ok {
+		t.Fatal("expected a URL with extra path segments beyond owner/repo to be rejected")
+	}
+}
+
 func TestParseRemoteURL_RejectsHostless(t *testing.T) {
 	if _, _, _, ok := ParseRemoteURL("owner/repo"); ok {
 		t.Fatal("expected hostless path to be rejected")
