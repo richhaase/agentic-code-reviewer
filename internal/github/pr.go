@@ -152,6 +152,15 @@ func urlMatches(url1, url2 string) bool {
 	return firstHasHost && secondHasHost && first == second
 }
 
+func isSupportedGitScheme(scheme string) bool {
+	switch strings.ToLower(scheme) {
+	case "http", "https", "ssh", "git", "git+ssh", "ssh+git":
+		return true
+	default:
+		return false
+	}
+}
+
 func parseRemoteHostAndPath(raw string) (host, path string, hasHost bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -159,7 +168,7 @@ func parseRemoteHostAndPath(raw string) (host, path string, hasHost bool) {
 	}
 
 	parsed, err := url.Parse(raw)
-	if err == nil && parsed.Host != "" {
+	if err == nil && parsed.Host != "" && isSupportedGitScheme(parsed.Scheme) {
 		host := parsed.Hostname()
 		if port := parsed.Port(); port != "" && !isDefaultRepositoryPort(parsed.Scheme, port) {
 			host = net.JoinHostPort(host, port)

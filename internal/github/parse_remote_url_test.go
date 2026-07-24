@@ -70,6 +70,18 @@ func TestParseRemoteURL_RejectsExtraPathSegments(t *testing.T) {
 	}
 }
 
+func TestParseRemoteURL_RejectsFileSchemeWithHost(t *testing.T) {
+	if _, _, _, ok := ParseRemoteURL("file://github.com/acme/widgets.git"); ok {
+		t.Fatal("expected a file:// URL with a host to be rejected, not trusted as a GitHub remote")
+	}
+}
+
+func TestParseRemoteURL_RejectsFTPScheme(t *testing.T) {
+	if _, _, _, ok := ParseRemoteURL("ftp://github.com/acme/widgets.git"); ok {
+		t.Fatal("expected an ftp:// URL to be rejected")
+	}
+}
+
 func TestParseRemoteURL_RejectsHostless(t *testing.T) {
 	if _, _, _, ok := ParseRemoteURL("owner/repo"); ok {
 		t.Fatal("expected hostless path to be rejected")
