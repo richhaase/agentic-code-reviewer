@@ -51,14 +51,6 @@ func GetHeadSHA(dir string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func GetCommonDir() (string, error) {
-	dir, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("failed to get current directory: %w", err)
-	}
-	return GetCommonDirAt(context.Background(), dir)
-}
-
 func GetCommonDirAt(ctx context.Context, dir string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--git-common-dir")
 	cmd.Dir = dir
@@ -145,12 +137,7 @@ func ensureWorktreesExcluded(commonDir string) error {
 
 const staleWorktreeAge = 2 * time.Hour
 
-func PruneStaleWorktrees() error {
-	root, err := GetRoot()
-	if err != nil {
-		return err
-	}
-
+func PruneStaleWorktrees(root string) error {
 	worktreesDir := filepath.Join(root, ".worktrees")
 	entries, err := os.ReadDir(worktreesDir)
 	if err != nil {
@@ -193,8 +180,8 @@ func PruneStaleWorktrees() error {
 	return nil
 }
 
-func CreateWorktree(branch string) (*Worktree, error) {
-	commonDir, err := GetCommonDir()
+func CreateWorktree(ctx context.Context, repositoryRoot, branch string) (*Worktree, error) {
+	commonDir, err := GetCommonDirAt(ctx, repositoryRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -409,13 +396,12 @@ func fetchPRRef(repoRoot, remote, prNumber string) error {
 	return nil
 }
 
-func CreateWorktreeFromPR(repoRoot, remote, prNumber string) (*Worktree, error) {
-
+func CreateWorktreeFromPR(ctx context.Context, repoRoot, remote, prNumber string) (*Worktree, error) {
 	if err := fetchPRRef(repoRoot, remote, prNumber); err != nil {
 		return nil, err
 	}
 
-	commonDir, err := GetCommonDir()
+	commonDir, err := GetCommonDirAt(ctx, repoRoot)
 	if err != nil {
 		return nil, err
 	}

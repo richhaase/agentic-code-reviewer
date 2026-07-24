@@ -86,7 +86,13 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 		return exitCode(domain.ExitError)
 	}
 
-	if err := git.PruneStaleWorktrees(); err != nil && verbose {
+	repoRoot, err := git.GetRoot()
+	if err != nil {
+		logger.Logf(terminal.StyleError, "%v", err)
+		return exitCode(domain.ExitError)
+	}
+
+	if err := git.PruneStaleWorktrees(repoRoot); err != nil && verbose {
 		logger.Logf(terminal.StyleDim, "Worktree prune: %v", err)
 	}
 
@@ -104,7 +110,7 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 
 	watchPR := prNumber
 	if watchPR == "" {
-		detected, err := github.GetCurrentPRNumber(ctx, "")
+		detected, err := github.GetCurrentPRNumber(ctx, repoRoot, "")
 		switch {
 		case errors.Is(err, github.ErrAuthFailed):
 			logger.Log("GitHub authentication failed. Run 'gh auth login' to authenticate.", terminal.StyleError)
@@ -119,7 +125,7 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 		watchPR = detected
 		logger.Logf(terminal.StyleDim, "Detected PR #%s for current branch", watchPR)
 	}
-	if err := github.ValidatePR(ctx, watchPR); err != nil {
+	if err := github.ValidatePR(ctx, repoRoot, watchPR); err != nil {
 		logger.Logf(terminal.StyleError, "Failed to access PR #%s: %v", watchPR, err)
 		return exitCode(domain.ExitError)
 	}
@@ -172,7 +178,7 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 			logger.Logf(terminal.StyleInfo, format, args...)
 		},
 		State: func(ctx context.Context) (watch.PRState, error) {
-			st, err := github.GetPRWatchState(ctx, watchPR)
+			st, err := github.GetPRWatchState(ctx, repoRoot, watchPR)
 			if err != nil {
 				return watch.PRState{}, err
 			}
@@ -184,14 +190,14 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 			}, nil
 		},
 		CIGreen: func(ctx context.Context) (bool, error) {
-			status := github.CheckCIStatus(ctx, watchPR)
+			status := github.CheckCIStatus(ctx, repoRoot, watchPR)
 			if status.Error != "" {
 				return false, fmt.Errorf("%s", status.Error)
 			}
 			return status.AllPassed, nil
 		},
 		Approve: func(ctx context.Context, body string) error {
-			return github.ApprovePR(ctx, watchPR, body)
+			return github.ApprovePR(ctx, repoRoot, watchPR, body)
 		},
 		RunCycle: func(ctx context.Context, _ int, _ string) (watch.Cycle, error) {
 			return runWatchCycle(ctx, cmd, watchPR, mode, logger)

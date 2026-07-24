@@ -180,7 +180,15 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 			return result, exitCode(domain.ExitError)
 		}
 
-		if err := github.ValidatePR(ctx, prNumber); err != nil {
+		repoRoot, err := git.GetRoot()
+		if err != nil {
+			logger.Logf(terminal.StyleError, "%v", err)
+			return result, exitCode(domain.ExitError)
+		}
+		result.prRepoRoot = repoRoot
+		result.repositoryRoot = repoRoot
+
+		if err := github.ValidatePR(ctx, repoRoot, prNumber); err != nil {
 			if errors.Is(err, github.ErrNoPRFound) {
 				logger.Logf(terminal.StyleError, "PR #%s not found", prNumber)
 			} else if errors.Is(err, github.ErrAuthFailed) {
@@ -196,20 +204,12 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 
 		explicitBaseSet := cmd.Flags().Changed("base") || os.Getenv("ACR_BASE_REF") != ""
 		if !explicitBaseSet {
-			if detectedBase, err := github.GetPRBaseRef(ctx, prNumber); err == nil && detectedBase != "" {
+			if detectedBase, err := github.GetPRBaseRef(ctx, repoRoot, prNumber); err == nil && detectedBase != "" {
 				result.detectedBase = detectedBase
 				result.baseAutoDetected = true
 				logger.Logf(terminal.StyleDim, "Auto-detected base: %s", detectedBase)
 			}
 		}
-
-		repoRoot, err := git.GetRoot()
-		if err != nil {
-			logger.Logf(terminal.StyleError, "%v", err)
-			return result, exitCode(domain.ExitError)
-		}
-		result.prRepoRoot = repoRoot
-		result.repositoryRoot = repoRoot
 
 		remote, err := github.FindRepoRemote(ctx, repoRoot)
 		if err != nil {
@@ -218,7 +218,7 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 		}
 		result.prRemote = remote
 
-		wt, err := git.CreateWorktreeFromPR(repoRoot, remote, prNumber)
+		wt, err := git.CreateWorktreeFromPR(ctx, repoRoot, remote, prNumber)
 		if err != nil {
 			logger.Logf(terminal.StyleError, "%v", err)
 			return result, exitCode(domain.ExitError)
@@ -238,6 +238,13 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 		var actualRef string
 		var cleanupRemote func()
 
+		repoRoot, err := git.GetRoot()
+		if err != nil {
+			logger.Logf(terminal.StyleError, "Error getting repo root: %v", err)
+			return result, exitCode(domain.ExitError)
+		}
+		result.repositoryRoot = repoRoot
+
 		forkRef, err := github.ResolveForkRef(ctx, worktreeBranch)
 		if err != nil {
 			logger.Logf(terminal.StyleError, "%v", err)
@@ -248,13 +255,6 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 
 			logger.Logf(terminal.StyleInfo, "Resolved fork PR #%d from %s",
 				forkRef.PRNumber, forkRef.Username)
-
-			repoRoot, err := git.GetRoot()
-			if err != nil {
-				logger.Logf(terminal.StyleError, "Error getting repo root: %v", err)
-				return result, exitCode(domain.ExitError)
-			}
-			result.repositoryRoot = repoRoot
 
 			if err := git.AddRemote(repoRoot, forkRef.RemoteName, forkRef.RepoURL); err != nil {
 				logger.Logf(terminal.StyleError, "Error adding remote: %v", err)
@@ -277,7 +277,7 @@ func setupWorktree(ctx context.Context, cmd *cobra.Command, logger *terminal.Log
 			actualRef = worktreeBranch
 		}
 
-		wt, err := git.CreateWorktree(actualRef)
+		wt, err := git.CreateWorktree(ctx, repoRoot, actualRef)
 		if err != nil {
 			if cleanupRemote != nil {
 				cleanupRemote()
@@ -467,8 +467,12 @@ func runReview(cmd *cobra.Command, _ []string) error {
 
 	logger := terminal.NewLogger()
 
-	if err := git.PruneStaleWorktrees(); err != nil && verbose {
-		logger.Logf(terminal.StyleDim, "Worktree prune: %v", err)
+	if repoRoot, err := git.GetRoot(); err == nil {
+		if err := git.PruneStaleWorktrees(repoRoot); err != nil && verbose {
+			logger.Logf(terminal.StyleDim, "Worktree prune: %v", err)
+		}
+	} else if verbose {
+		logger.Logf(terminal.StyleDim, "Worktree prune skipped: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -517,7 +521,7 @@ func runReview(cmd *cobra.Command, _ []string) error {
 
 	detectedPR := prNumber
 	if detectedPR == "" && !local && cfgResult.resolved.PRFeedbackEnabled && github.IsGHAvailable() {
-		if detected, err := github.GetCurrentPRNumber(ctx, worktreeBranch); err == nil {
+		if detected, err := github.GetCurrentPRNumber(ctx, repositoryRoot, worktreeBranch); err == nil {
 			detectedPR = detected
 			if verbose {
 				logger.Logf(terminal.StyleDim, "Auto-detected PR #%s for current branch", detectedPR)
