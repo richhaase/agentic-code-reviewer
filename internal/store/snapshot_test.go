@@ -82,3 +82,39 @@ func TestPRSnapshotV1_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestToPRSnapshotSchema_ToDomain_RoundTrip(t *testing.T) {
+	schema := validSnapshot()
+
+	converted, err := schema.ToDomain()
+	if err != nil {
+		t.Fatalf("ToDomain: %v", err)
+	}
+
+	back := ToPRSnapshotSchema(converted)
+	back.SchemaVersion = schema.SchemaVersion
+	if !reflect.DeepEqual(back, schema) {
+		t.Fatalf("round trip mismatch: got %+v, want %+v", back, schema)
+	}
+}
+
+func TestPRSnapshotV1_ToDomain_RejectsUnknownReviewRequestKind(t *testing.T) {
+	schema := validSnapshot()
+	schema.ReviewRequests[0].Kind = "org"
+
+	if _, err := schema.ToDomain(); err == nil {
+		t.Fatal("expected error for unknown review request kind")
+	}
+}
+
+func TestPRSnapshotV1_ToDomain_PreservesStaleFalse(t *testing.T) {
+	schema := validSnapshot()
+
+	converted, err := schema.ToDomain()
+	if err != nil {
+		t.Fatalf("ToDomain: %v", err)
+	}
+	if converted.Stale {
+		t.Error("expected a freshly loaded snapshot to not be marked stale")
+	}
+}

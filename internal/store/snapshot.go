@@ -3,6 +3,8 @@ package store
 import (
 	"fmt"
 	"time"
+
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
 type PullRequestStateV1 string
@@ -126,4 +128,69 @@ func (s PRSnapshotV1) Validate() error {
 		return fmt.Errorf("pull request snapshot captured_at is required")
 	}
 	return nil
+}
+
+func ToPRSnapshotSchema(s domain.PullRequestSnapshot) PRSnapshotV1 {
+	reviewRequests := make([]ReviewRequestV1, len(s.ReviewRequests))
+	for i, r := range s.ReviewRequests {
+		reviewRequests[i] = ReviewRequestV1{Kind: ReviewRequestKindV1(r.Kind), Login: r.Login}
+	}
+	latestReviews := make([]LatestReviewV1, len(s.LatestReviews))
+	for i, r := range s.LatestReviews {
+		latestReviews[i] = LatestReviewV1{Author: r.Author, State: r.State, SubmittedAt: r.SubmittedAt}
+	}
+	return PRSnapshotV1{
+		SchemaVersion:    CurrentSchemaVersion,
+		PullRequest:      ToPullRequestKeySchema(s.PullRequest),
+		URL:              s.URL,
+		Title:            s.Title,
+		Author:           s.Author,
+		State:            PullRequestStateV1(s.State),
+		Draft:            s.Draft,
+		HeadObjectID:     s.HeadObjectID,
+		BaseObjectID:     s.BaseObjectID,
+		ReviewRequests:   reviewRequests,
+		ReviewDecision:   s.ReviewDecision,
+		LatestReviews:    latestReviews,
+		CheckRollupState: s.CheckRollupState,
+		MergeState:       s.MergeState,
+		UpdatedAt:        s.UpdatedAt,
+		CapturedAt:       s.CapturedAt,
+	}
+}
+
+func (s PRSnapshotV1) ToDomain() (domain.PullRequestSnapshot, error) {
+	if err := s.State.Validate(); err != nil {
+		return domain.PullRequestSnapshot{}, err
+	}
+
+	reviewRequests := make([]domain.ReviewRequest, len(s.ReviewRequests))
+	for i, r := range s.ReviewRequests {
+		if err := r.Kind.Validate(); err != nil {
+			return domain.PullRequestSnapshot{}, fmt.Errorf("review request %d: %w", i, err)
+		}
+		reviewRequests[i] = domain.ReviewRequest{Kind: domain.ReviewRequestKind(r.Kind), Login: r.Login}
+	}
+	latestReviews := make([]domain.LatestReview, len(s.LatestReviews))
+	for i, r := range s.LatestReviews {
+		latestReviews[i] = domain.LatestReview{Author: r.Author, State: r.State, SubmittedAt: r.SubmittedAt}
+	}
+
+	return domain.PullRequestSnapshot{
+		PullRequest:      s.PullRequest.ToDomain(),
+		URL:              s.URL,
+		Title:            s.Title,
+		Author:           s.Author,
+		State:            domain.PullRequestState(s.State),
+		Draft:            s.Draft,
+		HeadObjectID:     s.HeadObjectID,
+		BaseObjectID:     s.BaseObjectID,
+		ReviewRequests:   reviewRequests,
+		ReviewDecision:   s.ReviewDecision,
+		LatestReviews:    latestReviews,
+		CheckRollupState: s.CheckRollupState,
+		MergeState:       s.MergeState,
+		UpdatedAt:        s.UpdatedAt,
+		CapturedAt:       s.CapturedAt,
+	}, nil
 }
