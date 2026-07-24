@@ -3,6 +3,8 @@ package store
 import (
 	"fmt"
 	"time"
+
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
 type ReviewEventTypeV1 string
@@ -34,6 +36,9 @@ const (
 	EventTypeUserSnoozed  ReviewEventTypeV1 = "user_snoozed"
 	EventTypeUserRetried  ReviewEventTypeV1 = "user_retried"
 	EventTypeUserResolved ReviewEventTypeV1 = "user_resolved"
+	EventTypeUserReleased ReviewEventTypeV1 = "user_released"
+	EventTypeUserOptedOut ReviewEventTypeV1 = "user_opted_out"
+	EventTypeUserResumed  ReviewEventTypeV1 = "user_resumed"
 )
 
 func (t ReviewEventTypeV1) Validate() error {
@@ -44,7 +49,8 @@ func (t ReviewEventTypeV1) Validate() error {
 		EventTypeFindingSelected, EventTypeFindingDismissed, EventTypeFindingPosted,
 		EventTypeActionCommentPosted, EventTypeActionRequestChangesPosted, EventTypeActionApprovalPosted,
 		EventTypePRClosed, EventTypePRMerged,
-		EventTypeUserDeferred, EventTypeUserSnoozed, EventTypeUserRetried, EventTypeUserResolved:
+		EventTypeUserDeferred, EventTypeUserSnoozed, EventTypeUserRetried, EventTypeUserResolved,
+		EventTypeUserReleased, EventTypeUserOptedOut, EventTypeUserResumed:
 		return nil
 	default:
 		return fmt.Errorf("unknown review event type %q", t)
@@ -73,7 +79,8 @@ func (t ReviewEventTypeV1) requiresFindingID() bool {
 func (t ReviewEventTypeV1) requiresActor() bool {
 	switch t {
 	case EventTypeActionCommentPosted, EventTypeActionRequestChangesPosted, EventTypeActionApprovalPosted,
-		EventTypeUserDeferred, EventTypeUserSnoozed, EventTypeUserRetried, EventTypeUserResolved:
+		EventTypeUserDeferred, EventTypeUserSnoozed, EventTypeUserRetried, EventTypeUserResolved,
+		EventTypeUserReleased, EventTypeUserOptedOut, EventTypeUserResumed:
 		return true
 	default:
 		return false
@@ -127,4 +134,48 @@ func (e ReviewEventV1) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (e ReviewEventV1) ToLifecycleEvent() (domain.LifecycleEvent, bool) {
+	var kind domain.LifecycleEventKind
+	switch e.Type {
+	case EventTypeReviewQueued:
+		kind = domain.LifecycleEventQueued
+	case EventTypeReviewStarted:
+		kind = domain.LifecycleEventStarted
+	case EventTypeReviewCompleted:
+		kind = domain.LifecycleEventCompleted
+	case EventTypeReviewFailed:
+		kind = domain.LifecycleEventFailed
+	case EventTypeReviewInterrupted:
+		kind = domain.LifecycleEventInterrupted
+	case EventTypeReviewSuperseded:
+		kind = domain.LifecycleEventSuperseded
+	case EventTypeFindingSelected:
+		kind = domain.LifecycleEventFindingSelected
+	case EventTypeFindingDismissed:
+		kind = domain.LifecycleEventFindingDismissed
+	case EventTypeActionCommentPosted, EventTypeActionRequestChangesPosted, EventTypeActionApprovalPosted:
+		kind = domain.LifecycleEventActionPosted
+	case EventTypeUserResolved:
+		kind = domain.LifecycleEventUserResolved
+	case EventTypeUserReleased:
+		kind = domain.LifecycleEventUserReleased
+	case EventTypeUserSnoozed:
+		kind = domain.LifecycleEventUserSnoozed
+	case EventTypeUserOptedOut:
+		kind = domain.LifecycleEventUserOptedOut
+	case EventTypeUserResumed:
+		kind = domain.LifecycleEventUserResumed
+	default:
+		return domain.LifecycleEvent{}, false
+	}
+
+	return domain.LifecycleEvent{
+		Kind:         kind,
+		OccurredAt:   e.OccurredAt,
+		RunID:        e.RunID,
+		HeadObjectID: e.HeadObjectID,
+		FindingID:    e.FindingID,
+	}, true
 }

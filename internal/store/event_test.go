@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
 func testPullRequestKey() PullRequestKeyV1 {
@@ -38,6 +40,9 @@ func TestReviewEventV1_AllVocabularyTypesRoundTripAndValidate(t *testing.T) {
 		{name: "user snoozed", event: ReviewEventV1{Type: EventTypeUserSnoozed, Actor: "richhaase"}},
 		{name: "user retried", event: ReviewEventV1{Type: EventTypeUserRetried, Actor: "richhaase"}},
 		{name: "user resolved", event: ReviewEventV1{Type: EventTypeUserResolved, Actor: "richhaase"}},
+		{name: "user released", event: ReviewEventV1{Type: EventTypeUserReleased, Actor: "richhaase"}},
+		{name: "user opted out", event: ReviewEventV1{Type: EventTypeUserOptedOut, Actor: "richhaase"}},
+		{name: "user resumed", event: ReviewEventV1{Type: EventTypeUserResumed, Actor: "richhaase"}},
 	}
 
 	for i, tt := range tests {
@@ -100,6 +105,67 @@ func TestReviewEventV1_Validate_RequiredFieldsPerType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := tt.event.Validate(); err == nil {
 				t.Fatalf("expected a validation error for %+v", tt.event)
+			}
+		})
+	}
+}
+
+func TestReviewEventV1_ToLifecycleEvent(t *testing.T) {
+	occurredAt := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name      string
+		eventType ReviewEventTypeV1
+		wantKind  domain.LifecycleEventKind
+		wantOK    bool
+	}{
+		{"review queued", EventTypeReviewQueued, domain.LifecycleEventQueued, true},
+		{"review started", EventTypeReviewStarted, domain.LifecycleEventStarted, true},
+		{"review completed", EventTypeReviewCompleted, domain.LifecycleEventCompleted, true},
+		{"review failed", EventTypeReviewFailed, domain.LifecycleEventFailed, true},
+		{"review interrupted", EventTypeReviewInterrupted, domain.LifecycleEventInterrupted, true},
+		{"review superseded", EventTypeReviewSuperseded, domain.LifecycleEventSuperseded, true},
+		{"finding selected", EventTypeFindingSelected, domain.LifecycleEventFindingSelected, true},
+		{"finding dismissed", EventTypeFindingDismissed, domain.LifecycleEventFindingDismissed, true},
+		{"action comment posted", EventTypeActionCommentPosted, domain.LifecycleEventActionPosted, true},
+		{"action request changes posted", EventTypeActionRequestChangesPosted, domain.LifecycleEventActionPosted, true},
+		{"action approval posted", EventTypeActionApprovalPosted, domain.LifecycleEventActionPosted, true},
+		{"user resolved", EventTypeUserResolved, domain.LifecycleEventUserResolved, true},
+		{"user released", EventTypeUserReleased, domain.LifecycleEventUserReleased, true},
+		{"user snoozed", EventTypeUserSnoozed, domain.LifecycleEventUserSnoozed, true},
+		{"user opted out", EventTypeUserOptedOut, domain.LifecycleEventUserOptedOut, true},
+		{"user resumed", EventTypeUserResumed, domain.LifecycleEventUserResumed, true},
+		{"pr discovered has no lifecycle mapping", EventTypePRDiscovered, "", false},
+		{"pr refreshed has no lifecycle mapping", EventTypePRRefreshed, "", false},
+		{"pr closed has no lifecycle mapping", EventTypePRClosed, "", false},
+		{"pr merged has no lifecycle mapping", EventTypePRMerged, "", false},
+		{"finding posted has no lifecycle mapping", EventTypeFindingPosted, "", false},
+		{"user deferred has no lifecycle mapping", EventTypeUserDeferred, "", false},
+		{"user retried has no lifecycle mapping", EventTypeUserRetried, "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := ReviewEventV1{
+				Type:         tt.eventType,
+				OccurredAt:   occurredAt,
+				RunID:        "run-1",
+				HeadObjectID: "head-1",
+				FindingID:    "finding-1",
+			}
+
+			got, ok := event.ToLifecycleEvent()
+			if ok != tt.wantOK {
+				t.Fatalf("expected ok=%v, got %v", tt.wantOK, ok)
+			}
+			if !ok {
+				return
+			}
+			if got.Kind != tt.wantKind {
+				t.Errorf("expected kind %q, got %q", tt.wantKind, got.Kind)
+			}
+			if got.OccurredAt != occurredAt || got.RunID != "run-1" || got.HeadObjectID != "head-1" || got.FindingID != "finding-1" {
+				t.Errorf("expected fields to carry through unchanged, got %+v", got)
 			}
 		})
 	}
