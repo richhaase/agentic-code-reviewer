@@ -222,6 +222,9 @@ func parseEnrichResponse(data []byte, key domain.PullRequestKey) (domain.PullReq
 
 	latestReviews := make([]domain.LatestReview, 0, len(resp.LatestReviews))
 	for _, r := range resp.LatestReviews {
+		if strings.TrimSpace(r.Author.Login) == "" {
+			continue
+		}
 		latestReviews = append(latestReviews, domain.LatestReview{Author: r.Author.Login, State: r.State, SubmittedAt: r.SubmittedAt})
 	}
 
@@ -322,6 +325,8 @@ func classifyDiscoveryError(err error) error {
 		"timed out",
 		"temporarily unavailable",
 		"could not resolve host",
+		"no such host",
+		"error connecting",
 		"connection reset",
 		"connection refused",
 		"502",

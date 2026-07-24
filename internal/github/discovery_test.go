@@ -264,6 +264,33 @@ func TestEnrich_StaleChecksReportFailure(t *testing.T) {
 	}
 }
 
+func TestEnrich_SkipsLatestReviewsWithNullAuthor(t *testing.T) {
+	response := `{
+		"number": 23, "url": "https://github.com/o/r/pull/23", "title": "t",
+		"author": {"login": "a"}, "state": "OPEN", "isDraft": false,
+		"headRefOid": "h", "baseRefOid": "b",
+		"reviewRequests": [],
+		"latestReviews": [
+			{"author": null, "state": "APPROVED", "submittedAt": "2026-07-24T09:00:00Z"},
+			{"author": {"login": "reviewer1"}, "state": "COMMENTED", "submittedAt": "2026-07-24T09:05:00Z"}
+		],
+		"statusCheckRollup": [],
+		"mergeStateStatus": "CLEAN", "updatedAt": "2026-07-24T09:00:00Z"
+	}`
+	setupMockGH(t, response)
+
+	snapshot, err := NewDiscovery().Enrich(context.Background(), domain.PullRequestKey{Host: "github.com", Owner: "o", Repository: "r", Number: 23})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(snapshot.LatestReviews) != 1 || snapshot.LatestReviews[0].Author != "reviewer1" {
+		t.Fatalf("expected the null-author review to be skipped, got %+v", snapshot.LatestReviews)
+	}
+	if err := snapshot.Validate(); err != nil {
+		t.Errorf("expected valid snapshot, got %v", err)
+	}
+}
+
 func TestEnrich_DraftPullRequest(t *testing.T) {
 	response := `{
 		"number": 5, "url": "https://github.com/o/r/pull/5", "title": "wip",
@@ -513,6 +540,8 @@ func TestClassifyDiscoveryError_TransientMarkers(t *testing.T) {
 		"HTTP 503: Service Unavailable",
 		"HTTP 504: Gateway Timeout",
 		"could not resolve host: api.github.com",
+		"error connecting to api.github.com",
+		"dial tcp: lookup api.github.com: no such host",
 	}
 	for _, marker := range markers {
 		t.Run(marker, func(t *testing.T) {
