@@ -160,15 +160,12 @@ func ToPRSnapshotSchema(s domain.PullRequestSnapshot) PRSnapshotV1 {
 }
 
 func (s PRSnapshotV1) ToDomain() (domain.PullRequestSnapshot, error) {
-	if err := s.State.Validate(); err != nil {
+	if err := s.Validate(); err != nil {
 		return domain.PullRequestSnapshot{}, err
 	}
 
 	reviewRequests := make([]domain.ReviewRequest, len(s.ReviewRequests))
 	for i, r := range s.ReviewRequests {
-		if err := r.Kind.Validate(); err != nil {
-			return domain.PullRequestSnapshot{}, fmt.Errorf("review request %d: %w", i, err)
-		}
 		reviewRequests[i] = domain.ReviewRequest{Kind: domain.ReviewRequestKind(r.Kind), Login: r.Login}
 	}
 	latestReviews := make([]domain.LatestReview, len(s.LatestReviews))
