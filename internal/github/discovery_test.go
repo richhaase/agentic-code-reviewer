@@ -87,6 +87,53 @@ func TestSearch_RejectsInvalidQuery(t *testing.T) {
 	}
 }
 
+func TestSearch_RejectsBareTeamSlugWithoutOrganization(t *testing.T) {
+	setupMockGH(t, `[]`)
+
+	_, err := NewDiscovery().Search(context.Background(), SearchQuery{
+		Kind: SearchKindTeamReviewRequested,
+		Team: "reviewers",
+	})
+	if err == nil {
+		t.Fatal("expected validation error for ambiguous bare team slug")
+	}
+}
+
+func TestSearch_AcceptsFullyQualifiedTeamWithoutOrganization(t *testing.T) {
+	scriptDir := setupMockGH(t, `[]`)
+
+	_, err := NewDiscovery().Search(context.Background(), SearchQuery{
+		Kind: SearchKindTeamReviewRequested,
+		Team: "richhaase/reviewers",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	args := readCapturedArgs(t, scriptDir)
+	if len(args) != 1 || !strings.Contains(args[0], "--review-requested richhaase/reviewers") {
+		t.Errorf("expected qualified team review-requested flag, got %v", args)
+	}
+}
+
+func TestSearch_RequestsMaxResultLimitToAvoidTruncation(t *testing.T) {
+	scriptDir := setupMockGH(t, `[]`)
+
+	_, err := NewDiscovery().Search(context.Background(), SearchQuery{
+		Kind:         SearchKindReviewRequested,
+		Organization: "richhaase",
+		Login:        "richhaase",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	args := readCapturedArgs(t, scriptDir)
+	if len(args) != 1 || !strings.Contains(args[0], "--limit 1000") {
+		t.Errorf("expected an explicit high --limit to avoid the gh default of 30, got %v", args)
+	}
+}
+
 func TestEnrich_BuildsExpectedArgsAndParsesFullResponse(t *testing.T) {
 	response := `{
 		"number": 202,
@@ -370,6 +417,7 @@ func TestReduceCheckRollup_StatusContextStates(t *testing.T) {
 		{"status context failure", enrichCheck{Typename: "StatusContext", State: "FAILURE"}, "FAILURE"},
 		{"status context error", enrichCheck{Typename: "StatusContext", State: "ERROR"}, "FAILURE"},
 		{"status context pending", enrichCheck{Typename: "StatusContext", State: "PENDING"}, "PENDING"},
+		{"status context expected", enrichCheck{Typename: "StatusContext", State: "EXPECTED"}, "PENDING"},
 		{"status context success", enrichCheck{Typename: "StatusContext", State: "SUCCESS"}, "SUCCESS"},
 	}
 	for _, tt := range tests {
@@ -378,6 +426,16 @@ func TestReduceCheckRollup_StatusContextStates(t *testing.T) {
 				t.Errorf("expected %q, got %q", tt.want, got)
 			}
 		})
+	}
+}
+
+func TestReduceCheckRollup_ExpectedRequiredCheckDoesNotReportSuccess(t *testing.T) {
+	checks := []enrichCheck{
+		{Typename: "CheckRun", Status: "COMPLETED", Conclusion: "SUCCESS"},
+		{Typename: "StatusContext", State: "EXPECTED"},
+	}
+	if got := reduceCheckRollup(checks); got != "PENDING" {
+		t.Errorf("expected an EXPECTED required status to keep the rollup PENDING, got %q", got)
 	}
 }
 

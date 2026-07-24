@@ -16,6 +16,8 @@ import (
 
 var ErrTransient = errors.New("transient GitHub failure")
 
+const maxSearchResults = 1000
+
 type SearchKind string
 
 const (
@@ -41,6 +43,9 @@ func (q SearchQuery) Validate() error {
 		if strings.TrimSpace(q.Team) == "" {
 			return fmt.Errorf("search query: team is required for kind %q", q.Kind)
 		}
+		if !strings.Contains(q.Team, "/") && strings.TrimSpace(q.Organization) == "" {
+			return fmt.Errorf("search query: team %q is ambiguous without org/team or an organization", q.Team)
+		}
 	default:
 		return fmt.Errorf("search query: unknown kind %q", q.Kind)
 	}
@@ -65,7 +70,7 @@ func (ghDiscovery) Search(ctx context.Context, query SearchQuery) ([]domain.Pull
 		return nil, err
 	}
 
-	args := []string{"search", "prs", "--state", "open", "--json", "number,url,repository"}
+	args := []string{"search", "prs", "--state", "open", "--limit", strconv.Itoa(maxSearchResults), "--json", "number,url,repository"}
 	if query.Organization != "" {
 		args = append(args, "--owner", query.Organization)
 	}
@@ -287,7 +292,7 @@ func isFailingCheck(c enrichCheck) bool {
 
 func isPendingCheck(c enrichCheck) bool {
 	if c.Typename == "StatusContext" {
-		return c.State == "PENDING" || c.State == ""
+		return c.State == "PENDING" || c.State == "EXPECTED" || c.State == ""
 	}
 	return c.Status != "COMPLETED"
 }
