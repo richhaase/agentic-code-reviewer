@@ -31,17 +31,17 @@ func getPRContext(ctx context.Context, opts ReviewOpts) prContext {
 	if opts.PRNumber != "" {
 		return prContext{
 			number:       opts.PRNumber,
-			isSelfReview: github.IsSelfReview(ctx, opts.PRNumber),
+			isSelfReview: github.IsSelfReview(ctx, opts.RepositoryRoot, opts.PRNumber),
 		}
 	}
 
-	foundPR, err := github.GetCurrentPRNumber(ctx, opts.WorktreeBranch)
+	foundPR, err := github.GetCurrentPRNumber(ctx, opts.RepositoryRoot, opts.WorktreeBranch)
 	if err != nil {
 		return prContext{err: err}
 	}
 	return prContext{
 		number:       foundPR,
-		isSelfReview: github.IsSelfReview(ctx, foundPR),
+		isSelfReview: github.IsSelfReview(ctx, opts.RepositoryRoot, foundPR),
 	}
 }
 
@@ -257,7 +257,7 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 	}
 
 	if err := retrySubmission(ctx, func() error {
-		return github.SubmitPRReview(ctx, pr.number, body, requestChanges)
+		return github.SubmitPRReview(ctx, opts.RepositoryRoot, pr.number, body, requestChanges)
 	}, opts.Outcome != nil, logger); err != nil {
 		logger.Logf(terminal.StyleError, "Failed: %v", err)
 		return err
@@ -342,7 +342,7 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 	}
 
 	if err := retrySubmission(ctx, func() error {
-		return executeLGTMAction(ctx, action, pr.number, body, logger)
+		return executeLGTMAction(ctx, opts.RepositoryRoot, action, pr.number, body, logger)
 	}, opts.Outcome != nil, logger); err != nil {
 		return err
 	}
@@ -419,7 +419,7 @@ func headMovedSinceReview(ctx context.Context, opts ReviewOpts, prNumber string,
 	if opts.ExpectedHeadSHA == "" {
 		return false
 	}
-	st, err := github.GetPRWatchState(ctx, prNumber)
+	st, err := github.GetPRWatchState(ctx, opts.RepositoryRoot, prNumber)
 	if err != nil || st.HeadSHA == "" {
 		return false
 	}
@@ -441,7 +441,7 @@ func logCIChecks(logger *terminal.Logger, checks []string) {
 }
 
 func checkCIAndMaybeDowngrade(ctx context.Context, prNum string, action lgtmAction, opts ReviewOpts, logger *terminal.Logger) (lgtmAction, error) {
-	ciStatus := github.CheckCIStatus(ctx, prNum)
+	ciStatus := github.CheckCIStatus(ctx, opts.RepositoryRoot, prNum)
 
 	if ciStatus.Error != "" {
 		if opts.Outcome == nil {
@@ -505,16 +505,16 @@ func checkCIAndMaybeDowngrade(ctx context.Context, prNum string, action lgtmActi
 	}
 }
 
-func executeLGTMAction(ctx context.Context, action lgtmAction, prNumber, body string, logger *terminal.Logger) error {
+func executeLGTMAction(ctx context.Context, repositoryRoot string, action lgtmAction, prNumber, body string, logger *terminal.Logger) error {
 	switch action {
 	case actionApprove:
-		if err := github.ApprovePR(ctx, prNumber, body); err != nil {
+		if err := github.ApprovePR(ctx, repositoryRoot, prNumber, body); err != nil {
 			logger.Logf(terminal.StyleError, "Failed: %v", err)
 			return err
 		}
 		logger.Logf(terminal.StyleSuccess, "Approved PR #%s.", prNumber)
 	case actionComment:
-		if err := github.SubmitPRReview(ctx, prNumber, body, false); err != nil {
+		if err := github.SubmitPRReview(ctx, repositoryRoot, prNumber, body, false); err != nil {
 			logger.Logf(terminal.StyleError, "Failed: %v", err)
 			return err
 		}

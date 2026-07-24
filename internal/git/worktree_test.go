@@ -102,22 +102,13 @@ func TestWorktree_Remove_ValidWorktree(t *testing.T) {
 func TestCreateWorktree_Success(t *testing.T) {
 	repoDir := setupTestRepo(t)
 
-	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get current dir: %v", err)
-	}
-	if err := os.Chdir(repoDir); err != nil {
-		t.Fatalf("failed to change to repo dir: %v", err)
-	}
-	defer os.Chdir(origDir)
-
 	cmd := exec.Command("git", "branch", "feature-branch")
 	cmd.Dir = repoDir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("failed to create branch: %v\n%s", err, out)
 	}
 
-	wt, err := CreateWorktree("feature-branch")
+	wt, err := CreateWorktree(context.Background(), repoDir, "feature-branch")
 	if err != nil {
 		t.Fatalf("CreateWorktree failed: %v", err)
 	}
@@ -138,16 +129,7 @@ func TestCreateWorktree_Success(t *testing.T) {
 func TestCreateWorktree_InvalidBranch(t *testing.T) {
 	repoDir := setupTestRepo(t)
 
-	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get current dir: %v", err)
-	}
-	if err := os.Chdir(repoDir); err != nil {
-		t.Fatalf("failed to change to repo dir: %v", err)
-	}
-	defer os.Chdir(origDir)
-
-	_, err = CreateWorktree("nonexistent-branch")
+	_, err := CreateWorktree(context.Background(), repoDir, "nonexistent-branch")
 	if err == nil {
 		t.Error("expected error for non-existent branch")
 	}
@@ -156,22 +138,13 @@ func TestCreateWorktree_InvalidBranch(t *testing.T) {
 func TestCreateWorktree_BranchWithSlashes(t *testing.T) {
 	repoDir := setupTestRepo(t)
 
-	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get current dir: %v", err)
-	}
-	if err := os.Chdir(repoDir); err != nil {
-		t.Fatalf("failed to change to repo dir: %v", err)
-	}
-	defer os.Chdir(origDir)
-
 	cmd := exec.Command("git", "branch", "feature/test/branch")
 	cmd.Dir = repoDir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("failed to create branch: %v\n%s", err, out)
 	}
 
-	wt, err := CreateWorktree("feature/test/branch")
+	wt, err := CreateWorktree(context.Background(), repoDir, "feature/test/branch")
 	if err != nil {
 		t.Fatalf("CreateWorktree failed: %v", err)
 	}
@@ -182,6 +155,59 @@ func TestCreateWorktree_BranchWithSlashes(t *testing.T) {
 	}
 	if !strings.Contains(wt.Path, "review-feature-test-branch-") {
 		t.Errorf("worktree path format unexpected: %s", wt.Path)
+	}
+}
+
+func TestCreateWorktree_NoChdirRequired(t *testing.T) {
+	repoA := setupTestRepo(t)
+	repoB := setupTestRepo(t)
+
+	for _, repo := range []string{repoA, repoB} {
+		cmd := exec.Command("git", "branch", "feature-branch")
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("failed to create branch in %s: %v\n%s", repo, err, out)
+		}
+	}
+
+	startDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get current dir: %v", err)
+	}
+
+	wtA, err := CreateWorktree(context.Background(), repoA, "feature-branch")
+	if err != nil {
+		t.Fatalf("CreateWorktree(repoA) failed: %v", err)
+	}
+	defer wtA.Remove()
+
+	wtB, err := CreateWorktree(context.Background(), repoB, "feature-branch")
+	if err != nil {
+		t.Fatalf("CreateWorktree(repoB) failed: %v", err)
+	}
+	defer wtB.Remove()
+
+	endDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get current dir: %v", err)
+	}
+	if startDir != endDir {
+		t.Fatalf("process working directory changed: %s -> %s", startDir, endDir)
+	}
+
+	resolvedRepoA, err := filepath.EvalSymlinks(repoA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedRepoB, err := filepath.EvalSymlinks(repoB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(wtA.Path, resolvedRepoA) {
+		t.Errorf("expected worktree A under %s, got %s", resolvedRepoA, wtA.Path)
+	}
+	if !strings.HasPrefix(wtB.Path, resolvedRepoB) {
+		t.Errorf("expected worktree B under %s, got %s", resolvedRepoB, wtB.Path)
 	}
 }
 
@@ -231,28 +257,6 @@ func TestGetRoot_NotInGitRepo(t *testing.T) {
 	_, err = GetRoot()
 	if err == nil {
 		t.Error("expected error when not in git repo")
-	}
-}
-
-func TestGetCommonDir_InGitRepo(t *testing.T) {
-	repoDir := setupTestRepo(t)
-
-	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get current dir: %v", err)
-	}
-	if err := os.Chdir(repoDir); err != nil {
-		t.Fatalf("failed to change to repo dir: %v", err)
-	}
-	defer os.Chdir(origDir)
-
-	commonDir, err := GetCommonDir()
-	if err != nil {
-		t.Fatalf("GetCommonDir failed: %v", err)
-	}
-
-	if !strings.HasSuffix(commonDir, ".git") {
-		t.Errorf("common dir should end with .git, got %s", commonDir)
 	}
 }
 
@@ -377,19 +381,9 @@ func TestFetchPRRef_UsesRemoteParameter(t *testing.T) {
 }
 
 func TestCreateWorktreeFromPR_SignatureAndErrorMessage(t *testing.T) {
-
 	repoDir := setupTestRepo(t)
 
-	origDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("failed to get current dir: %v", err)
-	}
-	if err := os.Chdir(repoDir); err != nil {
-		t.Fatalf("failed to change to repo dir: %v", err)
-	}
-	defer os.Chdir(origDir)
-
-	_, err = CreateWorktreeFromPR(repoDir, "origin", "999")
+	_, err := CreateWorktreeFromPR(context.Background(), repoDir, "origin", "999")
 
 	if err == nil {
 		t.Error("expected error when fetching from non-existent remote")

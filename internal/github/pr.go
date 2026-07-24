@@ -23,7 +23,7 @@ type CIStatus struct {
 	Error     string
 }
 
-func GetCurrentPRNumber(ctx context.Context, branch string) (string, error) {
+func GetCurrentPRNumber(ctx context.Context, repositoryRoot, branch string) (string, error) {
 	args := []string{"pr", "view"}
 	if branch != "" {
 		args = append(args, branch)
@@ -31,6 +31,7 @@ func GetCurrentPRNumber(ctx context.Context, branch string) (string, error) {
 	args = append(args, "--json", "number", "--jq", ".number")
 
 	cmd := exec.CommandContext(ctx, "gh", args...)
+	cmd.Dir = repositoryRoot
 	out, err := cmd.Output()
 	if err != nil {
 		return "", classifyGHError(err)
@@ -51,18 +52,9 @@ func parsePRViewJSON(data []byte) (head, base string, err error) {
 	return resp.HeadRefName, resp.BaseRefName, nil
 }
 
-func GetPRBranch(ctx context.Context, prNumber string) (string, error) {
-	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "headRefName")
-	out, err := cmd.Output()
-	if err != nil {
-		return "", classifyGHError(err)
-	}
-	head, _, err := parsePRViewJSON(out)
-	return head, err
-}
-
-func GetPRBaseRef(ctx context.Context, prNumber string) (string, error) {
+func GetPRBaseRef(ctx context.Context, repositoryRoot, prNumber string) (string, error) {
 	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "baseRefName")
+	cmd.Dir = repositoryRoot
 	out, err := cmd.Output()
 	if err != nil {
 		return "", classifyGHError(err)
@@ -71,9 +63,9 @@ func GetPRBaseRef(ctx context.Context, prNumber string) (string, error) {
 	return base, err
 }
 
-func ValidatePR(ctx context.Context, prNumber string) error {
-
+func ValidatePR(ctx context.Context, repositoryRoot, prNumber string) error {
 	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "number")
+	cmd.Dir = repositoryRoot
 	_, err := cmd.Output()
 	if err != nil {
 		return classifyGHError(err)
@@ -279,8 +271,9 @@ func classifyGHError(err error) error {
 	return fmt.Errorf("gh command failed: %w", err)
 }
 
-func ApprovePR(ctx context.Context, prNumber, body string) error {
+func ApprovePR(ctx context.Context, repositoryRoot, prNumber, body string) error {
 	cmd := exec.CommandContext(ctx, "gh", "pr", "review", prNumber, "--approve", "--body-file", "-")
+	cmd.Dir = repositoryRoot
 	cmd.Stdin = strings.NewReader(body)
 
 	var stderr bytes.Buffer
@@ -296,13 +289,14 @@ func ApprovePR(ctx context.Context, prNumber, body string) error {
 	return nil
 }
 
-func SubmitPRReview(ctx context.Context, prNumber, body string, requestChanges bool) error {
+func SubmitPRReview(ctx context.Context, repositoryRoot, prNumber, body string, requestChanges bool) error {
 	flag := "--comment"
 	if requestChanges {
 		flag = "--request-changes"
 	}
 
 	cmd := exec.CommandContext(ctx, "gh", "pr", "review", prNumber, flag, "--body-file", "-")
+	cmd.Dir = repositoryRoot
 	cmd.Stdin = strings.NewReader(body)
 
 	var stderr bytes.Buffer
@@ -318,8 +312,9 @@ func SubmitPRReview(ctx context.Context, prNumber, body string, requestChanges b
 	return nil
 }
 
-func CheckCIStatus(ctx context.Context, prNumber string) CIStatus {
+func CheckCIStatus(ctx context.Context, repositoryRoot, prNumber string) CIStatus {
 	cmd := exec.CommandContext(ctx, "gh", "pr", "checks", prNumber, "--json", "name,bucket")
+	cmd.Dir = repositoryRoot
 	out, err := cmd.Output()
 	if err != nil {
 		var stderr bytes.Buffer
@@ -397,8 +392,9 @@ func (s PRWatchState) ReviewRequestedFrom(login string) bool {
 	return false
 }
 
-func GetPRWatchState(ctx context.Context, prNumber string) (PRWatchState, error) {
+func GetPRWatchState(ctx context.Context, repositoryRoot, prNumber string) (PRWatchState, error) {
 	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "headRefOid,state,reviewRequests")
+	cmd.Dir = repositoryRoot
 	out, err := cmd.Output()
 	if err != nil {
 		return PRWatchState{}, classifyGHError(err)
@@ -456,8 +452,9 @@ func GetCurrentUser(ctx context.Context) string {
 	return strings.TrimSpace(string(out))
 }
 
-func GetPRAuthor(ctx context.Context, prNumber string) string {
+func GetPRAuthor(ctx context.Context, repositoryRoot, prNumber string) string {
 	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "author", "--jq", ".author.login")
+	cmd.Dir = repositoryRoot
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
@@ -465,9 +462,9 @@ func GetPRAuthor(ctx context.Context, prNumber string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func IsSelfReview(ctx context.Context, prNumber string) bool {
+func IsSelfReview(ctx context.Context, repositoryRoot, prNumber string) bool {
 	currentUser := GetCurrentUser(ctx)
-	prAuthor := GetPRAuthor(ctx, prNumber)
+	prAuthor := GetPRAuthor(ctx, repositoryRoot, prNumber)
 	return checkSelfReview(currentUser, prAuthor)
 }
 
