@@ -181,7 +181,7 @@ func TestEnrich_BuildsExpectedArgsAndParsesFullResponse(t *testing.T) {
 	if snapshot.ReviewRequests[0].Kind != domain.ReviewRequestKindUser || snapshot.ReviewRequests[0].Login != "reviewer1" {
 		t.Errorf("unexpected user review request: %+v", snapshot.ReviewRequests[0])
 	}
-	if snapshot.ReviewRequests[1].Kind != domain.ReviewRequestKindTeam || snapshot.ReviewRequests[1].Login != "reviewers" {
+	if snapshot.ReviewRequests[1].Kind != domain.ReviewRequestKindTeam || snapshot.ReviewRequests[1].Login != "richhaase/reviewers" {
 		t.Errorf("unexpected team review request: %+v", snapshot.ReviewRequests[1])
 	}
 	if len(snapshot.LatestReviews) != 1 || snapshot.LatestReviews[0].Author != "reviewer2" {
@@ -195,8 +195,72 @@ func TestEnrich_BuildsExpectedArgsAndParsesFullResponse(t *testing.T) {
 	}
 
 	args := readCapturedArgs(t, scriptDir)
-	if len(args) != 1 || !strings.Contains(args[0], "pr view 202") || !strings.Contains(args[0], "-R richhaase/agentic-code-reviewer") {
+	if len(args) != 1 || !strings.Contains(args[0], "pr view 202") || !strings.Contains(args[0], "-R github.com/richhaase/agentic-code-reviewer") {
 		t.Errorf("unexpected args: %v", args)
+	}
+}
+
+func TestEnrich_IncludesHostInRepoSelectorForEnterpriseHost(t *testing.T) {
+	scriptDir := setupMockGH(t, `{
+		"number": 20, "url": "https://ghe.example.com/o/r/pull/20", "title": "t",
+		"author": {"login": "a"}, "state": "OPEN", "isDraft": false,
+		"headRefOid": "h", "baseRefOid": "b",
+		"reviewRequests": [], "latestReviews": [], "statusCheckRollup": [],
+		"mergeStateStatus": "CLEAN", "updatedAt": "2026-07-24T09:00:00Z"
+	}`)
+
+	_, err := NewDiscovery().Enrich(context.Background(), domain.PullRequestKey{Host: "ghe.example.com", Owner: "o", Repository: "r", Number: 20})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	args := readCapturedArgs(t, scriptDir)
+	if len(args) != 1 || !strings.Contains(args[0], "-R ghe.example.com/o/r") {
+		t.Errorf("expected host-qualified repo selector, got %v", args)
+	}
+}
+
+func TestEnrich_TeamReviewRequestQualifiedWithRepositoryOwner(t *testing.T) {
+	response := `{
+		"number": 21, "url": "https://github.com/richhaase/agentic-code-reviewer/pull/21", "title": "t",
+		"author": {"login": "a"}, "state": "OPEN", "isDraft": false,
+		"headRefOid": "h", "baseRefOid": "b",
+		"reviewRequests": [{"__typename":"Team","slug":"reviewers","name":"Reviewers"}],
+		"latestReviews": [], "statusCheckRollup": [],
+		"mergeStateStatus": "CLEAN", "updatedAt": "2026-07-24T09:00:00Z"
+	}`
+	setupMockGH(t, response)
+
+	key := domain.PullRequestKey{Host: "github.com", Owner: "richhaase", Repository: "agentic-code-reviewer", Number: 21}
+	snapshot, err := NewDiscovery().Enrich(context.Background(), key)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(snapshot.ReviewRequests) != 1 || snapshot.ReviewRequests[0].Login != "richhaase/reviewers" {
+		t.Fatalf("expected org-qualified team login, got %+v", snapshot.ReviewRequests)
+	}
+}
+
+func TestEnrich_StaleChecksReportFailure(t *testing.T) {
+	response := `{
+		"number": 22, "url": "https://github.com/o/r/pull/22", "title": "t",
+		"author": {"login": "a"}, "state": "OPEN", "isDraft": false,
+		"headRefOid": "h", "baseRefOid": "b",
+		"reviewRequests": [], "latestReviews": [],
+		"statusCheckRollup": [
+			{"__typename":"CheckRun","status":"COMPLETED","conclusion":"SUCCESS"},
+			{"__typename":"CheckRun","status":"COMPLETED","conclusion":"STALE"}
+		],
+		"mergeStateStatus": "UNKNOWN", "updatedAt": "2026-07-24T09:00:00Z"
+	}`
+	setupMockGH(t, response)
+
+	snapshot, err := NewDiscovery().Enrich(context.Background(), domain.PullRequestKey{Host: "github.com", Owner: "o", Repository: "r", Number: 22})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if snapshot.CheckRollupState != "FAILURE" {
+		t.Errorf("expected STALE check conclusion to report FAILURE, got %q", snapshot.CheckRollupState)
 	}
 }
 

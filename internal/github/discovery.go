@@ -143,10 +143,7 @@ func (ghDiscovery) Enrich(ctx context.Context, key domain.PullRequestKey) (domai
 		return domain.PullRequestSnapshot{}, err
 	}
 
-	repo := key.Owner + "/" + key.Repository
-	if key.Host != "" && key.Host != "github.com" {
-		repo = key.Host + "/" + repo
-	}
+	repo := key.Host + "/" + key.Owner + "/" + key.Repository
 
 	args := []string{
 		"pr", "view", strconv.Itoa(key.Number),
@@ -213,7 +210,11 @@ func parseEnrichResponse(data []byte, key domain.PullRequestKey) (domain.PullReq
 	reviewRequests := make([]domain.ReviewRequest, 0, len(resp.ReviewRequests))
 	for _, r := range resp.ReviewRequests {
 		if r.Typename == "Team" {
-			reviewRequests = append(reviewRequests, domain.ReviewRequest{Kind: domain.ReviewRequestKindTeam, Login: r.Slug})
+			slug := r.Slug
+			if !strings.Contains(slug, "/") {
+				slug = key.Owner + "/" + slug
+			}
+			reviewRequests = append(reviewRequests, domain.ReviewRequest{Kind: domain.ReviewRequestKindTeam, Login: slug})
 			continue
 		}
 		reviewRequests = append(reviewRequests, domain.ReviewRequest{Kind: domain.ReviewRequestKindUser, Login: r.Login})
@@ -283,7 +284,7 @@ func isFailingCheck(c enrichCheck) bool {
 		return false
 	}
 	switch c.Conclusion {
-	case "FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE":
+	case "FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE":
 		return true
 	default:
 		return false
