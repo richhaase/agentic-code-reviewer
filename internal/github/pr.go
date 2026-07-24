@@ -152,28 +152,72 @@ func urlMatches(url1, url2 string) bool {
 	return firstHasHost && secondHasHost && first == second
 }
 
-func normalizeRepositoryURL(raw string) (string, bool) {
+func isSupportedGitScheme(scheme string) bool {
+	switch strings.ToLower(scheme) {
+	case "http", "https", "ssh", "git", "git+ssh", "ssh+git":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseRemoteHostAndPath(raw string) (host, path string, hasHost bool) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return "", false
+		return "", "", false
 	}
 
 	parsed, err := url.Parse(raw)
-	if err == nil && parsed.Host != "" {
+	if err == nil && parsed.Host != "" && isSupportedGitScheme(parsed.Scheme) {
 		host := parsed.Hostname()
 		if port := parsed.Port(); port != "" && !isDefaultRepositoryPort(parsed.Scheme, port) {
 			host = net.JoinHostPort(host, port)
 		}
-		return normalizeRepositoryLocation(host, parsed.Path), host != ""
+		return host, parsed.Path, host != ""
 	}
 
 	colon := strings.Index(raw, ":")
 	slash := strings.Index(raw, "/")
-	if colon > 0 && (slash == -1 || colon < slash) {
-		return normalizeRepositoryLocation(raw[:colon], raw[colon+1:]), true
+	if !strings.Contains(raw, "://") && colon > 0 && (slash == -1 || colon < slash) {
+		return raw[:colon], raw[colon+1:], true
 	}
 
-	return normalizeRepositoryLocation("", raw), false
+	return "", raw, false
+}
+
+func normalizeRepositoryURL(raw string) (string, bool) {
+	host, path, hasHost := parseRemoteHostAndPath(raw)
+	return normalizeRepositoryLocation(host, path), hasHost
+}
+
+func ParseRemoteURL(raw string) (host, owner, repo string, ok bool) {
+	rawHost, rawPath, hasHost := parseRemoteHostAndPath(raw)
+	if !hasHost {
+		return "", "", "", false
+	}
+
+	host = strings.TrimSpace(rawHost)
+	if at := strings.LastIndex(host, "@"); at != -1 {
+		host = host[at+1:]
+	}
+	host = strings.ToLower(host)
+	if host == "" {
+		return "", "", "", false
+	}
+
+	trimmedPath := strings.ToLower(strings.Trim(strings.TrimSpace(rawPath), "/"))
+	trimmedPath = strings.TrimSuffix(trimmedPath, ".git")
+	segments := strings.Split(trimmedPath, "/")
+	if len(segments) != 2 {
+		return "", "", "", false
+	}
+
+	owner = segments[0]
+	repo = segments[1]
+	if owner == "" || repo == "" {
+		return "", "", "", false
+	}
+	return host, owner, repo, true
 }
 
 func isDefaultRepositoryPort(scheme, port string) bool {

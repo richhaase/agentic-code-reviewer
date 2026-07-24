@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/github"
+	"github.com/richhaase/agentic-code-reviewer/internal/repos"
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 	"github.com/richhaase/agentic-code-reviewer/internal/workspace"
 )
@@ -90,6 +91,24 @@ func newDeskConfigShowCmd() *cobra.Command {
 	}
 }
 
+func styleForRepositoryStatus(status repos.Status) terminal.Style {
+	switch status {
+	case repos.StatusReviewable, repos.StatusExcluded:
+		return terminal.StyleSuccess
+	default:
+		return terminal.StyleWarning
+	}
+}
+
+func blocksValidation(status repos.Status) bool {
+	switch status {
+	case repos.StatusMissing, repos.StatusAmbiguous, repos.StatusInvalid:
+		return true
+	default:
+		return false
+	}
+}
+
 func newDeskConfigValidateCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "validate",
@@ -115,6 +134,25 @@ func newDeskConfigValidateCmd() *cobra.Command {
 
 			if identityErr := workspace.CheckIdentity(context.Background(), *cfg); identityErr != nil {
 				errs = append(errs, identityErr.Error())
+			}
+
+			resolution, resolveErr := repos.Resolve(context.Background(), cfg.Scope)
+			if resolveErr != nil {
+				errs = append(errs, resolveErr.Error())
+			} else {
+				if len(resolution.Repositories) > 0 {
+					fmt.Println("Repository resolution:")
+					for _, r := range resolution.Repositories {
+						logger.Logf(styleForRepositoryStatus(r.Status), "%s: %s", r.Identity, r.Status)
+						if r.Reason != "" {
+							fmt.Printf("    %s\n", r.Reason)
+						}
+						if blocksValidation(r.Status) {
+							errs = append(errs, fmt.Sprintf("repository %s: %s", r.Identity, r.Reason))
+						}
+					}
+				}
+				errs = append(errs, resolution.RootWarnings...)
 			}
 
 			for _, e := range errs {
