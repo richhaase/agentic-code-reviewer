@@ -82,3 +82,60 @@ func TestPRSnapshotV1_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestToPRSnapshotSchema_ToDomain_RoundTrip(t *testing.T) {
+	schema := validSnapshot()
+
+	converted, err := schema.ToDomain()
+	if err != nil {
+		t.Fatalf("ToDomain: %v", err)
+	}
+
+	back := ToPRSnapshotSchema(converted)
+	back.SchemaVersion = schema.SchemaVersion
+	if !reflect.DeepEqual(back, schema) {
+		t.Fatalf("round trip mismatch: got %+v, want %+v", back, schema)
+	}
+}
+
+func TestPRSnapshotV1_ToDomain_RejectsUnvalidatedCorruptData(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(s *PRSnapshotV1)
+	}{
+		{"unsupported schema version", func(s *PRSnapshotV1) { s.SchemaVersion = 99 }},
+		{"invalid pull request key", func(s *PRSnapshotV1) { s.PullRequest.Number = 0 }},
+		{"missing head object id", func(s *PRSnapshotV1) { s.HeadObjectID = "" }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			schema := validSnapshot()
+			tt.mutate(&schema)
+			if _, err := schema.ToDomain(); err == nil {
+				t.Fatal("expected ToDomain to reject corrupt data even when called directly, bypassing decodePRSnapshot")
+			}
+		})
+	}
+}
+
+func TestPRSnapshotV1_ToDomain_RejectsUnknownReviewRequestKind(t *testing.T) {
+	schema := validSnapshot()
+	schema.ReviewRequests[0].Kind = "org"
+
+	if _, err := schema.ToDomain(); err == nil {
+		t.Fatal("expected error for unknown review request kind")
+	}
+}
+
+func TestPRSnapshotV1_ToDomain_PreservesStaleFalse(t *testing.T) {
+	schema := validSnapshot()
+
+	converted, err := schema.ToDomain()
+	if err != nil {
+		t.Fatalf("ToDomain: %v", err)
+	}
+	if converted.Stale {
+		t.Error("expected a freshly loaded snapshot to not be marked stale")
+	}
+}

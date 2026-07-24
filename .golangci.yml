@@ -38,6 +38,8 @@ linters:
   settings:
     misspell:
       locale: US
+      ignore-rules:
+        - CANCELLED
 
     errcheck:
 

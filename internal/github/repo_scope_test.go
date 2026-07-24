@@ -28,6 +28,31 @@ func setupMockGH(t *testing.T, response string) string {
 	return scriptDir
 }
 
+func writeMockGHResponse(scriptDir, response string) error {
+	return os.WriteFile(filepath.Join(scriptDir, "response"), []byte(response), 0644)
+}
+
+func setupMockGHFailure(t *testing.T, stderr string) string {
+	t.Helper()
+	scriptDir := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"DIR=$(cd \"$(dirname \"$0\")\" && pwd -P)\n" +
+		"pwd -P >> \"$DIR/cwd.log\"\n" +
+		"echo \"$@\" >> \"$DIR/args.log\"\n" +
+		"cat \"$DIR/stderr\" >&2\n" +
+		"exit 1\n"
+	if err := os.WriteFile(filepath.Join(scriptDir, "gh"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scriptDir, "stderr"), []byte(stderr), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	originalPath := os.Getenv("PATH")
+	t.Setenv("PATH", scriptDir+string(os.PathListSeparator)+originalPath)
+	return scriptDir
+}
+
 func setupMockGHRoutedByArgs(t *testing.T, routes map[string]string) string {
 	t.Helper()
 	scriptDir := t.TempDir()
