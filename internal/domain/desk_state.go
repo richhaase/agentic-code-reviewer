@@ -68,7 +68,7 @@ type Classification struct {
 }
 
 func Classify(input ClassificationInput) Classification {
-	if isReleased(input.Events) {
+	if IsReleased(input.Events) {
 		return Classification{Tracked: false, Reason: "released by user"}
 	}
 
@@ -150,7 +150,7 @@ func latestLifecycleEvent(events []LifecycleEvent, kinds ...LifecycleEventKind) 
 	return latest
 }
 
-func isReleased(events []LifecycleEvent) bool {
+func IsReleased(events []LifecycleEvent) bool {
 	latest := latestLifecycleEvent(events, LifecycleEventUserReleased, LifecycleEventUserResumed)
 	return latest != nil && latest.Kind == LifecycleEventUserReleased
 }
