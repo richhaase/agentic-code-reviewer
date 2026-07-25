@@ -60,7 +60,7 @@ func Refresh(ctx context.Context, cfg workspace.Config, dataDir string, discover
 		return Inbox{}, fmt.Errorf("resolve configured repositories: %w", err)
 	}
 
-	keys, warnings := discoverCandidateKeys(ctx, discovery, cfg)
+	keys, warnings, discoveryIncomplete := discoverCandidateKeys(ctx, discovery, cfg)
 	discovered := append([]domain.PullRequestKey(nil), keys...)
 
 	tracked, err := store.ListTrackedPullRequests(dataDir)
@@ -76,7 +76,7 @@ func Refresh(ctx context.Context, cfg workspace.Config, dataDir string, discover
 
 	for _, key := range tracked {
 		trackedKey := key.ToDomain()
-		if !containsKeyIdentity(discovered, trackedKey) {
+		if !discoveryIncomplete && !containsKeyIdentity(discovered, trackedKey) {
 			if scopeExcludesKey(cfg, key) {
 				continue
 			}
@@ -305,14 +305,16 @@ func matchingResolvedRepository(resolution repos.Resolution, key store.PullReque
 	return repos.ResolvedRepository{}, false
 }
 
-func discoverCandidateKeys(ctx context.Context, discovery github.Discovery, cfg workspace.Config) ([]domain.PullRequestKey, []string) {
+func discoverCandidateKeys(ctx context.Context, discovery github.Discovery, cfg workspace.Config) ([]domain.PullRequestKey, []string, bool) {
 	var keys []domain.PullRequestKey
 	var warnings []string
+	incomplete := false
 
 	search := func(query github.SearchQuery, label string) {
 		found, err := discovery.Search(ctx, query)
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("%s: %v", label, err))
+			incomplete = true
 			return
 		}
 		for _, key := range found {
@@ -344,7 +346,7 @@ func discoverCandidateKeys(ctx context.Context, discovery github.Discovery, cfg 
 		}
 	}
 
-	return keys, warnings
+	return keys, warnings, incomplete
 }
 
 func appendUniqueKey(keys []domain.PullRequestKey, key domain.PullRequestKey) []domain.PullRequestKey {

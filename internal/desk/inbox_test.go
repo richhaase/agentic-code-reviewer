@@ -353,6 +353,41 @@ func TestRefresh_BareSnapshotWithNoHistoryDoesNotSurviveDroppedSearchResult(t *t
 	}
 }
 
+func TestRefresh_DoesNotPruneCachedPRWhenDiscoverySearchFailed(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/acme/widgets.git")
+	cfg := baseWorkspaceConfig(t, root)
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+
+	key := domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "widgets", Number: 13}
+	previous := fixtureSnapshot(key, "someone-else", "head-1", now.Add(-time.Hour))
+	if err := store.NewFilesystemSnapshotStore(dataDir).SaveSnapshot(store.ToPRSnapshotSchema(previous)); err != nil {
+		t.Fatalf("seed snapshot: %v", err)
+	}
+
+	discovery := &fixtureDiscovery{
+		searchErr: errors.New("search unavailable"),
+		enrich: map[domain.PullRequestKey]domain.PullRequestSnapshot{
+			key: fixtureSnapshot(key, "someone-else", "head-2", now),
+		},
+	}
+
+	inbox, err := Refresh(context.Background(), cfg, dataDir, discovery, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(inbox.Items) != 1 {
+		t.Fatalf("expected a history-less cached PR to survive a partial/failed discovery search rather than being pruned, got %+v", inbox.Items)
+	}
+	if len(discovery.enrichCalls) != 1 {
+		t.Errorf("expected the cached PR to still be enriched despite the search failure, got enrich calls %+v", discovery.enrichCalls)
+	}
+	if len(inbox.Warnings) == 0 {
+		t.Error("expected the discovery search failure to be surfaced as a warning")
+	}
+}
+
 func TestRefresh_ReleasedPRIsExcluded(t *testing.T) {
 	root := t.TempDir()
 	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/acme/widgets.git")
@@ -815,10 +850,13 @@ func TestDiscoverCandidateKeys_BareTeamWithNoOrganizationsWarns(t *testing.T) {
 	}
 	discovery := &fixtureDiscovery{search: map[github.SearchKind][]domain.PullRequestKey{}}
 
-	_, warnings := discoverCandidateKeys(context.Background(), discovery, cfg)
+	_, warnings, incomplete := discoverCandidateKeys(context.Background(), discovery, cfg)
 
 	if len(warnings) == 0 {
 		t.Fatal("expected a warning that a bare team could not be searched without a configured organization")
+	}
+	if incomplete {
+		t.Error("expected an unqualifiable bare team to be a configuration warning, not a discovery failure")
 	}
 	for _, call := range discovery.calls {
 		if call.Kind == github.SearchKindTeamReviewRequested {
