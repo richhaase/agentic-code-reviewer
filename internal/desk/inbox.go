@@ -74,9 +74,17 @@ func Refresh(ctx context.Context, cfg workspace.Config, dataDir string, discover
 
 	inbox := Inbox{GeneratedAt: now}
 	inbox.Warnings = append(inbox.Warnings, warnings...)
+	inbox.Warnings = append(inbox.Warnings, resolution.RootWarnings...)
 
 	for _, key := range keys {
 		schemaKey := store.ToPullRequestKeySchema(key)
+
+		if scopeExcludesKey(cfg, schemaKey) {
+			continue
+		}
+		if events, eventsErr := loadDomainEvents(dataDir, schemaKey); eventsErr == nil && domain.IsReleased(events) {
+			continue
+		}
 
 		var previous *domain.PullRequestSnapshot
 		if storedSchema, loadErr := snapshotStore.LoadSnapshot(schemaKey); loadErr == nil {
@@ -124,6 +132,7 @@ func LoadStored(dataDir string, cfg workspace.Config, now time.Time) (Inbox, err
 
 	snapshotStore := store.NewFilesystemSnapshotStore(dataDir)
 	inbox := Inbox{GeneratedAt: now, FromLiveLock: true}
+	inbox.Warnings = append(inbox.Warnings, resolution.RootWarnings...)
 
 	for _, schemaKey := range tracked {
 		storedSchema, err := snapshotStore.LoadSnapshot(schemaKey)
@@ -151,6 +160,30 @@ func LoadStored(dataDir string, cfg workspace.Config, now time.Time) (Inbox, err
 	return inbox, nil
 }
 
+func loadDomainEvents(dataDir string, key store.PullRequestKeyV1) ([]domain.LifecycleEvent, error) {
+	eventSchemas, _, err := store.NewFilesystemEventStore(dataDir).ListEvents(key)
+	if err != nil {
+		return nil, err
+	}
+	events := make([]domain.LifecycleEvent, 0, len(eventSchemas))
+	for _, schema := range eventSchemas {
+		if event, ok := schema.ToLifecycleEvent(); ok {
+			events = append(events, event)
+		}
+	}
+	return events, nil
+}
+
+func scopeExcludesKey(cfg workspace.Config, key store.PullRequestKeyV1) bool {
+	identity := repos.Identity{
+		Host:  strings.ToLower(key.Host),
+		Owner: strings.ToLower(key.Owner),
+		Name:  strings.ToLower(key.Repository),
+	}
+	excluded, _ := repos.MatchesExclusion(identity, cfg.Scope.Include, cfg.Scope.Exclude)
+	return excluded
+}
+
 func classifySnapshot(dataDir string, cfg workspace.Config, resolution repos.Resolution, key store.PullRequestKeyV1, snapshot domain.PullRequestSnapshot, now time.Time) (Item, bool, error) {
 	if resolved, found := matchingResolvedRepository(resolution, key); found && resolved.Status == repos.StatusExcluded {
 		return Item{}, false, nil
@@ -169,16 +202,9 @@ func classifySnapshot(dataDir string, cfg workspace.Config, resolution repos.Res
 		runs = append(runs, run)
 	}
 
-	eventSchemas, _, err := store.NewFilesystemEventStore(dataDir).ListEvents(key)
+	events, err := loadDomainEvents(dataDir, key)
 	if err != nil {
 		return Item{}, false, fmt.Errorf("load review events: %w", err)
-	}
-	events := make([]domain.LifecycleEvent, 0, len(eventSchemas))
-	for _, schema := range eventSchemas {
-		event, ok := schema.ToLifecycleEvent()
-		if ok {
-			events = append(events, event)
-		}
 	}
 
 	repositoryAvailable, repositoryPath := repositoryAvailability(resolution, key)

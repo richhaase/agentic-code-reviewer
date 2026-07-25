@@ -30,11 +30,12 @@ func initGitRepoWithRemote(t *testing.T, dir, remoteURL string) {
 }
 
 type fixtureDiscovery struct {
-	search    map[github.SearchKind][]domain.PullRequestKey
-	searchErr error
-	enrich    map[domain.PullRequestKey]domain.PullRequestSnapshot
-	err       map[domain.PullRequestKey]error
-	calls     []github.SearchQuery
+	search      map[github.SearchKind][]domain.PullRequestKey
+	searchErr   error
+	enrich      map[domain.PullRequestKey]domain.PullRequestSnapshot
+	err         map[domain.PullRequestKey]error
+	calls       []github.SearchQuery
+	enrichCalls []domain.PullRequestKey
 }
 
 func (f *fixtureDiscovery) Search(ctx context.Context, query github.SearchQuery) ([]domain.PullRequestKey, error) {
@@ -46,6 +47,7 @@ func (f *fixtureDiscovery) Search(ctx context.Context, query github.SearchQuery)
 }
 
 func (f *fixtureDiscovery) Enrich(ctx context.Context, key domain.PullRequestKey) (domain.PullRequestSnapshot, error) {
+	f.enrichCalls = append(f.enrichCalls, key)
 	if err, ok := f.err[key]; ok {
 		return domain.PullRequestSnapshot{}, err
 	}
@@ -552,5 +554,94 @@ func TestRefresh_ScopeExcludedRepositoryIsOmittedEntirely(t *testing.T) {
 	}
 	if len(inbox.Items) != 0 {
 		t.Fatalf("expected a scope-excluded repository's PR to be omitted entirely rather than shown as repository_unavailable, got %+v", inbox.Items)
+	}
+}
+
+func TestRefresh_ScopeExcludedPRSkippedBeforeEnrichment(t *testing.T) {
+	cfg := baseWorkspaceConfig(t, t.TempDir())
+	cfg.Scope.Exclude = []string{"acme/widgets"}
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+
+	key := domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "widgets", Number: 22}
+	discovery := &fixtureDiscovery{
+		search: map[github.SearchKind][]domain.PullRequestKey{
+			github.SearchKindReviewRequested: {key},
+		},
+		enrich: map[domain.PullRequestKey]domain.PullRequestSnapshot{
+			key: fixtureSnapshot(key, "someone-else", "head-1", now),
+		},
+	}
+
+	inbox, err := Refresh(context.Background(), cfg, dataDir, discovery, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(inbox.Items) != 0 {
+		t.Fatalf("expected a scope-excluded PR with no local repo to be omitted, got %+v", inbox.Items)
+	}
+	if len(inbox.Warnings) != 0 {
+		t.Errorf("expected no warnings for a scope-excluded PR, got %+v", inbox.Warnings)
+	}
+	if len(discovery.enrichCalls) != 0 {
+		t.Errorf("expected a scope-excluded PR to be skipped before enrichment, got enrich calls %+v", discovery.enrichCalls)
+	}
+}
+
+func TestRefresh_ReleasedPRSkippedBeforeEnrichment(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/acme/widgets.git")
+	cfg := baseWorkspaceConfig(t, root)
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+
+	key := domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "widgets", Number: 23}
+	schemaKey := store.ToPullRequestKeySchema(key)
+	if _, err := store.NewFilesystemEventStore(dataDir).AppendEvent(store.ReviewEventV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		ID:            "event-1",
+		PullRequest:   schemaKey,
+		Type:          store.EventTypeUserReleased,
+		OccurredAt:    now.Add(-time.Minute),
+		Actor:         "me",
+	}); err != nil {
+		t.Fatalf("append release event: %v", err)
+	}
+
+	discovery := &fixtureDiscovery{
+		search: map[github.SearchKind][]domain.PullRequestKey{
+			github.SearchKindReviewRequested: {key},
+		},
+		enrich: map[domain.PullRequestKey]domain.PullRequestSnapshot{
+			key: fixtureSnapshot(key, "someone-else", "head-1", now),
+		},
+	}
+
+	inbox, err := Refresh(context.Background(), cfg, dataDir, discovery, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(inbox.Items) != 0 {
+		t.Fatalf("expected a released PR to be omitted, got %+v", inbox.Items)
+	}
+	if len(discovery.enrichCalls) != 0 {
+		t.Errorf("expected a released PR to be skipped before enrichment, got enrich calls %+v", discovery.enrichCalls)
+	}
+}
+
+func TestRefresh_SurfacesRepositoryRootScanWarnings(t *testing.T) {
+	missingRoot := filepath.Join(t.TempDir(), "does-not-exist")
+	cfg := baseWorkspaceConfig(t, missingRoot)
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+
+	discovery := &fixtureDiscovery{search: map[github.SearchKind][]domain.PullRequestKey{}}
+
+	inbox, err := Refresh(context.Background(), cfg, dataDir, discovery, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(inbox.Warnings) == 0 {
+		t.Fatal("expected a warning about the missing repository root")
 	}
 }

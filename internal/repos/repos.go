@@ -138,7 +138,7 @@ func Resolve(ctx context.Context, scope workspace.ScopeConfig) (Resolution, erro
 	}
 
 	for identity, result := range results {
-		if excluded, reason := matchesExclusion(identity, scope.Include, scope.Exclude); excluded {
+		if excluded, reason := MatchesExclusion(identity, scope.Include, scope.Exclude); excluded {
 			result.Status = StatusExcluded
 			result.Reason = reason
 			results[identity] = result
@@ -318,7 +318,7 @@ func matchesPattern(identity Identity, pattern string) bool {
 	return matched
 }
 
-func matchesExclusion(identity Identity, include, exclude []string) (bool, string) {
+func MatchesExclusion(identity Identity, include, exclude []string) (bool, string) {
 	for _, pattern := range exclude {
 		if matchesPattern(identity, pattern) {
 			return true, fmt.Sprintf("%s matches exclude pattern %q", identity, pattern)
