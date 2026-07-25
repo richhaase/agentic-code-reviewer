@@ -321,6 +321,45 @@ func TestRefresh_ContinuingResponsibilitySurvivesDroppedSearchResult(t *testing.
 	}
 }
 
+func TestRefresh_SurvivesDroppedSearchResultWhenOnlyNonLifecycleEventExists(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/acme/widgets.git")
+	cfg := baseWorkspaceConfig(t, root)
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+
+	key := domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "widgets", Number: 14}
+	schemaKey := store.ToPullRequestKeySchema(key)
+	previous := fixtureSnapshot(key, "someone-else", "head-1", now.Add(-time.Hour))
+	if err := store.NewFilesystemSnapshotStore(dataDir).SaveSnapshot(store.ToPRSnapshotSchema(previous)); err != nil {
+		t.Fatalf("seed snapshot: %v", err)
+	}
+	if _, err := store.NewFilesystemEventStore(dataDir).AppendEvent(store.ReviewEventV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		ID:            "event-1",
+		PullRequest:   schemaKey,
+		Type:          store.EventTypePRDiscovered,
+		OccurredAt:    now.Add(-time.Hour),
+	}); err != nil {
+		t.Fatalf("append event: %v", err)
+	}
+
+	discovery := &fixtureDiscovery{
+		search: map[github.SearchKind][]domain.PullRequestKey{},
+		enrich: map[domain.PullRequestKey]domain.PullRequestSnapshot{
+			key: fixtureSnapshot(key, "someone-else", "head-2", now),
+		},
+	}
+
+	inbox, err := Refresh(context.Background(), cfg, dataDir, discovery, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(inbox.Items) != 1 {
+		t.Fatalf("expected a tracked PR with a stored non-lifecycle event (e.g. pr_discovered) to still count as having history and survive a dropped search result, got %+v", inbox.Items)
+	}
+}
+
 func TestRefresh_BareSnapshotWithNoHistoryDoesNotSurviveDroppedSearchResult(t *testing.T) {
 	root := t.TempDir()
 	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/acme/widgets.git")
@@ -477,6 +516,38 @@ func TestLoadStored_ExcludesBareHistorylessTrackedKey(t *testing.T) {
 	}
 	if len(inbox.Items) != 0 {
 		t.Fatalf("expected a bare, history-less tracked key to be excluded from the locked/read-only path, got %+v", inbox.Items)
+	}
+}
+
+func TestLoadStored_IncludesTrackedKeyWithOnlyNonLifecycleEvent(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/acme/widgets.git")
+	cfg := baseWorkspaceConfig(t, root)
+	dataDir := t.TempDir()
+
+	captured := time.Date(2026, 7, 25, 11, 0, 0, 0, time.UTC)
+	key := domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "widgets", Number: 15}
+	schemaKey := store.ToPullRequestKeySchema(key)
+	if err := store.NewFilesystemSnapshotStore(dataDir).SaveSnapshot(store.ToPRSnapshotSchema(fixtureSnapshot(key, "someone-else", "head-1", captured))); err != nil {
+		t.Fatalf("seed snapshot: %v", err)
+	}
+	if _, err := store.NewFilesystemEventStore(dataDir).AppendEvent(store.ReviewEventV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		ID:            "event-1",
+		PullRequest:   schemaKey,
+		Type:          store.EventTypePRDiscovered,
+		OccurredAt:    captured,
+	}); err != nil {
+		t.Fatalf("append event: %v", err)
+	}
+
+	now := captured.Add(37 * time.Minute)
+	inbox, err := LoadStored(dataDir, cfg, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(inbox.Items) != 1 {
+		t.Fatalf("expected a tracked key with a stored non-lifecycle event (e.g. pr_discovered) to count as having history and be included, got %+v", inbox.Items)
 	}
 }
 

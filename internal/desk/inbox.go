@@ -376,7 +376,7 @@ func trackedKeyHasHistory(dataDir string, key store.PullRequestKeyV1) (bool, err
 		return true, nil
 	}
 
-	events, corruptEvents, err := loadDomainEvents(dataDir, key)
+	events, corruptEvents, err := store.NewFilesystemEventStore(dataDir).ListEvents(key)
 	if err != nil {
 		return false, fmt.Errorf("load review events: %w", err)
 	}
