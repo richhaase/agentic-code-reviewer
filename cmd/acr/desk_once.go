@@ -40,20 +40,15 @@ func runDeskOnce(jsonOutput bool) error {
 		if !errors.Is(lockErr, store.ErrWriterLocked) {
 			return lockErr
 		}
-		inbox, err := desk.LoadStored(dataDir, *cfg, now)
-		if err != nil {
-			return err
-		}
-		renderInbox(inbox, jsonOutput, now)
-		return nil
+		return renderStoredFallback(dataDir, *cfg, now, jsonOutput, "another acr process owns the workspace")
 	}
 
 	ctx := context.Background()
-	if err := workspace.CheckIdentity(ctx, *cfg); err != nil {
+	if identityErr := workspace.CheckIdentity(ctx, *cfg); identityErr != nil {
 		if releaseErr := lock.Release(); releaseErr != nil {
-			return fmt.Errorf("%w (also failed to release desk lock: %v)", err, releaseErr)
+			return fmt.Errorf("%w (also failed to release desk lock: %v)", identityErr, releaseErr)
 		}
-		return err
+		return renderStoredFallback(dataDir, *cfg, now, jsonOutput, fmt.Sprintf("GitHub identity could not be verified (%v)", identityErr))
 	}
 
 	inbox, refreshErr := desk.Refresh(ctx, *cfg, dataDir, github.NewDiscovery(), now)
@@ -63,6 +58,16 @@ func runDeskOnce(jsonOutput bool) error {
 	if refreshErr != nil {
 		return refreshErr
 	}
+	renderInbox(inbox, jsonOutput, now)
+	return nil
+}
+
+func renderStoredFallback(dataDir string, cfg workspace.Config, now time.Time, jsonOutput bool, reason string) error {
+	inbox, err := desk.LoadStored(dataDir, cfg, now)
+	if err != nil {
+		return err
+	}
+	inbox.Warnings = append([]string{"showing cached data only: " + reason}, inbox.Warnings...)
 	renderInbox(inbox, jsonOutput, now)
 	return nil
 }
@@ -78,9 +83,6 @@ func renderInbox(inbox desk.Inbox, jsonOutput bool, now time.Time) {
 		return
 	}
 
-	if inbox.FromLiveLock {
-		fmt.Println("Another acr process owns the workspace; showing the last stored snapshot without refreshing.")
-	}
 	fmt.Printf("Desk snapshot at %s\n\n", inbox.GeneratedAt.UTC().Format("2006-01-02 15:04:05 UTC"))
 
 	if len(inbox.Items) == 0 {

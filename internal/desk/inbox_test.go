@@ -747,3 +747,25 @@ func TestDiscoverCandidateKeys_UnscopedDirectUserSearchWhenNoOrganizationsConfig
 		t.Fatalf("expected unscoped review-requested and authored searches when no organizations are configured, got calls %+v", discovery.calls)
 	}
 }
+
+func TestAppendUniqueKey_DeduplicatesCaseInsensitively(t *testing.T) {
+	keys := []domain.PullRequestKey{
+		{Host: "github.com", Owner: "Acme", Repository: "Widgets", Number: 1},
+	}
+	keys = appendUniqueKey(keys, domain.PullRequestKey{Host: "GitHub.com", Owner: "acme", Repository: "widgets", Number: 1})
+
+	if len(keys) != 1 {
+		t.Fatalf("expected a case-variant of an existing key to be deduplicated, got %+v", keys)
+	}
+}
+
+func TestAppendUniqueKey_DistinctRepositoriesAreNotMerged(t *testing.T) {
+	keys := []domain.PullRequestKey{
+		{Host: "github.com", Owner: "acme", Repository: "widgets", Number: 1},
+	}
+	keys = appendUniqueKey(keys, domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "gadgets", Number: 1})
+
+	if len(keys) != 2 {
+		t.Fatalf("expected genuinely distinct repositories to both be kept, got %+v", keys)
+	}
+}

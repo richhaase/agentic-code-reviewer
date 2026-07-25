@@ -323,10 +323,16 @@ func discoverCandidateKeys(ctx context.Context, discovery github.Discovery, cfg 
 }
 
 func appendUniqueKey(keys []domain.PullRequestKey, key domain.PullRequestKey) []domain.PullRequestKey {
-	if slices.Contains(keys, key) {
-		return keys
+	for _, existing := range keys {
+		if sameRepositoryIdentity(existing, key) && existing.Number == key.Number {
+			return keys
+		}
 	}
 	return append(keys, key)
+}
+
+func sameRepositoryIdentity(a, b domain.PullRequestKey) bool {
+	return strings.EqualFold(a.Host, b.Host) && strings.EqualFold(a.Owner, b.Owner) && strings.EqualFold(a.Repository, b.Repository)
 }
 
 var DeskStateDisplayOrder = []domain.DeskState{
