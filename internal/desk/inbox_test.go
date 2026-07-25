@@ -1,0 +1,447 @@
+package desk
+
+import (
+	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/richhaase/agentic-code-reviewer/internal/config"
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
+	"github.com/richhaase/agentic-code-reviewer/internal/github"
+	"github.com/richhaase/agentic-code-reviewer/internal/store"
+	"github.com/richhaase/agentic-code-reviewer/internal/workspace"
+)
+
+func initGitRepoWithRemote(t *testing.T, dir, remoteURL string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init failed: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", dir, "remote", "add", "origin", remoteURL).CombinedOutput(); err != nil {
+		t.Fatalf("git remote add failed: %v: %s", err, out)
+	}
+}
+
+type fixtureDiscovery struct {
+	search map[github.SearchKind][]domain.PullRequestKey
+	enrich map[domain.PullRequestKey]domain.PullRequestSnapshot
+	err    map[domain.PullRequestKey]error
+}
+
+func (f *fixtureDiscovery) Search(ctx context.Context, query github.SearchQuery) ([]domain.PullRequestKey, error) {
+	return f.search[query.Kind], nil
+}
+
+func (f *fixtureDiscovery) Enrich(ctx context.Context, key domain.PullRequestKey) (domain.PullRequestSnapshot, error) {
+	if err, ok := f.err[key]; ok {
+		return domain.PullRequestSnapshot{}, err
+	}
+	if snapshot, ok := f.enrich[key]; ok {
+		return snapshot, nil
+	}
+	return domain.PullRequestSnapshot{}, errors.New("no fixture for this key")
+}
+
+func baseWorkspaceConfig(t *testing.T, reviewableRoot string) workspace.Config {
+	t.Helper()
+	return workspace.Config{
+		Identity: workspace.IdentityConfig{ExpectedUser: "me"},
+		Scope: workspace.ScopeConfig{
+			Organizations:   []string{"acme"},
+			RepositoryRoots: []string{reviewableRoot},
+		},
+		Behavior: workspace.BehaviorConfig{
+			SettleTime:  config.Duration(10 * time.Minute),
+			OwnPRPolicy: workspace.OwnPRPolicyDisabled,
+		},
+	}
+}
+
+func fixtureSnapshot(key domain.PullRequestKey, author, head string, now time.Time) domain.PullRequestSnapshot {
+	return domain.PullRequestSnapshot{
+		PullRequest:  key,
+		URL:          "https://github.com/acme/widgets/pull/" + string(rune('0'+key.Number)),
+		Title:        "a pull request",
+		Author:       author,
+		State:        domain.PullRequestStateOpen,
+		HeadObjectID: head,
+		BaseObjectID: "base-sha",
+		UpdatedAt:    now.Add(-time.Hour),
+		CapturedAt:   now,
+	}
+}
+
+func TestRefresh_FirstReviewNeedsReview(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/acme/widgets.git")
+	cfg := baseWorkspaceConfig(t, root)
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+
+	key := domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "widgets", Number: 1}
+	discovery := &fixtureDiscovery{
+		search: map[github.SearchKind][]domain.PullRequestKey{
+			github.SearchKindReviewRequested: {key},
+		},
+		enrich: map[domain.PullRequestKey]domain.PullRequestSnapshot{
+			key: fixtureSnapshot(key, "someone-else", "head-1", now),
+		},
+	}
+
+	inbox, err := Refresh(context.Background(), cfg, dataDir, discovery, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(inbox.Items) != 1 {
+		t.Fatalf("expected 1 item, got %+v", inbox.Items)
+	}
+	if inbox.Items[0].DeskState != domain.DeskStateNeedsReview {
+		t.Errorf("expected needs_review, got %q", inbox.Items[0].DeskState)
+	}
+
+	stored, err := store.NewFilesystemSnapshotStore(dataDir).LoadSnapshot(store.ToPullRequestKeySchema(key))
+	if err != nil {
+		t.Fatalf("expected the fresh snapshot to be persisted: %v", err)
+	}
+	if stored.HeadObjectID != "head-1" {
+		t.Errorf("unexpected persisted snapshot: %+v", stored)
+	}
+}
+
+func TestRefresh_OwnPRDefaultsToWaitingOnOthers(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/acme/widgets.git")
+	cfg := baseWorkspaceConfig(t, root)
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+
+	key := domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "widgets", Number: 2}
+	discovery := &fixtureDiscovery{
+		search: map[github.SearchKind][]domain.PullRequestKey{
+			github.SearchKindAuthored: {key},
+		},
+		enrich: map[domain.PullRequestKey]domain.PullRequestSnapshot{
+			key: fixtureSnapshot(key, "me", "head-1", now),
+		},
+	}
+
+	inbox, err := Refresh(context.Background(), cfg, dataDir, discovery, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(inbox.Items) != 1 {
+		t.Fatalf("expected 1 item, got %+v", inbox.Items)
+	}
+	item := inbox.Items[0]
+	if !item.OwnPR {
+		t.Error("expected OwnPR to be true")
+	}
+	if item.DeskState != domain.DeskStateWaitingOnOthers {
+		t.Errorf("expected waiting_on_others for an own PR with review disabled, got %q", item.DeskState)
+	}
+}
+
+func TestRefresh_RepositoryUnavailableRemainsVisible(t *testing.T) {
+	cfg := baseWorkspaceConfig(t, t.TempDir())
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+
+	key := domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "widgets", Number: 3}
+	discovery := &fixtureDiscovery{
+		search: map[github.SearchKind][]domain.PullRequestKey{
+			github.SearchKindReviewRequested: {key},
+		},
+		enrich: map[domain.PullRequestKey]domain.PullRequestSnapshot{
+			key: fixtureSnapshot(key, "someone-else", "head-1", now),
+		},
+	}
+
+	inbox, err := Refresh(context.Background(), cfg, dataDir, discovery, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(inbox.Items) != 1 {
+		t.Fatalf("expected 1 item, got %+v", inbox.Items)
+	}
+	item := inbox.Items[0]
+	if item.DeskState != domain.DeskStateRepositoryUnavailable {
+		t.Errorf("expected repository_unavailable, got %q", item.DeskState)
+	}
+	if item.Title == "" || item.URL == "" {
+		t.Errorf("expected an unavailable repository's PR to still show its title/url, got %+v", item)
+	}
+}
+
+func TestRefresh_TransientFailureFallsBackToStaleStoredSnapshot(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/acme/widgets.git")
+	cfg := baseWorkspaceConfig(t, root)
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+
+	key := domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "widgets", Number: 4}
+	schemaKey := store.ToPullRequestKeySchema(key)
+	previous := fixtureSnapshot(key, "someone-else", "head-1", now.Add(-time.Hour))
+	if err := store.NewFilesystemSnapshotStore(dataDir).SaveSnapshot(store.ToPRSnapshotSchema(previous)); err != nil {
+		t.Fatalf("seed snapshot: %v", err)
+	}
+
+	discovery := &fixtureDiscovery{
+		search: map[github.SearchKind][]domain.PullRequestKey{
+			github.SearchKindReviewRequested: {key},
+		},
+		err: map[domain.PullRequestKey]error{
+			key: transientTestError{},
+		},
+	}
+
+	inbox, err := Refresh(context.Background(), cfg, dataDir, discovery, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(inbox.Items) != 1 {
+		t.Fatalf("expected 1 item, got %+v", inbox.Items)
+	}
+	item := inbox.Items[0]
+	if !item.SnapshotStale {
+		t.Error("expected the fallback snapshot to be marked stale")
+	}
+	if item.HeadObjectID != "head-1" {
+		t.Errorf("expected the previous snapshot's data to be retained, got %+v", item)
+	}
+
+	reloaded, err := store.NewFilesystemSnapshotStore(dataDir).LoadSnapshot(schemaKey)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !reloaded.CapturedAt.Equal(previous.CapturedAt) {
+		t.Error("expected the stale fallback to not overwrite the stored snapshot")
+	}
+}
+
+type transientTestError struct{}
+
+func (transientTestError) Error() string { return "transient test failure" }
+func (transientTestError) Unwrap() error { return github.ErrTransient }
+
+func TestRefresh_ContinuingResponsibilitySurvivesDroppedSearchResult(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/acme/widgets.git")
+	cfg := baseWorkspaceConfig(t, root)
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+
+	key := domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "widgets", Number: 5}
+	previous := fixtureSnapshot(key, "someone-else", "head-1", now.Add(-time.Hour))
+	if err := store.NewFilesystemSnapshotStore(dataDir).SaveSnapshot(store.ToPRSnapshotSchema(previous)); err != nil {
+		t.Fatalf("seed snapshot: %v", err)
+	}
+
+	discovery := &fixtureDiscovery{
+		search: map[github.SearchKind][]domain.PullRequestKey{}, // search no longer returns this PR
+		enrich: map[domain.PullRequestKey]domain.PullRequestSnapshot{
+			key: fixtureSnapshot(key, "someone-else", "head-2", now),
+		},
+	}
+
+	inbox, err := Refresh(context.Background(), cfg, dataDir, discovery, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(inbox.Items) != 1 {
+		t.Fatalf("expected the previously tracked PR to still be refreshed even though search dropped it, got %+v", inbox.Items)
+	}
+	if inbox.Items[0].HeadObjectID != "head-2" {
+		t.Errorf("expected a fresh enrichment, got %+v", inbox.Items[0])
+	}
+}
+
+func TestRefresh_ReleasedPRIsExcluded(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/acme/widgets.git")
+	cfg := baseWorkspaceConfig(t, root)
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+
+	key := domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "widgets", Number: 6}
+	schemaKey := store.ToPullRequestKeySchema(key)
+	if _, err := store.NewFilesystemEventStore(dataDir).AppendEvent(store.ReviewEventV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		ID:            "event-1",
+		PullRequest:   schemaKey,
+		Type:          store.EventTypeUserReleased,
+		OccurredAt:    now.Add(-time.Minute),
+		Actor:         "me",
+	}); err != nil {
+		t.Fatalf("append release event: %v", err)
+	}
+	if err := store.NewFilesystemSnapshotStore(dataDir).SaveSnapshot(store.ToPRSnapshotSchema(fixtureSnapshot(key, "someone-else", "head-1", now.Add(-time.Hour)))); err != nil {
+		t.Fatalf("seed snapshot: %v", err)
+	}
+
+	discovery := &fixtureDiscovery{
+		search: map[github.SearchKind][]domain.PullRequestKey{
+			github.SearchKindReviewRequested: {key},
+		},
+		enrich: map[domain.PullRequestKey]domain.PullRequestSnapshot{
+			key: fixtureSnapshot(key, "someone-else", "head-1", now),
+		},
+	}
+
+	inbox, err := Refresh(context.Background(), cfg, dataDir, discovery, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(inbox.Items) != 0 {
+		t.Fatalf("expected a released PR to be excluded from the inbox, got %+v", inbox.Items)
+	}
+}
+
+func TestLoadStored_RendersWithoutDiscoveryAndReportsAge(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/acme/widgets.git")
+	cfg := baseWorkspaceConfig(t, root)
+	dataDir := t.TempDir()
+
+	captured := time.Date(2026, 7, 25, 11, 0, 0, 0, time.UTC)
+	key := domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "widgets", Number: 7}
+	if err := store.NewFilesystemSnapshotStore(dataDir).SaveSnapshot(store.ToPRSnapshotSchema(fixtureSnapshot(key, "someone-else", "head-1", captured))); err != nil {
+		t.Fatalf("seed snapshot: %v", err)
+	}
+
+	now := captured.Add(37 * time.Minute)
+	inbox, err := LoadStored(dataDir, cfg, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !inbox.FromLiveLock {
+		t.Error("expected FromLiveLock to be true for the read-only path")
+	}
+	if len(inbox.Items) != 1 {
+		t.Fatalf("expected 1 item, got %+v", inbox.Items)
+	}
+	if age := inbox.Items[0].SnapshotAge(now); age != 37*time.Minute {
+		t.Errorf("expected a 37m snapshot age, got %v", age)
+	}
+}
+
+func TestRefresh_FailedFindingsReadyAndResolvedStates(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/acme/widgets.git")
+	cfg := baseWorkspaceConfig(t, root)
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name       string
+		number     int
+		status     domain.ReviewStatus
+		conclusion domain.ReviewConclusion
+		findings   []domain.ReviewFinding
+		resolved   bool
+		want       domain.DeskState
+	}{
+		{"failed", 10, domain.ReviewStatusFailed, domain.ReviewConclusionNone, nil, false, domain.DeskStateFailed},
+		{"findings ready", 11, domain.ReviewStatusCompleted, domain.ReviewConclusionFindings, []domain.ReviewFinding{{ID: "f1", Kind: domain.ReviewFindingActionable}}, false, domain.DeskStateFindingsReady},
+		{"resolved", 12, domain.ReviewStatusCompleted, domain.ReviewConclusionFindings, []domain.ReviewFinding{{ID: "f1", Kind: domain.ReviewFindingActionable}}, true, domain.DeskStateResolved},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dataDir := t.TempDir()
+			key := domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "widgets", Number: tt.number}
+			schemaKey := store.ToPullRequestKeySchema(key)
+			pr := key
+
+			reviewConfig, err := domain.NewReviewConfiguration(domain.ReviewConfigurationValues{
+				Reviewers:         1,
+				Concurrency:       1,
+				Timeout:           time.Minute,
+				ReviewerAgents:    []string{"codex"},
+				SummarizerAgent:   "codex",
+				SummarizerTimeout: time.Minute,
+				FPFilterTimeout:   time.Minute,
+				FPThreshold:       75,
+			})
+			if err != nil {
+				t.Fatalf("NewReviewConfiguration: %v", err)
+			}
+
+			run := domain.ReviewRun{
+				ID:      "run-1",
+				Trigger: domain.ReviewTriggerDesk,
+				Target: domain.ReviewTarget{
+					RepositoryRoot: "/repo",
+					WorktreeRoot:   "/repo",
+					Revision: domain.RevisionEvidence{
+						RequestedBaseRef: "main",
+						ResolvedBaseRef:  "main",
+						HeadObjectID:     "head-1",
+						BaseObjectID:     "base-sha",
+					},
+					PullRequest: &pr,
+				},
+				Engine:                   domain.ReviewEngine{Name: "acr", Version: "test"},
+				StartedAt:                now.Add(-2 * time.Hour),
+				CompletedAt:              now.Add(-2 * time.Hour),
+				Configuration:            reviewConfig,
+				ConfigurationSource:      domain.ConfigurationSourceIdentity{Kind: "defaults"},
+				ConfigurationFingerprint: reviewConfig.Fingerprint(),
+				Status:                   tt.status,
+				Conclusion:               tt.conclusion,
+				Findings:                 tt.findings,
+			}
+			if tt.status == domain.ReviewStatusFailed {
+				run.Failure = &domain.ReviewFailure{Phase: domain.ReviewPhaseReviewers, Message: "all reviewers failed"}
+			}
+			schema, err := store.ToReviewRunSchema(run, store.RenderedOutcomeV1{})
+			if err != nil {
+				t.Fatalf("ToReviewRunSchema: %v", err)
+			}
+			if _, err := store.NewFilesystemRunStore(dataDir).SaveRun(schema); err != nil {
+				t.Fatalf("save run: %v", err)
+			}
+
+			if tt.resolved {
+				if _, err := store.NewFilesystemEventStore(dataDir).AppendEvent(store.ReviewEventV1{
+					SchemaVersion: store.CurrentSchemaVersion,
+					ID:            "event-resolved",
+					PullRequest:   schemaKey,
+					Type:          store.EventTypeUserResolved,
+					OccurredAt:    now.Add(-time.Minute),
+					HeadObjectID:  "head-1",
+					BaseObjectID:  "base-sha",
+					Actor:         "me",
+				}); err != nil {
+					t.Fatalf("append resolved event: %v", err)
+				}
+			}
+
+			discovery := &fixtureDiscovery{
+				search: map[github.SearchKind][]domain.PullRequestKey{
+					github.SearchKindReviewRequested: {key},
+				},
+				enrich: map[domain.PullRequestKey]domain.PullRequestSnapshot{
+					key: fixtureSnapshot(key, "someone-else", "head-1", now),
+				},
+			}
+
+			inbox, err := Refresh(context.Background(), cfg, dataDir, discovery, now)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(inbox.Items) != 1 {
+				t.Fatalf("expected 1 item, got %+v", inbox.Items)
+			}
+			if inbox.Items[0].DeskState != tt.want {
+				t.Errorf("expected %q, got %q", tt.want, inbox.Items[0].DeskState)
+			}
+		})
+	}
+}

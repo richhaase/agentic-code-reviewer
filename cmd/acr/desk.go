@@ -12,11 +12,23 @@ import (
 )
 
 func newDeskCmd() *cobra.Command {
+	var once bool
+	var jsonOutput bool
+
 	cmd := &cobra.Command{
 		Use:   "desk",
 		Short: "Inspect and manage the persistent review workspace",
 		Long:  "View and manage locally stored pull request review history.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !once {
+				return errors.New("continuous desk mode is not implemented yet; pass --once")
+			}
+			return runDeskOnce(jsonOutput)
+		},
 	}
+
+	cmd.Flags().BoolVar(&once, "once", false, "Refresh, classify, and print an actionable snapshot, then exit")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Print the snapshot as JSON instead of human-readable text")
 
 	cmd.AddCommand(newDeskHistoryCmd())
 	cmd.AddCommand(newDeskForgetCmd())
