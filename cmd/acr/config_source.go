@@ -18,6 +18,10 @@ func resolveTrustedReviewConfigSource(ctx context.Context, disabled bool) (confi
 	if err != nil {
 		return nil, err
 	}
+	return resolveTrustedReviewConfigSourceForRoot(ctx, repositoryRoot)
+}
+
+func resolveTrustedReviewConfigSourceForRoot(ctx context.Context, repositoryRoot string) (config.Source, error) {
 	remotes, err := git.Remotes(ctx, repositoryRoot)
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect trusted review configuration remote: %w", err)

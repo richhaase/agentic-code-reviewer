@@ -46,7 +46,17 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 	events := newCLIReviewEvents(opts, logger)
 	defer events.Close()
 
-	service, err := reviewpkg.NewService(reviewpkg.WithDiffProvider(func(ctx context.Context, target domain.ReviewTarget) (string, error) {
+	service, err := reviewpkg.NewService(reviewpkg.WithDiffProvider(newGitDiffProvider(opts, logger)))
+	if err != nil {
+		logger.Logf(terminal.StyleError, "Review failed: %v", err)
+		return nil, domain.ExitError
+	}
+
+	return executeTypedReview(ctx, opts, resolvedBaseRef, service, events, logger)
+}
+
+func newGitDiffProvider(opts ReviewOpts, logger *terminal.Logger) func(context.Context, domain.ReviewTarget) (string, error) {
+	return func(ctx context.Context, target domain.ReviewTarget) (string, error) {
 		diff, err := git.GetDiff(ctx, target.Revision.BaseObjectID, target.WorktreeRoot)
 		if err != nil {
 			return "", err
@@ -58,13 +68,7 @@ func executeReview(ctx context.Context, opts ReviewOpts, logger *terminal.Logger
 			}
 		}
 		return diff, nil
-	}))
-	if err != nil {
-		logger.Logf(terminal.StyleError, "Review failed: %v", err)
-		return nil, domain.ExitError
 	}
-
-	return executeTypedReview(ctx, opts, resolvedBaseRef, service, events, logger)
 }
 
 func logReviewStart(opts ReviewOpts, logger *terminal.Logger) {
