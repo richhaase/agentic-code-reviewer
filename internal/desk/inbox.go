@@ -60,14 +60,12 @@ func Refresh(ctx context.Context, cfg workspace.Config, dataDir string, discover
 		return Inbox{}, fmt.Errorf("resolve configured repositories: %w", err)
 	}
 
-	keys, warnings := discoverCandidateKeys(ctx, discovery, cfg)
+	keys, warnings, discoveryIncomplete := discoverCandidateKeys(ctx, discovery, cfg)
+	discovered := append([]domain.PullRequestKey(nil), keys...)
 
 	tracked, err := store.ListTrackedPullRequests(dataDir)
 	if err != nil {
 		return Inbox{}, err
-	}
-	for _, key := range tracked {
-		keys = mergeTrackedKey(keys, key.ToDomain())
 	}
 
 	snapshotStore := store.NewFilesystemSnapshotStore(dataDir)
@@ -75,6 +73,24 @@ func Refresh(ctx context.Context, cfg workspace.Config, dataDir string, discover
 	inbox := Inbox{GeneratedAt: now}
 	inbox.Warnings = append(inbox.Warnings, warnings...)
 	inbox.Warnings = append(inbox.Warnings, resolution.RootWarnings...)
+
+	for _, key := range tracked {
+		trackedKey := key.ToDomain()
+		if !discoveryIncomplete && !containsKeyIdentity(discovered, trackedKey) {
+			if scopeExcludesKey(cfg, key) {
+				continue
+			}
+			hasHistory, historyErr := trackedKeyHasHistory(dataDir, key)
+			if historyErr != nil {
+				inbox.Warnings = append(inbox.Warnings, fmt.Sprintf("%s: %v", key.String(), historyErr))
+				continue
+			}
+			if !hasHistory {
+				continue
+			}
+		}
+		keys = mergeTrackedKey(keys, trackedKey)
+	}
 
 	for _, key := range keys {
 		schemaKey := store.ToPullRequestKeySchema(key)
@@ -280,14 +296,16 @@ func matchingResolvedRepository(resolution repos.Resolution, key store.PullReque
 	return repos.ResolvedRepository{}, false
 }
 
-func discoverCandidateKeys(ctx context.Context, discovery github.Discovery, cfg workspace.Config) ([]domain.PullRequestKey, []string) {
+func discoverCandidateKeys(ctx context.Context, discovery github.Discovery, cfg workspace.Config) ([]domain.PullRequestKey, []string, bool) {
 	var keys []domain.PullRequestKey
 	var warnings []string
+	incomplete := false
 
 	search := func(query github.SearchQuery, label string) {
 		found, err := discovery.Search(ctx, query)
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("%s: %v", label, err))
+			incomplete = true
 			return
 		}
 		for _, key := range found {
@@ -319,7 +337,7 @@ func discoverCandidateKeys(ctx context.Context, discovery github.Discovery, cfg 
 		}
 	}
 
-	return keys, warnings
+	return keys, warnings, incomplete
 }
 
 func appendUniqueKey(keys []domain.PullRequestKey, key domain.PullRequestKey) []domain.PullRequestKey {
@@ -329,6 +347,35 @@ func appendUniqueKey(keys []domain.PullRequestKey, key domain.PullRequestKey) []
 		}
 	}
 	return append(keys, key)
+}
+
+func containsKeyIdentity(keys []domain.PullRequestKey, target domain.PullRequestKey) bool {
+	for _, key := range keys {
+		if sameRepositoryIdentity(key, target) && key.Number == target.Number {
+			return true
+		}
+	}
+	return false
+}
+
+func trackedKeyHasHistory(dataDir string, key store.PullRequestKeyV1) (bool, error) {
+	runs, corruptRuns, err := store.NewFilesystemRunStore(dataDir).ListRuns(key)
+	if err != nil {
+		return false, fmt.Errorf("load review runs: %w", err)
+	}
+	if len(runs) > 0 || len(corruptRuns) > 0 {
+		return true, nil
+	}
+
+	events, corruptEvents, err := store.NewFilesystemEventStore(dataDir).ListEvents(key)
+	if err != nil {
+		return false, fmt.Errorf("load review events: %w", err)
+	}
+	if len(events) > 0 || len(corruptEvents) > 0 {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func mergeTrackedKey(keys []domain.PullRequestKey, tracked domain.PullRequestKey) []domain.PullRequestKey {
