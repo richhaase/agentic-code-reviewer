@@ -46,6 +46,7 @@ type LifecycleEvent struct {
 	OccurredAt   time.Time
 	RunID        string
 	HeadObjectID string
+	BaseObjectID string
 	FindingID    string
 }
 
@@ -85,12 +86,13 @@ func Classify(input ClassificationInput) Classification {
 	}
 
 	head := input.Snapshot.HeadObjectID
+	base := input.Snapshot.BaseObjectID
 
-	if resolvedForHead(input.Events, head) {
-		return Classification{State: DeskStateResolved, Tracked: true, Reason: "user marked this head resolved"}
+	if resolvedForRevision(input.Events, head, base) {
+		return Classification{State: DeskStateResolved, Tracked: true, Reason: "user marked this revision resolved"}
 	}
-	if actionPostedForHead(input.Events, head) {
-		return Classification{State: DeskStateResolved, Tracked: true, Reason: "a review action was already posted for this head"}
+	if actionPostedForRevision(input.Events, head, base) {
+		return Classification{State: DeskStateResolved, Tracked: true, Reason: "a review action was already posted for this revision"}
 	}
 
 	if queued, running := activeRunState(input.Runs, input.Events, head); running {
@@ -157,18 +159,18 @@ func isReReviewSuppressed(events []LifecycleEvent) bool {
 	return latest != nil && (latest.Kind == LifecycleEventUserSnoozed || latest.Kind == LifecycleEventUserOptedOut)
 }
 
-func resolvedForHead(events []LifecycleEvent, head string) bool {
+func resolvedForRevision(events []LifecycleEvent, head, base string) bool {
 	for _, event := range events {
-		if event.Kind == LifecycleEventUserResolved && event.HeadObjectID == head {
+		if event.Kind == LifecycleEventUserResolved && event.HeadObjectID == head && event.BaseObjectID == base {
 			return true
 		}
 	}
 	return false
 }
 
-func actionPostedForHead(events []LifecycleEvent, head string) bool {
+func actionPostedForRevision(events []LifecycleEvent, head, base string) bool {
 	for _, event := range events {
-		if event.Kind == LifecycleEventActionPosted && event.HeadObjectID == head {
+		if event.Kind == LifecycleEventActionPosted && event.HeadObjectID == head && event.BaseObjectID == base {
 			return true
 		}
 	}

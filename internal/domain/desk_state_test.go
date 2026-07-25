@@ -269,7 +269,7 @@ func TestClassify_ResolvedByUserEventForCurrentHead(t *testing.T) {
 	input := baseInput()
 	input.Runs = []ReviewRun{completedRun("head-1", ReviewConclusionFindings, []ReviewFinding{{ID: "f1"}})}
 	input.Events = []LifecycleEvent{
-		{Kind: LifecycleEventUserResolved, HeadObjectID: "head-1", OccurredAt: baseNow.Add(-time.Minute)},
+		{Kind: LifecycleEventUserResolved, HeadObjectID: "head-1", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-time.Minute)},
 	}
 
 	got := Classify(input)
@@ -282,7 +282,7 @@ func TestClassify_ResolvedByActionPostedForCurrentHead(t *testing.T) {
 	input := baseInput()
 	input.Runs = []ReviewRun{completedRun("head-1", ReviewConclusionFindings, []ReviewFinding{{ID: "f1"}})}
 	input.Events = []LifecycleEvent{
-		{Kind: LifecycleEventActionPosted, HeadObjectID: "head-1", OccurredAt: baseNow.Add(-time.Minute)},
+		{Kind: LifecycleEventActionPosted, HeadObjectID: "head-1", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-time.Minute)},
 	}
 
 	got := Classify(input)
@@ -433,6 +433,44 @@ func TestClassify_MatchingHeadAndBaseIsCurrent(t *testing.T) {
 	got := Classify(input)
 	if got.State != DeskStateDecisionReady {
 		t.Errorf("expected a run matching both head and base to be treated as current, got %q", got.State)
+	}
+}
+
+func TestClassify_ResolvedForOldBaseDoesNotBlockRereviewAfterBaseChanges(t *testing.T) {
+	input := baseInput()
+	input.Runs = []ReviewRun{completedRun("head-1", ReviewConclusionClean, nil)}
+	input.Events = []LifecycleEvent{
+		{Kind: LifecycleEventUserResolved, HeadObjectID: "head-1", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-time.Hour)},
+	}
+	input.Snapshot.BaseObjectID = "base-2"
+	input.Snapshot.UpdatedAt = baseNow.Add(-20 * time.Minute)
+	input.SettleTime = 10 * time.Minute
+
+	got := Classify(input)
+	if got.State == DeskStateResolved {
+		t.Fatalf("a resolution recorded against the old base must not suppress re-review once the base has changed, got %+v", got)
+	}
+	if got.State != DeskStateNeedsRereview {
+		t.Errorf("expected needs_rereview once the base changes past settling, got %q", got.State)
+	}
+}
+
+func TestClassify_ActionPostedForOldBaseDoesNotBlockRereviewAfterBaseChanges(t *testing.T) {
+	input := baseInput()
+	input.Runs = []ReviewRun{completedRun("head-1", ReviewConclusionClean, nil)}
+	input.Events = []LifecycleEvent{
+		{Kind: LifecycleEventActionPosted, HeadObjectID: "head-1", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-time.Hour)},
+	}
+	input.Snapshot.BaseObjectID = "base-2"
+	input.Snapshot.UpdatedAt = baseNow.Add(-20 * time.Minute)
+	input.SettleTime = 10 * time.Minute
+
+	got := Classify(input)
+	if got.State == DeskStateResolved {
+		t.Fatalf("an action posted against the old base must not suppress re-review once the base has changed, got %+v", got)
+	}
+	if got.State != DeskStateNeedsRereview {
+		t.Errorf("expected needs_rereview once the base changes past settling, got %q", got.State)
 	}
 }
 

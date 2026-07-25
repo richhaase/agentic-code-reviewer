@@ -80,6 +80,16 @@ func (t ReviewEventTypeV1) requiresHeadObjectID() bool {
 	}
 }
 
+func (t ReviewEventTypeV1) requiresBaseObjectID() bool {
+	switch t {
+	case EventTypeActionCommentPosted, EventTypeActionRequestChangesPosted, EventTypeActionApprovalPosted,
+		EventTypeUserResolved:
+		return true
+	default:
+		return false
+	}
+}
+
 func (t ReviewEventTypeV1) requiresFindingID() bool {
 	switch t {
 	case EventTypeFindingSelected, EventTypeFindingDismissed, EventTypeFindingPosted:
@@ -108,6 +118,7 @@ type ReviewEventV1 struct {
 	OccurredAt        time.Time         `json:"occurred_at"`
 	RunID             string            `json:"run_id,omitempty"`
 	HeadObjectID      string            `json:"head_object_id,omitempty"`
+	BaseObjectID      string            `json:"base_object_id,omitempty"`
 	PriorHeadObjectID string            `json:"prior_head_object_id,omitempty"`
 	FindingID         string            `json:"finding_id,omitempty"`
 	Actor             string            `json:"actor,omitempty"`
@@ -138,6 +149,11 @@ func (e ReviewEventV1) Validate() error {
 	}
 	if e.Type.requiresHeadObjectID() {
 		if err := validateNonEmpty(fmt.Sprintf("review event %q head_object_id", e.Type), e.HeadObjectID); err != nil {
+			return err
+		}
+	}
+	if e.Type.requiresBaseObjectID() {
+		if err := validateNonEmpty(fmt.Sprintf("review event %q base_object_id", e.Type), e.BaseObjectID); err != nil {
 			return err
 		}
 	}
@@ -194,6 +210,7 @@ func (e ReviewEventV1) ToLifecycleEvent() (domain.LifecycleEvent, bool) {
 		OccurredAt:   e.OccurredAt,
 		RunID:        e.RunID,
 		HeadObjectID: e.HeadObjectID,
+		BaseObjectID: e.BaseObjectID,
 		FindingID:    e.FindingID,
 	}, true
 }

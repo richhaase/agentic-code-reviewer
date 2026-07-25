@@ -31,15 +31,15 @@ func TestReviewEventV1_AllVocabularyTypesRoundTripAndValidate(t *testing.T) {
 		{name: "finding selected", event: ReviewEventV1{Type: EventTypeFindingSelected, RunID: "run-1", FindingID: "finding-1"}},
 		{name: "finding dismissed", event: ReviewEventV1{Type: EventTypeFindingDismissed, RunID: "run-1", FindingID: "finding-1"}},
 		{name: "finding posted", event: ReviewEventV1{Type: EventTypeFindingPosted, RunID: "run-1", FindingID: "finding-1"}},
-		{name: "action comment posted", event: ReviewEventV1{Type: EventTypeActionCommentPosted, HeadObjectID: "head-1", Actor: "richhaase"}},
-		{name: "action request changes posted", event: ReviewEventV1{Type: EventTypeActionRequestChangesPosted, HeadObjectID: "head-1", Actor: "richhaase"}},
-		{name: "action approval posted", event: ReviewEventV1{Type: EventTypeActionApprovalPosted, HeadObjectID: "head-1", Actor: "richhaase"}},
+		{name: "action comment posted", event: ReviewEventV1{Type: EventTypeActionCommentPosted, HeadObjectID: "head-1", BaseObjectID: "base-1", Actor: "richhaase"}},
+		{name: "action request changes posted", event: ReviewEventV1{Type: EventTypeActionRequestChangesPosted, HeadObjectID: "head-1", BaseObjectID: "base-1", Actor: "richhaase"}},
+		{name: "action approval posted", event: ReviewEventV1{Type: EventTypeActionApprovalPosted, HeadObjectID: "head-1", BaseObjectID: "base-1", Actor: "richhaase"}},
 		{name: "pr closed", event: ReviewEventV1{Type: EventTypePRClosed}},
 		{name: "pr merged", event: ReviewEventV1{Type: EventTypePRMerged}},
 		{name: "user deferred", event: ReviewEventV1{Type: EventTypeUserDeferred, Actor: "richhaase"}},
 		{name: "user snoozed", event: ReviewEventV1{Type: EventTypeUserSnoozed, Actor: "richhaase"}},
 		{name: "user retried", event: ReviewEventV1{Type: EventTypeUserRetried, Actor: "richhaase"}},
-		{name: "user resolved", event: ReviewEventV1{Type: EventTypeUserResolved, HeadObjectID: "head-1", Actor: "richhaase"}},
+		{name: "user resolved", event: ReviewEventV1{Type: EventTypeUserResolved, HeadObjectID: "head-1", BaseObjectID: "base-1", Actor: "richhaase"}},
 		{name: "user released", event: ReviewEventV1{Type: EventTypeUserReleased, Actor: "richhaase"}},
 		{name: "user opted out", event: ReviewEventV1{Type: EventTypeUserOptedOut, Actor: "richhaase"}},
 		{name: "user resumed", event: ReviewEventV1{Type: EventTypeUserResumed, Actor: "richhaase"}},
@@ -89,6 +89,13 @@ func TestReviewEventV1_Validate_RequiredFieldsPerType(t *testing.T) {
 		{name: "review completed missing run id", event: func() ReviewEventV1 { e := base(); e.Type = EventTypeReviewCompleted; return e }()},
 		{name: "review completed missing head object id", event: func() ReviewEventV1 { e := base(); e.Type = EventTypeReviewCompleted; e.RunID = "run-1"; return e }()},
 		{name: "user resolved missing head object id", event: func() ReviewEventV1 { e := base(); e.Type = EventTypeUserResolved; e.Actor = "richhaase"; return e }()},
+		{name: "user resolved missing base object id", event: func() ReviewEventV1 {
+			e := base()
+			e.Type = EventTypeUserResolved
+			e.Actor = "richhaase"
+			e.HeadObjectID = "head-1"
+			return e
+		}()},
 		{name: "finding selected missing finding id", event: func() ReviewEventV1 { e := base(); e.Type = EventTypeFindingSelected; e.RunID = "run-1"; return e }()},
 		{name: "finding selected missing run id", event: func() ReviewEventV1 {
 			e := base()
@@ -159,6 +166,7 @@ func TestReviewEventV1_ToLifecycleEvent(t *testing.T) {
 				OccurredAt:   occurredAt,
 				RunID:        "run-1",
 				HeadObjectID: "head-1",
+				BaseObjectID: "base-1",
 				FindingID:    "finding-1",
 			}
 
@@ -172,7 +180,7 @@ func TestReviewEventV1_ToLifecycleEvent(t *testing.T) {
 			if got.Kind != tt.wantKind {
 				t.Errorf("expected kind %q, got %q", tt.wantKind, got.Kind)
 			}
-			if got.OccurredAt != occurredAt || got.RunID != "run-1" || got.HeadObjectID != "head-1" || got.FindingID != "finding-1" {
+			if got.OccurredAt != occurredAt || got.RunID != "run-1" || got.HeadObjectID != "head-1" || got.BaseObjectID != "base-1" || got.FindingID != "finding-1" {
 				t.Errorf("expected fields to carry through unchanged, got %+v", got)
 			}
 		})
