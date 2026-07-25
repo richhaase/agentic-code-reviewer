@@ -179,25 +179,36 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 	if enrichErr != nil || liveSnapshot.HeadObjectID == "" {
 		return fmt.Errorf("could not verify the current pull request head before posting: %w", enrichErr)
 	}
-	if liveSnapshot.HeadObjectID != run.Target.Revision.HeadObjectID {
+	if liveSnapshot.HeadObjectID != run.Target.Revision.HeadObjectID || liveSnapshot.BaseObjectID != run.Target.Revision.BaseObjectID {
 		if staleErr := appendStaleEvent(dataDir, key, run, liveSnapshot.HeadObjectID); staleErr != nil {
-			return fmt.Errorf("the pull request head moved since this review, and the stale result could not be recorded: %w", staleErr)
+			return fmt.Errorf("the pull request revision moved since this review, and the stale result could not be recorded: %w", staleErr)
 		}
-		return errors.New("the pull request head moved since this review; nothing was posted")
+		return errors.New("the pull request's head or base moved since this review; nothing was posted")
 	}
 
-	if identityErr := workspace.CheckIdentity(ctx, *cfg); identityErr != nil {
+	freshCfg, freshErr := workspace.Load(configDir)
+	if freshErr != nil {
+		return fmt.Errorf("could not reload workspace configuration before posting: %w", freshErr)
+	}
+	if errs := freshCfg.Validate(); len(errs) > 0 {
+		return fmt.Errorf("workspace configuration has %d error(s): %v", len(errs), errs)
+	}
+	if postingErr := freshCfg.RequirePosting(); postingErr != nil {
+		return fmt.Errorf("posting was disabled before this action could be posted: %w", postingErr)
+	}
+	if identityErr := workspace.CheckIdentity(ctx, *freshCfg); identityErr != nil {
 		return fmt.Errorf("GitHub identity could not be verified before posting: %w", identityErr)
 	}
 
 	outcome := &CycleOutcome{}
 	opts := ReviewOpts{
-		RepositoryRoot:   item.RepositoryPath,
-		PRNumber:         prNumber,
-		AutoYes:          true,
-		ForcePostComment: action == deskActComment,
-		ExpectedHeadSHA:  run.Target.Revision.HeadObjectID,
-		Outcome:          outcome,
+		RepositoryRoot:       item.RepositoryPath,
+		PRNumber:             prNumber,
+		AutoYes:              autoYes,
+		SkipReviewTypePrompt: true,
+		ForcePostComment:     action == deskActComment,
+		ExpectedHeadSHA:      run.Target.Revision.HeadObjectID,
+		Outcome:              outcome,
 	}
 
 	code := handleTypedReviewRun(ctx, opts, run, logger)
@@ -210,17 +221,17 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 	} else {
 		switch outcome.Kind {
 		case OutcomeLGTMApproved:
-			recordErr = appendActionEvent(dataDir, key, store.EventTypeActionApprovalPosted, run, cfg.Identity.ExpectedUser)
+			recordErr = appendActionEvent(dataDir, key, store.EventTypeActionApprovalPosted, run, freshCfg.Identity.ExpectedUser)
 		case OutcomeLGTMComment:
 			if outcome.CIDowngraded {
 				deferredForCI = true
 			} else {
-				recordErr = appendActionEvent(dataDir, key, store.EventTypeActionCommentPosted, run, cfg.Identity.ExpectedUser)
+				recordErr = appendActionEvent(dataDir, key, store.EventTypeActionCommentPosted, run, freshCfg.Identity.ExpectedUser)
 			}
 		case OutcomeReviewComment:
-			recordErr = appendActionEvent(dataDir, key, store.EventTypeActionCommentPosted, run, cfg.Identity.ExpectedUser)
+			recordErr = appendActionEvent(dataDir, key, store.EventTypeActionCommentPosted, run, freshCfg.Identity.ExpectedUser)
 		case OutcomeReviewRequestChanges:
-			recordErr = appendActionEvent(dataDir, key, store.EventTypeActionRequestChangesPosted, run, cfg.Identity.ExpectedUser)
+			recordErr = appendActionEvent(dataDir, key, store.EventTypeActionRequestChangesPosted, run, freshCfg.Identity.ExpectedUser)
 		case OutcomeStaleHead:
 			if staleErr := recordStaleResult(ctx, dataDir, key, run, discovery); staleErr != nil {
 				actionErrResult = fmt.Errorf("the pull request head moved since this review, and the stale result could not be recorded: %w", staleErr)
@@ -232,7 +243,7 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 		}
 	}
 
-	refreshed, refreshErr := desk.Refresh(ctx, *cfg, dataDir, discovery, time.Now())
+	refreshed, refreshErr := desk.Refresh(ctx, *freshCfg, dataDir, discovery, time.Now())
 
 	if releaseErr := release(); releaseErr != nil {
 		return releaseErr
@@ -287,9 +298,13 @@ func validateActionForConclusion(action deskActAction, conclusion domain.ReviewC
 }
 
 func loadCurrentRun(dataDir string, item desk.Item) (*domain.ReviewRun, error) {
-	schemas, _, err := store.NewFilesystemRunStore(dataDir).ListRuns(item.Key)
+	schemas, corrupt, err := store.NewFilesystemRunStore(dataDir).ListRuns(item.Key)
 	if err != nil {
 		return nil, err
+	}
+	if len(corrupt) > 0 {
+		return nil, fmt.Errorf("%d stored review run(s) could not be read; run `acr desk history %s` to investigate before acting",
+			len(corrupt), item.Key.String())
 	}
 	var latest *domain.ReviewRun
 	for _, schema := range schemas {

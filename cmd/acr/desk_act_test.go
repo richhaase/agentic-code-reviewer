@@ -432,3 +432,64 @@ func TestRunDeskAct_RejectsNoChangesRun(t *testing.T) {
 		t.Fatalf("expected no GitHub mutation for a no-changes run, got %q", posted)
 	}
 }
+
+func TestRunDeskAct_BaseMismatchPreventsPosting(t *testing.T) {
+	env := setupDeskActTest(t, 31, fakeReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
+	now := time.Now()
+	env.discovery.enrichResponses = []domain.PullRequestSnapshot{
+		dispatchSnapshotWithAuthor(env.key, "someone-else", env.fixture.prHeadSHA, env.fixture.baseSHA, now),
+		dispatchSnapshotWithAuthor(env.key, "someone-else", env.fixture.prHeadSHA, "a-different-base-sha", now.Add(time.Minute)),
+	}
+	withFakeGH(t, fakeGHResponses{
+		user:          "me",
+		repoURL:       env.fixture.remoteURL,
+		repoSSHURL:    env.fixture.remoteURL,
+		baseRefName:   "main",
+		watchHeadSHA:  env.fixture.prHeadSHA,
+		prAuthor:      "someone-else",
+		ciBucket:      "pass",
+		postReviewLog: env.postReviewLog,
+	})
+
+	err := runDeskAct(context.Background(), env.key, deskActApprove, true, env.discovery)
+	if err == nil {
+		t.Fatal("expected an error when the base moved since the review even though the head did not")
+	}
+	if posted := readPostReviewLog(t, env.postReviewLog); posted != "" {
+		t.Fatalf("expected no GitHub mutation for a base mismatch, got %q", posted)
+	}
+	events := loadEvents(t, env.dataDir, env.key)
+	if len(events) != 1 || events[0].Type != store.EventTypeReviewStale {
+		t.Fatalf("expected exactly one review_stale audit event for the base mismatch, got %+v", events)
+	}
+}
+
+func TestRunDeskAct_RejectsWhenRunHistoryHasCorruptRecords(t *testing.T) {
+	env := setupDeskActTest(t, 32, fakeReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
+	withFakeGH(t, fakeGHResponses{
+		user:          "me",
+		repoURL:       env.fixture.remoteURL,
+		repoSSHURL:    env.fixture.remoteURL,
+		baseRefName:   "main",
+		watchHeadSHA:  env.fixture.prHeadSHA,
+		prAuthor:      "someone-else",
+		postReviewLog: env.postReviewLog,
+	})
+
+	runsDir := filepath.Join(env.dataDir, "prs", env.key.Host, env.key.Owner, env.key.Repository, "32", "runs")
+	if err := os.MkdirAll(runsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	corruptPath := filepath.Join(runsDir, "20260101T000000.000000000Z-corrupt.json")
+	if err := os.WriteFile(corruptPath, []byte("not valid json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := runDeskAct(context.Background(), env.key, deskActApprove, true, env.discovery)
+	if err == nil {
+		t.Fatal("expected an error when stored run history has an unreadable record")
+	}
+	if posted := readPostReviewLog(t, env.postReviewLog); posted != "" {
+		t.Fatalf("expected no GitHub mutation with corrupt run history present, got %q", posted)
+	}
+}

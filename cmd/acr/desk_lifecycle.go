@@ -101,8 +101,8 @@ func runDeskLifecycleAction(ctx context.Context, key store.PullRequestKeyV1, eve
 	}
 	liveItem, foundLive := findDeskItem(inbox, key)
 
-	if eventType == store.EventTypeUserResolved && !foundLive {
-		return fmt.Errorf("%s is not currently visible on the desk; cannot resolve a revision that hasn't been freshly observed", key.String())
+	if eventType == store.EventTypeUserResolved && (!foundLive || liveItem.SnapshotStale) {
+		return fmt.Errorf("%s is not currently visible on the desk with a fresh, live-observed revision; cannot resolve a possibly-stale cached snapshot", key.String())
 	}
 	if eventType != store.EventTypeUserResolved {
 		if _, snapErr := store.NewFilesystemSnapshotStore(dataDir).LoadSnapshot(key); snapErr != nil {

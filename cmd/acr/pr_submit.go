@@ -202,7 +202,7 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 
 	requestChanges := !pr.isSelfReview && !opts.ForcePostComment
 
-	if !opts.AutoYes {
+	if !opts.AutoYes && !opts.SkipReviewTypePrompt {
 
 		if !terminal.IsStdinTTY() {
 			logger.Log("Non-interactive mode without --yes flag; skipping PR review.", terminal.StyleDim)
@@ -311,7 +311,7 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 		action = actionComment
 	}
 
-	if !opts.AutoYes {
+	if !opts.AutoYes && !opts.SkipReviewTypePrompt {
 		if !terminal.IsStdinTTY() {
 			logger.Log("Non-interactive mode without --yes flag; skipping LGTM.", terminal.StyleDim)
 			opts.record(OutcomeLGTMSkipped)
