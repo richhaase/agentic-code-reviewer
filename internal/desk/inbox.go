@@ -2,7 +2,6 @@ package desk
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -153,6 +152,10 @@ func LoadStored(dataDir string, cfg workspace.Config, now time.Time) (Inbox, err
 }
 
 func classifySnapshot(dataDir string, cfg workspace.Config, resolution repos.Resolution, key store.PullRequestKeyV1, snapshot domain.PullRequestSnapshot, now time.Time) (Item, bool, error) {
+	if resolved, found := matchingResolvedRepository(resolution, key); found && resolved.Status == repos.StatusExcluded {
+		return Item{}, false, nil
+	}
+
 	runSchemas, _, err := store.NewFilesystemRunStore(dataDir).ListRuns(key)
 	if err != nil {
 		return Item{}, false, fmt.Errorf("load review runs: %w", err)
@@ -219,12 +222,22 @@ func classifySnapshot(dataDir string, cfg workspace.Config, resolution repos.Res
 }
 
 func repositoryAvailability(resolution repos.Resolution, key store.PullRequestKeyV1) (bool, string) {
+	resolved, found := matchingResolvedRepository(resolution, key)
+	if !found {
+		return false, ""
+	}
+	return resolved.Status == repos.StatusReviewable, resolved.LocalPath
+}
+
+func matchingResolvedRepository(resolution repos.Resolution, key store.PullRequestKeyV1) (repos.ResolvedRepository, bool) {
 	for _, repository := range resolution.Repositories {
-		if repository.Identity.Host == key.Host && repository.Identity.Owner == key.Owner && repository.Identity.Name == key.Repository {
-			return repository.Status == repos.StatusReviewable, repository.LocalPath
+		if strings.EqualFold(repository.Identity.Host, key.Host) &&
+			strings.EqualFold(repository.Identity.Owner, key.Owner) &&
+			strings.EqualFold(repository.Identity.Name, key.Repository) {
+			return repository, true
 		}
 	}
-	return false, ""
+	return repos.ResolvedRepository{}, false
 }
 
 func discoverCandidateKeys(ctx context.Context, discovery github.Discovery, cfg workspace.Config) ([]domain.PullRequestKey, []string) {
@@ -234,9 +247,7 @@ func discoverCandidateKeys(ctx context.Context, discovery github.Discovery, cfg 
 	search := func(query github.SearchQuery, label string) {
 		found, err := discovery.Search(ctx, query)
 		if err != nil {
-			if !errors.Is(err, github.ErrTransient) {
-				warnings = append(warnings, fmt.Sprintf("%s: %v", label, err))
-			}
+			warnings = append(warnings, fmt.Sprintf("%s: %v", label, err))
 			return
 		}
 		for _, key := range found {
@@ -251,7 +262,13 @@ func discoverCandidateKeys(ctx context.Context, discovery github.Discovery, cfg 
 		}
 	}
 	for _, team := range cfg.Scope.Teams {
-		search(github.SearchQuery{Kind: github.SearchKindTeamReviewRequested, Team: team}, fmt.Sprintf("team-requested search for %s", team))
+		if strings.Contains(team, "/") {
+			search(github.SearchQuery{Kind: github.SearchKindTeamReviewRequested, Team: team}, fmt.Sprintf("team-requested search for %s", team))
+			continue
+		}
+		for _, org := range cfg.Scope.Organizations {
+			search(github.SearchQuery{Kind: github.SearchKindTeamReviewRequested, Team: team, Organization: org}, fmt.Sprintf("team-requested search for %s/%s", org, team))
+		}
 	}
 
 	return keys, warnings

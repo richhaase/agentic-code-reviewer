@@ -30,12 +30,18 @@ func initGitRepoWithRemote(t *testing.T, dir, remoteURL string) {
 }
 
 type fixtureDiscovery struct {
-	search map[github.SearchKind][]domain.PullRequestKey
-	enrich map[domain.PullRequestKey]domain.PullRequestSnapshot
-	err    map[domain.PullRequestKey]error
+	search    map[github.SearchKind][]domain.PullRequestKey
+	searchErr error
+	enrich    map[domain.PullRequestKey]domain.PullRequestSnapshot
+	err       map[domain.PullRequestKey]error
+	calls     []github.SearchQuery
 }
 
 func (f *fixtureDiscovery) Search(ctx context.Context, query github.SearchQuery) ([]domain.PullRequestKey, error) {
+	f.calls = append(f.calls, query)
+	if f.searchErr != nil {
+		return nil, f.searchErr
+	}
 	return f.search[query.Kind], nil
 }
 
@@ -245,7 +251,7 @@ func TestRefresh_ContinuingResponsibilitySurvivesDroppedSearchResult(t *testing.
 	}
 
 	discovery := &fixtureDiscovery{
-		search: map[github.SearchKind][]domain.PullRequestKey{}, // search no longer returns this PR
+		search: map[github.SearchKind][]domain.PullRequestKey{},
 		enrich: map[domain.PullRequestKey]domain.PullRequestSnapshot{
 			key: fixtureSnapshot(key, "someone-else", "head-2", now),
 		},
@@ -443,5 +449,108 @@ func TestRefresh_FailedFindingsReadyAndResolvedStates(t *testing.T) {
 				t.Errorf("expected %q, got %q", tt.want, inbox.Items[0].DeskState)
 			}
 		})
+	}
+}
+
+func TestDiscoverCandidateKeys_QualifiesBareTeamWithEveryConfiguredOrganization(t *testing.T) {
+	cfg := workspace.Config{
+		Identity: workspace.IdentityConfig{ExpectedUser: "me"},
+		Scope: workspace.ScopeConfig{
+			Organizations: []string{"acme", "widgets-inc"},
+			Teams:         []string{"reviewers", "other-org/qualified-team"},
+		},
+	}
+	discovery := &fixtureDiscovery{search: map[github.SearchKind][]domain.PullRequestKey{}}
+
+	discoverCandidateKeys(context.Background(), discovery, cfg)
+
+	var teamQueries []github.SearchQuery
+	for _, call := range discovery.calls {
+		if call.Kind == github.SearchKindTeamReviewRequested {
+			teamQueries = append(teamQueries, call)
+		}
+	}
+	if len(teamQueries) != 3 {
+		t.Fatalf("expected 3 team queries (bare team x 2 orgs + 1 pre-qualified), got %+v", teamQueries)
+	}
+	for _, q := range teamQueries {
+		if err := q.Validate(); err != nil {
+			t.Errorf("expected every issued team query to be valid, got %v for %+v", err, q)
+		}
+	}
+}
+
+func TestRefresh_TransientSearchFailureIsSurfacedAsWarning(t *testing.T) {
+	cfg := baseWorkspaceConfig(t, t.TempDir())
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+
+	discovery := &fixtureDiscovery{
+		search:    map[github.SearchKind][]domain.PullRequestKey{},
+		searchErr: transientTestError{},
+	}
+
+	inbox, err := Refresh(context.Background(), cfg, dataDir, discovery, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(inbox.Warnings) == 0 {
+		t.Fatal("expected a transient search failure to be surfaced as a warning rather than silently producing an empty, seemingly-clean inbox")
+	}
+}
+
+func TestRefresh_RepositoryIdentityMatchIsCaseInsensitive(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/Acme/Widgets.git")
+	cfg := baseWorkspaceConfig(t, root)
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+
+	key := domain.PullRequestKey{Host: "github.com", Owner: "Acme", Repository: "Widgets", Number: 20}
+	discovery := &fixtureDiscovery{
+		search: map[github.SearchKind][]domain.PullRequestKey{
+			github.SearchKindReviewRequested: {key},
+		},
+		enrich: map[domain.PullRequestKey]domain.PullRequestSnapshot{
+			key: fixtureSnapshot(key, "someone-else", "head-1", now),
+		},
+	}
+
+	inbox, err := Refresh(context.Background(), cfg, dataDir, discovery, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(inbox.Items) != 1 {
+		t.Fatalf("expected 1 item, got %+v", inbox.Items)
+	}
+	if inbox.Items[0].DeskState == domain.DeskStateRepositoryUnavailable {
+		t.Errorf("expected a differently-cased but locally available repository to not report repository_unavailable, got %+v", inbox.Items[0])
+	}
+}
+
+func TestRefresh_ScopeExcludedRepositoryIsOmittedEntirely(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/acme/widgets.git")
+	cfg := baseWorkspaceConfig(t, root)
+	cfg.Scope.Exclude = []string{"acme/widgets"}
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+
+	key := domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "widgets", Number: 21}
+	discovery := &fixtureDiscovery{
+		search: map[github.SearchKind][]domain.PullRequestKey{
+			github.SearchKindReviewRequested: {key},
+		},
+		enrich: map[domain.PullRequestKey]domain.PullRequestSnapshot{
+			key: fixtureSnapshot(key, "someone-else", "head-1", now),
+		},
+	}
+
+	inbox, err := Refresh(context.Background(), cfg, dataDir, discovery, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(inbox.Items) != 0 {
+		t.Fatalf("expected a scope-excluded repository's PR to be omitted entirely rather than shown as repository_unavailable, got %+v", inbox.Items)
 	}
 }
