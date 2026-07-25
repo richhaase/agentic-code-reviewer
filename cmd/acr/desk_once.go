@@ -29,11 +29,6 @@ func runDeskOnce(jsonOutput bool) error {
 		return fmt.Errorf("workspace configuration has %d error(s): %s", len(errs), strings.Join(errs, "; "))
 	}
 
-	ctx := context.Background()
-	if err := workspace.CheckIdentity(ctx, *cfg); err != nil {
-		return err
-	}
-
 	dataDir, err := store.DataDir()
 	if err != nil {
 		return err
@@ -51,6 +46,14 @@ func runDeskOnce(jsonOutput bool) error {
 		}
 		renderInbox(inbox, jsonOutput, now)
 		return nil
+	}
+
+	ctx := context.Background()
+	if err := workspace.CheckIdentity(ctx, *cfg); err != nil {
+		if releaseErr := lock.Release(); releaseErr != nil {
+			return fmt.Errorf("%w (also failed to release desk lock: %v)", err, releaseErr)
+		}
+		return err
 	}
 
 	inbox, refreshErr := desk.Refresh(ctx, *cfg, dataDir, github.NewDiscovery(), now)

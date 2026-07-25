@@ -721,3 +721,29 @@ func TestDiscoverCandidateKeys_BareTeamWithNoOrganizationsWarns(t *testing.T) {
 		}
 	}
 }
+
+func TestDiscoverCandidateKeys_UnscopedDirectUserSearchWhenNoOrganizationsConfigured(t *testing.T) {
+	cfg := workspace.Config{
+		Identity: workspace.IdentityConfig{ExpectedUser: "me"},
+		Scope:    workspace.ScopeConfig{Include: []string{"acme/widgets"}},
+	}
+	discovery := &fixtureDiscovery{search: map[github.SearchKind][]domain.PullRequestKey{}}
+
+	discoverCandidateKeys(context.Background(), discovery, cfg)
+
+	var reviewRequested, authored bool
+	for _, call := range discovery.calls {
+		if call.Organization != "" {
+			continue
+		}
+		switch call.Kind {
+		case github.SearchKindReviewRequested:
+			reviewRequested = true
+		case github.SearchKindAuthored:
+			authored = true
+		}
+	}
+	if !reviewRequested || !authored {
+		t.Fatalf("expected unscoped review-requested and authored searches when no organizations are configured, got calls %+v", discovery.calls)
+	}
+}

@@ -241,3 +241,55 @@ func TestDeskForget_RemovesHistoryAndReportsIt(t *testing.T) {
 		t.Fatalf("expected no events remaining after forget, got %+v", events)
 	}
 }
+
+func TestDeskOnce_LockedFallbackWorksWithoutGH(t *testing.T) {
+	dataDir := t.TempDir()
+	configDir := t.TempDir()
+	t.Setenv("ACR_DATA_DIR", dataDir)
+	t.Setenv("ACR_CONFIG_DIR", configDir)
+
+	noGHDir := t.TempDir()
+	t.Setenv("PATH", noGHDir)
+
+	if err := os.WriteFile(filepath.Join(configDir, "workspace.yaml"), []byte(`schema_version: 1
+identity:
+  expected_user: "me"
+scope:
+  organizations: []
+  teams: []
+  repository_roots: []
+  include: []
+  exclude: []
+  path_overrides: {}
+behavior:
+  poll_interval: 1m
+  settle_time: 10m
+  concurrency: 0
+  auto_review: false
+  re_review: false
+  own_pr_policy: disabled
+posting:
+  enabled: false
+notifications:
+  enabled: false
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	lock, err := store.AcquireWriteLock(dataDir)
+	if err != nil {
+		t.Fatalf("acquire write lock: %v", err)
+	}
+	defer lock.Release()
+
+	cmd := newDeskCmd()
+	cmd.SetArgs([]string{"--once"})
+	output := captureStdout(t, func() {
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("expected the locked fallback to succeed without gh, got %v", err)
+		}
+	})
+	if !strings.Contains(output, "Another acr process owns the workspace") {
+		t.Errorf("expected the locked-fallback notice, got %q", output)
+	}
+}
