@@ -206,6 +206,7 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 
 		if !terminal.IsStdinTTY() {
 			logger.Log("Non-interactive mode without --yes flag; skipping PR review.", terminal.StyleDim)
+			opts.record(OutcomeReviewSkipped)
 			return nil
 		}
 
@@ -227,6 +228,7 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 			switch response {
 			case "s", "n", "no":
 				logger.Log("Skipped posting review.", terminal.StyleDim)
+				opts.record(OutcomeReviewSkipped)
 				return nil
 			default:
 				requestChanges = false
@@ -237,6 +239,7 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 				requestChanges = false
 			case "s", "n", "no":
 				logger.Log("Skipped posting review.", terminal.StyleDim)
+				opts.record(OutcomeReviewSkipped)
 				return nil
 			default:
 				requestChanges = true
@@ -266,6 +269,11 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 	reviewType := "request changes"
 	if !requestChanges {
 		reviewType = "comment"
+	}
+	if requestChanges {
+		opts.record(OutcomeReviewRequestChanges)
+	} else {
+		opts.record(OutcomeReviewComment)
 	}
 	logger.Logf(terminal.StyleSuccess, "Posted %s review to PR #%s.", reviewType, pr.number)
 	return nil

@@ -11,6 +11,9 @@ const (
 	OutcomeLGTMDeclined
 	OutcomeLGTMSkipped
 	OutcomeStaleHead
+	OutcomeReviewComment
+	OutcomeReviewRequestChanges
+	OutcomeReviewSkipped
 )
 
 type CycleOutcome struct {

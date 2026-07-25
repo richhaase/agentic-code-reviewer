@@ -116,6 +116,16 @@ func unusedDispatchService(t *testing.T) dispatchServiceFactory {
 
 func writeWorkspaceConfig(t *testing.T, configDir, expectedUser string, repositoryRoots []string) {
 	t.Helper()
+	writeWorkspaceConfigWithPosting(t, configDir, expectedUser, repositoryRoots, false)
+}
+
+func writeWorkspaceConfigWithPosting(t *testing.T, configDir, expectedUser string, repositoryRoots []string, postingEnabled bool) {
+	t.Helper()
+	writeWorkspaceConfigFull(t, configDir, expectedUser, repositoryRoots, postingEnabled, "disabled")
+}
+
+func writeWorkspaceConfigFull(t *testing.T, configDir, expectedUser string, repositoryRoots []string, postingEnabled bool, ownPRPolicy string) {
+	t.Helper()
 	rootsYAML := "[]"
 	if len(repositoryRoots) > 0 {
 		quoted := make([]string, len(repositoryRoots))
@@ -140,12 +150,12 @@ behavior:
   concurrency: 0
   auto_review: false
   re_review: false
-  own_pr_policy: disabled
+  own_pr_policy: %s
 posting:
-  enabled: false
+  enabled: %t
 notifications:
   enabled: false
-`, expectedUser, rootsYAML)
+`, expectedUser, rootsYAML, ownPRPolicy, postingEnabled)
 
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -167,32 +177,72 @@ func joinStrings(parts []string, sep string) string {
 }
 
 type fakeGHResponses struct {
-	user        string
-	repoURL     string
-	repoSSHURL  string
-	baseRefName string
+	user          string
+	repoURL       string
+	repoSSHURL    string
+	baseRefName   string
+	watchHeadSHA  string
+	watchState    string
+	prAuthor      string
+	ciBucket      string
+	postReviewLog string
 }
 
 func withFakeGH(t *testing.T, responses fakeGHResponses) {
 	t.Helper()
 	binDir := t.TempDir()
+
+	watchState := responses.watchState
+	if watchState == "" {
+		watchState = "OPEN"
+	}
+	ciBucket := responses.ciBucket
+	if ciBucket == "" {
+		ciBucket = "pass"
+	}
+
 	script := fmt.Sprintf(`#!/bin/sh
-case "$1 $2" in
-  "api user")
+args="$*"
+case "$args" in
+  "api user --jq .login")
     echo %q
     ;;
-  "repo view")
+  "repo view --json url,sshUrl")
     echo '{"url":%q,"sshUrl":%q}'
     ;;
-  "pr view")
+  *"--json headRefOid,state,reviewRequests"*)
+    echo '{"headRefOid":%q,"state":%q,"reviewRequests":[]}'
+    ;;
+  *"--json baseRefName"*)
     echo '{"baseRefName":%q}'
     ;;
+  *"--json author --jq .author.login"*)
+    echo %q
+    ;;
+  *"pr checks "*)
+    echo '[{"name":"ci","bucket":%q}]'
+    ;;
+  *"pr review "*)
+    if [ -z %q ]; then
+      echo "fake gh: unexpected pr review invocation: $args" >&2
+      exit 1
+    fi
+    echo "$args" >> %q
+    ;;
   *)
-    echo "fake gh: unhandled invocation: $*" >&2
+    echo "fake gh: unhandled invocation: $args" >&2
     exit 1
     ;;
 esac
-`, responses.user, responses.repoURL, responses.repoSSHURL, responses.baseRefName)
+`,
+		responses.user,
+		responses.repoURL, responses.repoSSHURL,
+		responses.watchHeadSHA, watchState,
+		responses.baseRefName,
+		responses.prAuthor,
+		ciBucket,
+		responses.postReviewLog, responses.postReviewLog,
+	)
 
 	path := filepath.Join(binDir, "gh")
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
@@ -362,11 +412,15 @@ func dispatchPullRequestKey(host string, prNumber int) store.PullRequestKeyV1 {
 }
 
 func dispatchSnapshot(key store.PullRequestKeyV1, head, base string, now time.Time) domain.PullRequestSnapshot {
+	return dispatchSnapshotWithAuthor(key, "someone-else", head, base, now)
+}
+
+func dispatchSnapshotWithAuthor(key store.PullRequestKeyV1, author, head, base string, now time.Time) domain.PullRequestSnapshot {
 	return domain.PullRequestSnapshot{
 		PullRequest:  key.ToDomain(),
 		URL:          fmt.Sprintf("https://%s/acme/widgets/pull/%d", key.Host, key.Number),
 		Title:        "widgets PR",
-		Author:       "someone-else",
+		Author:       author,
 		State:        domain.PullRequestStateOpen,
 		HeadObjectID: head,
 		BaseObjectID: base,
