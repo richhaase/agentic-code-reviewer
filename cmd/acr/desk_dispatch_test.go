@@ -494,6 +494,64 @@ func TestRunDeskDispatch_PersistsRunAndReportsDecisionReady(t *testing.T) {
 	}
 }
 
+func TestRunDeskDispatch_ReturnsErrorForFailedReview(t *testing.T) {
+	fixture := newDispatchGitFixture(t, 11)
+
+	dataDir := t.TempDir()
+	t.Setenv("ACR_DATA_DIR", dataDir)
+	configDir := t.TempDir()
+	t.Setenv(workspace.ConfigDirEnvVar, configDir)
+	writeWorkspaceConfig(t, configDir, "me", []string{fixture.repoRoot})
+	withFakeGH(t, fakeGHResponses{
+		user:        "me",
+		repoURL:     fixture.remoteURL,
+		repoSSHURL:  fixture.remoteURL,
+		baseRefName: "main",
+	})
+
+	key := dispatchPullRequestKey(fixture.host, 11)
+	now := time.Now()
+	discovery := &dispatchFixtureDiscovery{
+		searchResult: []domain.PullRequestKey{key.ToDomain()},
+		enrichResponses: []domain.PullRequestSnapshot{
+			dispatchSnapshot(key, fixture.prHeadSHA, fixture.baseSHA, now),
+			dispatchSnapshot(key, fixture.prHeadSHA, fixture.baseSHA, now.Add(time.Minute)),
+		},
+	}
+
+	target := domain.ReviewTarget{
+		RepositoryRoot: fixture.repoRoot,
+		Revision: domain.RevisionEvidence{
+			HeadObjectID: fixture.prHeadSHA,
+			BaseObjectID: fixture.baseSHA,
+		},
+	}
+
+	run := fakeReviewRun(t, target)
+	run.Status = domain.ReviewStatusFailed
+	run.Conclusion = ""
+	run.Failure = &domain.ReviewFailure{Phase: domain.ReviewPhaseReviewers, Message: "all reviewers failed"}
+
+	err := runDeskDispatch(context.Background(), key, discovery, fakeDispatchService(run))
+	if err == nil {
+		t.Fatal("expected runDeskDispatch to return an error for a failed review run")
+	}
+
+	runs, corrupt, listErr := store.NewFilesystemRunStore(dataDir).ListRuns(key)
+	if listErr != nil {
+		t.Fatalf("ListRuns failed: %v", listErr)
+	}
+	if len(corrupt) != 0 {
+		t.Fatalf("unexpected corrupt runs: %v", corrupt)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected the failed run to still be persisted for history, got %d", len(runs))
+	}
+	if runs[0].Status != string(domain.ReviewStatusFailed) {
+		t.Fatalf("persisted run status = %q, want %q", runs[0].Status, domain.ReviewStatusFailed)
+	}
+}
+
 func TestRunDeskDispatch_MarksResultStaleWhenHeadMovesAfterReview(t *testing.T) {
 	fixture := newDispatchGitFixture(t, 9)
 

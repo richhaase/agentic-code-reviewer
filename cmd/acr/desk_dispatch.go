@@ -137,12 +137,17 @@ func runDeskDispatch(ctx context.Context, key store.PullRequestKeyV1, discovery 
 
 	if refreshErr != nil {
 		fmt.Printf("\nwarning: could not refresh desk state after dispatch: %v\n", refreshErr)
-		return nil
-	}
-	if resultItem, ok := findDeskItem(refreshed, key); ok {
+	} else if resultItem, ok := findDeskItem(refreshed, key); ok {
 		fmt.Printf("\nDesk state: %s — %s\n", resultItem.DeskState, resultItem.Reason)
 	}
 	fmt.Printf("Run `acr desk history %s` for the full timeline.\n", key.String())
+
+	if run.Status != domain.ReviewStatusCompleted {
+		if run.Failure != nil {
+			return fmt.Errorf("review did not complete (status %s): %s", run.Status, run.Failure.Message)
+		}
+		return fmt.Errorf("review did not complete: status %s", run.Status)
+	}
 	return nil
 }
 
