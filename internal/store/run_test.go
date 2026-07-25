@@ -296,13 +296,15 @@ func TestReviewRunV1_StaleAndSupersededTransitionsAreSeparateEventsNotRunMutatio
 	}
 
 	staleEvent := ReviewEventV1{
-		SchemaVersion: CurrentSchemaVersion,
-		ID:            "event-stale-1",
-		PullRequest:   testPullRequestKey(),
-		Type:          EventTypeReviewStale,
-		OccurredAt:    run.CompletedAt.Add(time.Hour),
-		RunID:         schema.ID,
-		Reason:        "head moved",
+		SchemaVersion:     CurrentSchemaVersion,
+		ID:                "event-stale-1",
+		PullRequest:       testPullRequestKey(),
+		Type:              EventTypeReviewStale,
+		OccurredAt:        run.CompletedAt.Add(time.Hour),
+		RunID:             schema.ID,
+		HeadObjectID:      "new-head",
+		PriorHeadObjectID: "old-head",
+		Reason:            "head moved",
 	}
 	if err := staleEvent.Validate(); err != nil {
 		t.Fatalf("stale event Validate: %v", err)

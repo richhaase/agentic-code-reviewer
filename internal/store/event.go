@@ -68,6 +68,18 @@ func (t ReviewEventTypeV1) requiresRunID() bool {
 	}
 }
 
+func (t ReviewEventTypeV1) requiresHeadObjectID() bool {
+	switch t {
+	case EventTypeReviewQueued, EventTypeReviewStarted, EventTypeReviewCompleted,
+		EventTypeReviewFailed, EventTypeReviewInterrupted, EventTypeReviewSuperseded, EventTypeReviewStale,
+		EventTypeActionCommentPosted, EventTypeActionRequestChangesPosted, EventTypeActionApprovalPosted,
+		EventTypeUserResolved:
+		return true
+	default:
+		return false
+	}
+}
+
 func (t ReviewEventTypeV1) requiresFindingID() bool {
 	switch t {
 	case EventTypeFindingSelected, EventTypeFindingDismissed, EventTypeFindingPosted:
@@ -121,6 +133,11 @@ func (e ReviewEventV1) Validate() error {
 	}
 	if e.Type.requiresRunID() {
 		if err := validateNonEmpty(fmt.Sprintf("review event %q run_id", e.Type), e.RunID); err != nil {
+			return err
+		}
+	}
+	if e.Type.requiresHeadObjectID() {
+		if err := validateNonEmpty(fmt.Sprintf("review event %q head_object_id", e.Type), e.HeadObjectID); err != nil {
 			return err
 		}
 	}
