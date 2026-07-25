@@ -82,7 +82,7 @@ func Refresh(ctx context.Context, cfg workspace.Config, dataDir string, discover
 		if scopeExcludesKey(cfg, schemaKey) {
 			continue
 		}
-		if events, eventsErr := loadDomainEvents(dataDir, schemaKey); eventsErr == nil && domain.IsReleased(events) {
+		if events, _, eventsErr := loadDomainEvents(dataDir, schemaKey); eventsErr == nil && domain.IsReleased(events) {
 			continue
 		}
 
@@ -105,7 +105,8 @@ func Refresh(ctx context.Context, cfg workspace.Config, dataDir string, discover
 			}
 		}
 
-		item, ok, itemErr := classifySnapshot(dataDir, cfg, resolution, schemaKey, snapshot, now)
+		item, ok, itemWarnings, itemErr := classifySnapshot(dataDir, cfg, resolution, schemaKey, snapshot, now)
+		inbox.Warnings = append(inbox.Warnings, itemWarnings...)
 		if itemErr != nil {
 			inbox.Warnings = append(inbox.Warnings, fmt.Sprintf("%s: %v", key.String(), itemErr))
 			continue
@@ -135,6 +136,10 @@ func LoadStored(dataDir string, cfg workspace.Config, now time.Time) (Inbox, err
 	inbox.Warnings = append(inbox.Warnings, resolution.RootWarnings...)
 
 	for _, schemaKey := range tracked {
+		if scopeExcludesKey(cfg, schemaKey) {
+			continue
+		}
+
 		storedSchema, err := snapshotStore.LoadSnapshot(schemaKey)
 		if err != nil {
 			inbox.Warnings = append(inbox.Warnings, fmt.Sprintf("%s: no stored snapshot: %v", schemaKey.String(), err))
@@ -146,7 +151,8 @@ func LoadStored(dataDir string, cfg workspace.Config, now time.Time) (Inbox, err
 			continue
 		}
 
-		item, ok, itemErr := classifySnapshot(dataDir, cfg, resolution, schemaKey, snapshot, now)
+		item, ok, itemWarnings, itemErr := classifySnapshot(dataDir, cfg, resolution, schemaKey, snapshot, now)
+		inbox.Warnings = append(inbox.Warnings, itemWarnings...)
 		if itemErr != nil {
 			inbox.Warnings = append(inbox.Warnings, fmt.Sprintf("%s: %v", schemaKey.String(), itemErr))
 			continue
@@ -160,10 +166,10 @@ func LoadStored(dataDir string, cfg workspace.Config, now time.Time) (Inbox, err
 	return inbox, nil
 }
 
-func loadDomainEvents(dataDir string, key store.PullRequestKeyV1) ([]domain.LifecycleEvent, error) {
-	eventSchemas, _, err := store.NewFilesystemEventStore(dataDir).ListEvents(key)
+func loadDomainEvents(dataDir string, key store.PullRequestKeyV1) ([]domain.LifecycleEvent, []store.CorruptRecord, error) {
+	eventSchemas, corrupt, err := store.NewFilesystemEventStore(dataDir).ListEvents(key)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	events := make([]domain.LifecycleEvent, 0, len(eventSchemas))
 	for _, schema := range eventSchemas {
@@ -171,7 +177,7 @@ func loadDomainEvents(dataDir string, key store.PullRequestKeyV1) ([]domain.Life
 			events = append(events, event)
 		}
 	}
-	return events, nil
+	return events, corrupt, nil
 }
 
 func scopeExcludesKey(cfg workspace.Config, key store.PullRequestKeyV1) bool {
@@ -184,14 +190,19 @@ func scopeExcludesKey(cfg workspace.Config, key store.PullRequestKeyV1) bool {
 	return excluded
 }
 
-func classifySnapshot(dataDir string, cfg workspace.Config, resolution repos.Resolution, key store.PullRequestKeyV1, snapshot domain.PullRequestSnapshot, now time.Time) (Item, bool, error) {
+func classifySnapshot(dataDir string, cfg workspace.Config, resolution repos.Resolution, key store.PullRequestKeyV1, snapshot domain.PullRequestSnapshot, now time.Time) (Item, bool, []string, error) {
 	if resolved, found := matchingResolvedRepository(resolution, key); found && resolved.Status == repos.StatusExcluded {
-		return Item{}, false, nil
+		return Item{}, false, nil, nil
 	}
 
-	runSchemas, _, err := store.NewFilesystemRunStore(dataDir).ListRuns(key)
+	var warnings []string
+
+	runSchemas, corruptRuns, err := store.NewFilesystemRunStore(dataDir).ListRuns(key)
 	if err != nil {
-		return Item{}, false, fmt.Errorf("load review runs: %w", err)
+		return Item{}, false, nil, fmt.Errorf("load review runs: %w", err)
+	}
+	if len(corruptRuns) > 0 {
+		warnings = append(warnings, fmt.Sprintf("%s: %d stored review run(s) could not be read; classification may be based on incomplete history", key.String(), len(corruptRuns)))
 	}
 	runs := make([]domain.ReviewRun, 0, len(runSchemas))
 	for _, schema := range runSchemas {
@@ -202,9 +213,12 @@ func classifySnapshot(dataDir string, cfg workspace.Config, resolution repos.Res
 		runs = append(runs, run)
 	}
 
-	events, err := loadDomainEvents(dataDir, key)
+	events, corruptEvents, err := loadDomainEvents(dataDir, key)
 	if err != nil {
-		return Item{}, false, fmt.Errorf("load review events: %w", err)
+		return Item{}, false, nil, fmt.Errorf("load review events: %w", err)
+	}
+	if len(corruptEvents) > 0 {
+		warnings = append(warnings, fmt.Sprintf("%s: %d stored review event(s) could not be read; classification may be based on incomplete history", key.String(), len(corruptEvents)))
 	}
 
 	repositoryAvailable, repositoryPath := repositoryAvailability(resolution, key)
@@ -221,7 +235,7 @@ func classifySnapshot(dataDir string, cfg workspace.Config, resolution repos.Res
 	})
 
 	if !classification.Tracked {
-		return Item{}, false, nil
+		return Item{}, false, warnings, nil
 	}
 
 	item := Item{
@@ -244,7 +258,7 @@ func classifySnapshot(dataDir string, cfg workspace.Config, resolution repos.Res
 		DeskState:        classification.State,
 		Reason:           classification.Reason,
 	}
-	return item, true, nil
+	return item, true, warnings, nil
 }
 
 func repositoryAvailability(resolution repos.Resolution, key store.PullRequestKeyV1) (bool, string) {
@@ -290,6 +304,10 @@ func discoverCandidateKeys(ctx context.Context, discovery github.Discovery, cfg 
 	for _, team := range cfg.Scope.Teams {
 		if strings.Contains(team, "/") {
 			search(github.SearchQuery{Kind: github.SearchKindTeamReviewRequested, Team: team}, fmt.Sprintf("team-requested search for %s", team))
+			continue
+		}
+		if len(cfg.Scope.Organizations) == 0 {
+			warnings = append(warnings, fmt.Sprintf("scope.teams: %q is not qualified as org/team and scope.organizations is empty; skipping this team search", team))
 			continue
 		}
 		for _, org := range cfg.Scope.Organizations {

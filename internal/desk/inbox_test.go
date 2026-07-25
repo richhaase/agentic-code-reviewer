@@ -645,3 +645,79 @@ func TestRefresh_SurfacesRepositoryRootScanWarnings(t *testing.T) {
 		t.Fatal("expected a warning about the missing repository root")
 	}
 }
+
+func TestLoadStored_RespectsScopeExclusion(t *testing.T) {
+	cfg := baseWorkspaceConfig(t, t.TempDir())
+	cfg.Scope.Exclude = []string{"acme/widgets"}
+	dataDir := t.TempDir()
+
+	key := domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "widgets", Number: 24}
+	captured := time.Date(2026, 7, 25, 11, 0, 0, 0, time.UTC)
+	if err := store.NewFilesystemSnapshotStore(dataDir).SaveSnapshot(store.ToPRSnapshotSchema(fixtureSnapshot(key, "someone-else", "head-1", captured))); err != nil {
+		t.Fatalf("seed snapshot: %v", err)
+	}
+
+	inbox, err := LoadStored(dataDir, cfg, captured.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(inbox.Items) != 0 {
+		t.Fatalf("expected a scope-excluded stored PR to be omitted from the locked/read-only path, got %+v", inbox.Items)
+	}
+}
+
+func TestRefresh_CorruptStoredHistorySurfacesWarning(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/acme/widgets.git")
+	cfg := baseWorkspaceConfig(t, root)
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+
+	key := domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "widgets", Number: 25}
+	runsPath := filepath.Join(dataDir, "prs", "github.com", "acme", "widgets", "25", "runs")
+	if err := os.MkdirAll(runsPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	corruptRun := filepath.Join(runsPath, "20260725T110000.000000000Z-run-bad.json")
+	if err := os.WriteFile(corruptRun, []byte(`{"schema_version": 1, "id": "run-bad", "truncated`), 0o644); err != nil {
+		t.Fatalf("seed corrupt run: %v", err)
+	}
+
+	discovery := &fixtureDiscovery{
+		search: map[github.SearchKind][]domain.PullRequestKey{
+			github.SearchKindReviewRequested: {key},
+		},
+		enrich: map[domain.PullRequestKey]domain.PullRequestSnapshot{
+			key: fixtureSnapshot(key, "someone-else", "head-1", now),
+		},
+	}
+
+	inbox, err := Refresh(context.Background(), cfg, dataDir, discovery, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(inbox.Warnings) == 0 {
+		t.Fatal("expected a warning about the corrupt stored run rather than silently classifying from incomplete history")
+	}
+}
+
+func TestDiscoverCandidateKeys_BareTeamWithNoOrganizationsWarns(t *testing.T) {
+	cfg := workspace.Config{
+		Identity: workspace.IdentityConfig{ExpectedUser: "me"},
+		Scope: workspace.ScopeConfig{
+			Teams: []string{"reviewers"},
+		},
+	}
+	discovery := &fixtureDiscovery{search: map[github.SearchKind][]domain.PullRequestKey{}}
+
+	_, warnings := discoverCandidateKeys(context.Background(), discovery, cfg)
+
+	if len(warnings) == 0 {
+		t.Fatal("expected a warning that a bare team could not be searched without a configured organization")
+	}
+	for _, call := range discovery.calls {
+		if call.Kind == github.SearchKindTeamReviewRequested {
+			t.Errorf("expected no team search to be attempted for an unqualifiable bare team, got %+v", call)
+		}
+	}
+}
