@@ -228,8 +228,8 @@ func TestClassify_DecisionReady_AllFindingsDispositioned(t *testing.T) {
 	input := baseInput()
 	input.Runs = []ReviewRun{completedRun("head-1", ReviewConclusionFindings, []ReviewFinding{{ID: "f1"}, {ID: "f2"}})}
 	input.Events = []LifecycleEvent{
-		{Kind: LifecycleEventFindingDismissed, FindingID: "f1", OccurredAt: baseNow.Add(-time.Minute)},
-		{Kind: LifecycleEventFindingSelected, FindingID: "f2", OccurredAt: baseNow.Add(-time.Minute)},
+		{Kind: LifecycleEventFindingDismissed, RunID: "run-head-1", FindingID: "f1", OccurredAt: baseNow.Add(-time.Minute)},
+		{Kind: LifecycleEventFindingSelected, RunID: "run-head-1", FindingID: "f2", OccurredAt: baseNow.Add(-time.Minute)},
 	}
 
 	got := Classify(input)
@@ -238,11 +238,25 @@ func TestClassify_DecisionReady_AllFindingsDispositioned(t *testing.T) {
 	}
 }
 
+func TestClassify_FindingDispositionFromAnOlderRunDoesNotApplyToTheCurrentRun(t *testing.T) {
+	input := baseInput()
+	input.Runs = []ReviewRun{completedRun("head-1", ReviewConclusionFindings, []ReviewFinding{{ID: "f1"}, {ID: "f2"}})}
+	input.Events = []LifecycleEvent{
+		{Kind: LifecycleEventFindingDismissed, RunID: "an-older-run", FindingID: "f1", OccurredAt: baseNow.Add(-time.Hour)},
+		{Kind: LifecycleEventFindingSelected, RunID: "an-older-run", FindingID: "f2", OccurredAt: baseNow.Add(-time.Hour)},
+	}
+
+	got := Classify(input)
+	if got.State != DeskStateFindingsReady {
+		t.Fatalf("a disposition event from a different run must not clear findings for the current run (reused finding IDs like %q), got %+v", "f1", got)
+	}
+}
+
 func TestClassify_FindingsReady_PartiallyDispositionedStillReady(t *testing.T) {
 	input := baseInput()
 	input.Runs = []ReviewRun{completedRun("head-1", ReviewConclusionFindings, []ReviewFinding{{ID: "f1"}, {ID: "f2"}})}
 	input.Events = []LifecycleEvent{
-		{Kind: LifecycleEventFindingDismissed, FindingID: "f1", OccurredAt: baseNow.Add(-time.Minute)},
+		{Kind: LifecycleEventFindingDismissed, RunID: "run-head-1", FindingID: "f1", OccurredAt: baseNow.Add(-time.Minute)},
 	}
 
 	got := Classify(input)

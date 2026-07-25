@@ -60,7 +60,8 @@ func (t ReviewEventTypeV1) Validate() error {
 func (t ReviewEventTypeV1) requiresRunID() bool {
 	switch t {
 	case EventTypeReviewQueued, EventTypeReviewStarted, EventTypeReviewCompleted,
-		EventTypeReviewFailed, EventTypeReviewInterrupted, EventTypeReviewSuperseded, EventTypeReviewStale:
+		EventTypeReviewFailed, EventTypeReviewInterrupted, EventTypeReviewSuperseded, EventTypeReviewStale,
+		EventTypeFindingSelected, EventTypeFindingDismissed, EventTypeFindingPosted:
 		return true
 	default:
 		return false

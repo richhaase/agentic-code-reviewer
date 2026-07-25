@@ -28,9 +28,9 @@ func TestReviewEventV1_AllVocabularyTypesRoundTripAndValidate(t *testing.T) {
 		{name: "review interrupted", event: ReviewEventV1{Type: EventTypeReviewInterrupted, RunID: "run-1"}},
 		{name: "review superseded", event: ReviewEventV1{Type: EventTypeReviewSuperseded, RunID: "run-1"}},
 		{name: "review stale", event: ReviewEventV1{Type: EventTypeReviewStale, RunID: "run-1", HeadObjectID: "new-head", PriorHeadObjectID: "old-head"}},
-		{name: "finding selected", event: ReviewEventV1{Type: EventTypeFindingSelected, FindingID: "finding-1"}},
-		{name: "finding dismissed", event: ReviewEventV1{Type: EventTypeFindingDismissed, FindingID: "finding-1"}},
-		{name: "finding posted", event: ReviewEventV1{Type: EventTypeFindingPosted, FindingID: "finding-1"}},
+		{name: "finding selected", event: ReviewEventV1{Type: EventTypeFindingSelected, RunID: "run-1", FindingID: "finding-1"}},
+		{name: "finding dismissed", event: ReviewEventV1{Type: EventTypeFindingDismissed, RunID: "run-1", FindingID: "finding-1"}},
+		{name: "finding posted", event: ReviewEventV1{Type: EventTypeFindingPosted, RunID: "run-1", FindingID: "finding-1"}},
 		{name: "action comment posted", event: ReviewEventV1{Type: EventTypeActionCommentPosted, Actor: "richhaase"}},
 		{name: "action request changes posted", event: ReviewEventV1{Type: EventTypeActionRequestChangesPosted, Actor: "richhaase"}},
 		{name: "action approval posted", event: ReviewEventV1{Type: EventTypeActionApprovalPosted, Actor: "richhaase"}},
@@ -87,7 +87,13 @@ func TestReviewEventV1_Validate_RequiredFieldsPerType(t *testing.T) {
 		event ReviewEventV1
 	}{
 		{name: "review completed missing run id", event: func() ReviewEventV1 { e := base(); e.Type = EventTypeReviewCompleted; return e }()},
-		{name: "finding selected missing finding id", event: func() ReviewEventV1 { e := base(); e.Type = EventTypeFindingSelected; return e }()},
+		{name: "finding selected missing finding id", event: func() ReviewEventV1 { e := base(); e.Type = EventTypeFindingSelected; e.RunID = "run-1"; return e }()},
+		{name: "finding selected missing run id", event: func() ReviewEventV1 {
+			e := base()
+			e.Type = EventTypeFindingSelected
+			e.FindingID = "finding-1"
+			return e
+		}()},
 		{name: "action approval posted missing actor", event: func() ReviewEventV1 { e := base(); e.Type = EventTypeActionApprovalPosted; return e }()},
 		{name: "user resolved missing actor", event: func() ReviewEventV1 { e := base(); e.Type = EventTypeUserResolved; return e }()},
 		{name: "unsupported schema version", event: func() ReviewEventV1 { e := base(); e.Type = EventTypePRDiscovered; e.SchemaVersion = 99; return e }()},

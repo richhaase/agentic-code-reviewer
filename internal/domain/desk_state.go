@@ -255,6 +255,9 @@ func allFindingsDispositioned(run *ReviewRun, events []LifecycleEvent) bool {
 	}
 	dispositioned := map[string]bool{}
 	for _, event := range events {
+		if event.RunID != run.ID {
+			continue
+		}
 		if event.Kind == LifecycleEventFindingSelected || event.Kind == LifecycleEventFindingDismissed {
 			dispositioned[event.FindingID] = true
 		}
