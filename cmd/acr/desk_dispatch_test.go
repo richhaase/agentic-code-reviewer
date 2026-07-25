@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -267,10 +268,27 @@ func newDispatchGitFixture(t *testing.T, prNumber int) dispatchGitFixture {
 	}
 }
 
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
 func startGitDaemon(t *testing.T, baseDir string) {
 	t.Helper()
 
-	var stderr bytes.Buffer
+	stderr := &syncBuffer{}
 	cmd := exec.Command("git", "daemon",
 		"--reuseaddr",
 		"--export-all",
@@ -278,7 +296,7 @@ func startGitDaemon(t *testing.T, baseDir string) {
 		"--port="+gitDaemonPort,
 		"--listen=127.0.0.1",
 	)
-	cmd.Stderr = &stderr
+	cmd.Stderr = stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("failed to start git daemon: %v", err)
