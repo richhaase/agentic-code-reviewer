@@ -67,11 +67,14 @@ func ConfigDir() (string, error) {
 	if dir := os.Getenv(ConfigDirEnvVar); dir != "" {
 		return dir, nil
 	}
-	base, err := os.UserConfigDir()
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, "acr"), nil
+	}
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve workspace configuration directory: %w", err)
 	}
-	return filepath.Join(base, "acr"), nil
+	return filepath.Join(home, ".config", "acr"), nil
 }
 
 func ConfigPath(configDir string) string {
