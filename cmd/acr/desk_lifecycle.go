@@ -95,13 +95,19 @@ func runDeskLifecycleAction(ctx context.Context, key store.PullRequestKeyV1, eve
 		return fmt.Errorf("GitHub identity could not be verified: %w", identityErr)
 	}
 
-	if _, err := desk.Refresh(ctx, *cfg, dataDir, discovery, time.Now()); err != nil {
-		return err
+	inbox, refreshErr := desk.Refresh(ctx, *cfg, dataDir, discovery, time.Now())
+	if refreshErr != nil {
+		return refreshErr
 	}
+	liveItem, foundLive := findDeskItem(inbox, key)
 
-	storedSnapshot, snapErr := store.NewFilesystemSnapshotStore(dataDir).LoadSnapshot(key)
-	if snapErr != nil {
-		return fmt.Errorf("%s is not known to the desk; run `acr desk --once` first", key.String())
+	if eventType == store.EventTypeUserResolved && !foundLive {
+		return fmt.Errorf("%s is not currently visible on the desk; cannot resolve a revision that hasn't been freshly observed", key.String())
+	}
+	if eventType != store.EventTypeUserResolved {
+		if _, snapErr := store.NewFilesystemSnapshotStore(dataDir).LoadSnapshot(key); snapErr != nil {
+			return fmt.Errorf("%s is not known to the desk; run `acr desk --once` first", key.String())
+		}
 	}
 
 	now := time.Now()
@@ -118,24 +124,24 @@ func runDeskLifecycleAction(ctx context.Context, key store.PullRequestKeyV1, eve
 		Actor:         cfg.Identity.ExpectedUser,
 	}
 	if eventType == store.EventTypeUserResolved {
-		event.HeadObjectID = storedSnapshot.HeadObjectID
-		event.BaseObjectID = storedSnapshot.BaseObjectID
+		event.HeadObjectID = liveItem.HeadObjectID
+		event.BaseObjectID = liveItem.BaseObjectID
 	}
 	if _, appendErr := store.NewFilesystemEventStore(dataDir).AppendEvent(event); appendErr != nil {
 		return appendErr
 	}
 
-	refreshed, refreshErr := desk.Refresh(ctx, *cfg, dataDir, discovery, time.Now())
+	refreshedAfter, refreshErrAfter := desk.Refresh(ctx, *cfg, dataDir, discovery, time.Now())
 
 	if releaseErr := release(); releaseErr != nil {
 		return releaseErr
 	}
 
-	if refreshErr != nil {
-		fmt.Printf("warning: could not refresh desk state: %v\n", refreshErr)
+	if refreshErrAfter != nil {
+		fmt.Printf("warning: could not refresh desk state: %v\n", refreshErrAfter)
 		return nil
 	}
-	if resultItem, found := findDeskItem(refreshed, key); found {
+	if resultItem, found := findDeskItem(refreshedAfter, key); found {
 		fmt.Printf("Desk state: %s — %s\n", resultItem.DeskState, resultItem.Reason)
 	} else {
 		fmt.Printf("%s is no longer tracked on the desk.\n", key.String())

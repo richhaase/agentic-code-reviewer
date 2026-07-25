@@ -340,3 +340,95 @@ func TestRunDeskAct_StaleHeadPreventsPostingAndRecordsAuditEvent(t *testing.T) {
 		t.Fatalf("expected prior_head_object_id = %q, got %q", env.fixture.prHeadSHA, events[0].PriorHeadObjectID)
 	}
 }
+
+func TestRunDeskAct_DeclinedConfirmationDoesNotPost(t *testing.T) {
+	env := setupDeskActTest(t, 28, fakeReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
+	withFakeGH(t, fakeGHResponses{
+		user:          "me",
+		repoURL:       env.fixture.remoteURL,
+		repoSSHURL:    env.fixture.remoteURL,
+		baseRefName:   "main",
+		watchHeadSHA:  env.fixture.prHeadSHA,
+		prAuthor:      "someone-else",
+		ciBucket:      "pass",
+		postReviewLog: env.postReviewLog,
+	})
+
+	err := runDeskAct(context.Background(), env.key, deskActApprove, false, env.discovery)
+	if err == nil {
+		t.Fatal("expected an error when the action is not confirmed")
+	}
+
+	if posted := readPostReviewLog(t, env.postReviewLog); posted != "" {
+		t.Fatalf("expected no GitHub mutation without confirmation, got %q", posted)
+	}
+	events := loadEvents(t, env.dataDir, env.key)
+	if len(events) != 0 {
+		t.Fatalf("expected no events to be recorded, got %+v", events)
+	}
+}
+
+func TestRunDeskAct_CIDowngradedApprovalStaysActionable(t *testing.T) {
+	env := setupDeskActTest(t, 29, fakeReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
+	withFakeGH(t, fakeGHResponses{
+		user:          "me",
+		repoURL:       env.fixture.remoteURL,
+		repoSSHURL:    env.fixture.remoteURL,
+		baseRefName:   "main",
+		watchHeadSHA:  env.fixture.prHeadSHA,
+		prAuthor:      "someone-else",
+		ciBucket:      "fail",
+		postReviewLog: env.postReviewLog,
+	})
+
+	err := runDeskAct(context.Background(), env.key, deskActApprove, true, env.discovery)
+	if err != nil {
+		t.Fatalf("runDeskAct failed: %v", err)
+	}
+
+	posted := readPostReviewLog(t, env.postReviewLog)
+	if !strings.Contains(posted, "--comment") {
+		t.Fatalf("expected a CI-downgraded approval to post --comment, got %q", posted)
+	}
+
+	events := loadEvents(t, env.dataDir, env.key)
+	if len(events) != 0 {
+		t.Fatalf("expected no action-posted event for a CI-downgraded approval (item must stay actionable), got %+v", events)
+	}
+
+	cfg, err := workspace.Load(env.configDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inbox, err := desk.LoadStored(env.dataDir, *cfg, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, ok := findDeskItem(inbox, env.key)
+	if !ok || item.DeskState != domain.DeskStateDecisionReady {
+		t.Fatalf("expected the item to remain decision_ready after a CI-downgraded approval, got %+v (found=%v)", item, ok)
+	}
+}
+
+func TestRunDeskAct_RejectsNoChangesRun(t *testing.T) {
+	run := fakeReviewRun(t, domain.ReviewTarget{})
+	run.Conclusion = domain.ReviewConclusionNoChanges
+	env := setupDeskActTest(t, 30, run, "someone-else", "disabled", true)
+	withFakeGH(t, fakeGHResponses{
+		user:          "me",
+		repoURL:       env.fixture.remoteURL,
+		repoSSHURL:    env.fixture.remoteURL,
+		baseRefName:   "main",
+		watchHeadSHA:  env.fixture.prHeadSHA,
+		prAuthor:      "someone-else",
+		postReviewLog: env.postReviewLog,
+	})
+
+	err := runDeskAct(context.Background(), env.key, deskActApprove, true, env.discovery)
+	if err == nil {
+		t.Fatal("expected an error when the stored run found no changes")
+	}
+	if posted := readPostReviewLog(t, env.postReviewLog); posted != "" {
+		t.Fatalf("expected no GitHub mutation for a no-changes run, got %q", posted)
+	}
+}

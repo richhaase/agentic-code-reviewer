@@ -161,34 +161,75 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 	if run == nil {
 		return fmt.Errorf("%s: no stored review run matches the current head", key.String())
 	}
+	if run.Conclusion == domain.ReviewConclusionNoChanges {
+		return fmt.Errorf("%s: the stored review found no changes to act on", key.String())
+	}
 	if actionErr := validateActionForConclusion(action, run.Conclusion); actionErr != nil {
 		return actionErr
 	}
 
 	prNumber := strconv.Itoa(item.Key.Number)
 	logger := terminal.NewLogger()
+
+	if !autoYes && !confirmDeskAction(action, prNumber) {
+		return errors.New("action was not confirmed; nothing was posted")
+	}
+
+	liveSnapshot, enrichErr := discovery.Enrich(ctx, key.ToDomain())
+	if enrichErr != nil || liveSnapshot.HeadObjectID == "" {
+		return fmt.Errorf("could not verify the current pull request head before posting: %w", enrichErr)
+	}
+	if liveSnapshot.HeadObjectID != run.Target.Revision.HeadObjectID {
+		if staleErr := appendStaleEvent(dataDir, key, run, liveSnapshot.HeadObjectID); staleErr != nil {
+			return fmt.Errorf("the pull request head moved since this review, and the stale result could not be recorded: %w", staleErr)
+		}
+		return errors.New("the pull request head moved since this review; nothing was posted")
+	}
+
+	if identityErr := workspace.CheckIdentity(ctx, *cfg); identityErr != nil {
+		return fmt.Errorf("GitHub identity could not be verified before posting: %w", identityErr)
+	}
+
 	outcome := &CycleOutcome{}
 	opts := ReviewOpts{
 		RepositoryRoot:   item.RepositoryPath,
 		PRNumber:         prNumber,
-		AutoYes:          autoYes,
+		AutoYes:          true,
 		ForcePostComment: action == deskActComment,
 		ExpectedHeadSHA:  run.Target.Revision.HeadObjectID,
 		Outcome:          outcome,
 	}
 
-	handleTypedReviewRun(ctx, opts, run, logger)
+	code := handleTypedReviewRun(ctx, opts, run, logger)
 
 	var recordErr error
-	switch outcome.Kind {
-	case OutcomeLGTMApproved:
-		recordErr = appendActionEvent(dataDir, key, store.EventTypeActionApprovalPosted, run, cfg.Identity.ExpectedUser)
-	case OutcomeLGTMComment, OutcomeReviewComment:
-		recordErr = appendActionEvent(dataDir, key, store.EventTypeActionCommentPosted, run, cfg.Identity.ExpectedUser)
-	case OutcomeReviewRequestChanges:
-		recordErr = appendActionEvent(dataDir, key, store.EventTypeActionRequestChangesPosted, run, cfg.Identity.ExpectedUser)
-	case OutcomeStaleHead:
-		recordErr = recordStaleResult(ctx, dataDir, key, run, discovery)
+	var deferredForCI bool
+	var actionErrResult error
+	if code == domain.ExitError || code == domain.ExitInterrupted {
+		actionErrResult = errors.New("posting failed; see the log above for details")
+	} else {
+		switch outcome.Kind {
+		case OutcomeLGTMApproved:
+			recordErr = appendActionEvent(dataDir, key, store.EventTypeActionApprovalPosted, run, cfg.Identity.ExpectedUser)
+		case OutcomeLGTMComment:
+			if outcome.CIDowngraded {
+				deferredForCI = true
+			} else {
+				recordErr = appendActionEvent(dataDir, key, store.EventTypeActionCommentPosted, run, cfg.Identity.ExpectedUser)
+			}
+		case OutcomeReviewComment:
+			recordErr = appendActionEvent(dataDir, key, store.EventTypeActionCommentPosted, run, cfg.Identity.ExpectedUser)
+		case OutcomeReviewRequestChanges:
+			recordErr = appendActionEvent(dataDir, key, store.EventTypeActionRequestChangesPosted, run, cfg.Identity.ExpectedUser)
+		case OutcomeStaleHead:
+			if staleErr := recordStaleResult(ctx, dataDir, key, run, discovery); staleErr != nil {
+				actionErrResult = fmt.Errorf("the pull request head moved since this review, and the stale result could not be recorded: %w", staleErr)
+			} else {
+				actionErrResult = errors.New("the pull request head moved since this review; nothing was posted")
+			}
+		default:
+			actionErrResult = fmt.Errorf("action was not posted (outcome: %d)", outcome.Kind)
+		}
 	}
 
 	refreshed, refreshErr := desk.Refresh(ctx, *cfg, dataDir, discovery, time.Now())
@@ -200,20 +241,35 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 	if recordErr != nil {
 		return fmt.Errorf("action completed but could not be recorded: %w", recordErr)
 	}
+	if actionErrResult != nil {
+		return actionErrResult
+	}
 
 	if refreshErr == nil {
 		if resultItem, found := findDeskItem(refreshed, key); found {
 			fmt.Printf("\nDesk state: %s — %s\n", resultItem.DeskState, resultItem.Reason)
 		}
 	}
-
-	switch outcome.Kind {
-	case OutcomeStaleHead:
-		return errors.New("the pull request head moved since this review; nothing was posted")
-	case OutcomeReviewSkipped, OutcomeLGTMDeclined, OutcomeLGTMSkipped:
-		return errors.New("action was not posted")
+	if deferredForCI {
+		fmt.Println("CI is not green; posted a comment instead of approving. The item remains actionable — run `acr desk act --approve` again once CI passes.")
 	}
 	return nil
+}
+
+func confirmDeskAction(action deskActAction, prNumber string) bool {
+	if !terminal.IsStdinTTY() {
+		return false
+	}
+	label := "post a comment on"
+	switch action {
+	case deskActApprove:
+		label = "approve"
+	case deskActRequestChanges:
+		label = "request changes on"
+	}
+	fmt.Print(formatPrompt(fmt.Sprintf("About to %s PR %s", label, formatPRRef(prNumber)), "[y/N]:"))
+	response := readUserInput()
+	return response == "y" || response == "yes"
 }
 
 func validateActionForConclusion(action deskActAction, conclusion domain.ReviewConclusion) error {
@@ -285,6 +341,10 @@ func recordStaleResult(ctx context.Context, dataDir string, key store.PullReques
 	if err != nil {
 		return fmt.Errorf("re-check current PR head: %w", err)
 	}
+	return appendStaleEvent(dataDir, key, run, snapshot.HeadObjectID)
+}
+
+func appendStaleEvent(dataDir string, key store.PullRequestKeyV1, run *domain.ReviewRun, currentHeadObjectID string) error {
 	now := time.Now()
 	id, err := newDeskEventID(now)
 	if err != nil {
@@ -297,7 +357,7 @@ func recordStaleResult(ctx context.Context, dataDir string, key store.PullReques
 		Type:              store.EventTypeReviewStale,
 		OccurredAt:        now,
 		RunID:             run.ID,
-		HeadObjectID:      snapshot.HeadObjectID,
+		HeadObjectID:      currentHeadObjectID,
 		PriorHeadObjectID: run.Target.Revision.HeadObjectID,
 	}
 	_, err = store.NewFilesystemEventStore(dataDir).AppendEvent(event)
