@@ -19,15 +19,32 @@ func TestConfigDir_UsesEnvOverride(t *testing.T) {
 	}
 }
 
-func TestConfigDir_DefaultsUnderOSConfigDir(t *testing.T) {
+func TestConfigDir_DefaultsUnderXDGConfigHome(t *testing.T) {
 	t.Setenv(ConfigDirEnvVar, "")
+	t.Setenv("XDG_CONFIG_HOME", "/xdg/config")
 
 	dir, err := ConfigDir()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if filepath.Base(dir) != "acr" {
-		t.Fatalf("expected default config dir to end in acr, got %q", dir)
+	if dir != "/xdg/config/acr" {
+		t.Fatalf("expected XDG_CONFIG_HOME to be honored, got %q", dir)
+	}
+}
+
+func TestConfigDir_DefaultsUnderDotConfigWhenXDGUnset(t *testing.T) {
+	t.Setenv(ConfigDirEnvVar, "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	dir, err := ConfigDir()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := filepath.Join(home, ".config", "acr")
+	if dir != want {
+		t.Fatalf("expected %q, got %q", want, dir)
 	}
 }
 
