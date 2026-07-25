@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 )
 
 func testPullRequestKey() PullRequestKeyV1 {
@@ -19,25 +21,28 @@ func TestReviewEventV1_AllVocabularyTypesRoundTripAndValidate(t *testing.T) {
 	}{
 		{name: "pr discovered", event: ReviewEventV1{Type: EventTypePRDiscovered}},
 		{name: "pr refreshed", event: ReviewEventV1{Type: EventTypePRRefreshed}},
-		{name: "review queued", event: ReviewEventV1{Type: EventTypeReviewQueued, RunID: "run-1"}},
-		{name: "review started", event: ReviewEventV1{Type: EventTypeReviewStarted, RunID: "run-1"}},
-		{name: "review completed", event: ReviewEventV1{Type: EventTypeReviewCompleted, RunID: "run-1"}},
-		{name: "review failed", event: ReviewEventV1{Type: EventTypeReviewFailed, RunID: "run-1", Reason: "all reviewers failed"}},
-		{name: "review interrupted", event: ReviewEventV1{Type: EventTypeReviewInterrupted, RunID: "run-1"}},
-		{name: "review superseded", event: ReviewEventV1{Type: EventTypeReviewSuperseded, RunID: "run-1"}},
+		{name: "review queued", event: ReviewEventV1{Type: EventTypeReviewQueued, RunID: "run-1", HeadObjectID: "head-1", BaseObjectID: "base-1"}},
+		{name: "review started", event: ReviewEventV1{Type: EventTypeReviewStarted, RunID: "run-1", HeadObjectID: "head-1", BaseObjectID: "base-1"}},
+		{name: "review completed", event: ReviewEventV1{Type: EventTypeReviewCompleted, RunID: "run-1", HeadObjectID: "head-1", BaseObjectID: "base-1"}},
+		{name: "review failed", event: ReviewEventV1{Type: EventTypeReviewFailed, RunID: "run-1", HeadObjectID: "head-1", BaseObjectID: "base-1", Reason: "all reviewers failed"}},
+		{name: "review interrupted", event: ReviewEventV1{Type: EventTypeReviewInterrupted, RunID: "run-1", HeadObjectID: "head-1", BaseObjectID: "base-1"}},
+		{name: "review superseded", event: ReviewEventV1{Type: EventTypeReviewSuperseded, RunID: "run-1", HeadObjectID: "head-1", BaseObjectID: "base-1"}},
 		{name: "review stale", event: ReviewEventV1{Type: EventTypeReviewStale, RunID: "run-1", HeadObjectID: "new-head", PriorHeadObjectID: "old-head"}},
-		{name: "finding selected", event: ReviewEventV1{Type: EventTypeFindingSelected, FindingID: "finding-1"}},
-		{name: "finding dismissed", event: ReviewEventV1{Type: EventTypeFindingDismissed, FindingID: "finding-1"}},
-		{name: "finding posted", event: ReviewEventV1{Type: EventTypeFindingPosted, FindingID: "finding-1"}},
-		{name: "action comment posted", event: ReviewEventV1{Type: EventTypeActionCommentPosted, Actor: "richhaase"}},
-		{name: "action request changes posted", event: ReviewEventV1{Type: EventTypeActionRequestChangesPosted, Actor: "richhaase"}},
-		{name: "action approval posted", event: ReviewEventV1{Type: EventTypeActionApprovalPosted, Actor: "richhaase"}},
+		{name: "finding selected", event: ReviewEventV1{Type: EventTypeFindingSelected, RunID: "run-1", FindingID: "finding-1"}},
+		{name: "finding dismissed", event: ReviewEventV1{Type: EventTypeFindingDismissed, RunID: "run-1", FindingID: "finding-1"}},
+		{name: "finding posted", event: ReviewEventV1{Type: EventTypeFindingPosted, RunID: "run-1", FindingID: "finding-1"}},
+		{name: "action comment posted", event: ReviewEventV1{Type: EventTypeActionCommentPosted, HeadObjectID: "head-1", BaseObjectID: "base-1", Actor: "richhaase"}},
+		{name: "action request changes posted", event: ReviewEventV1{Type: EventTypeActionRequestChangesPosted, HeadObjectID: "head-1", BaseObjectID: "base-1", Actor: "richhaase"}},
+		{name: "action approval posted", event: ReviewEventV1{Type: EventTypeActionApprovalPosted, HeadObjectID: "head-1", BaseObjectID: "base-1", Actor: "richhaase"}},
 		{name: "pr closed", event: ReviewEventV1{Type: EventTypePRClosed}},
 		{name: "pr merged", event: ReviewEventV1{Type: EventTypePRMerged}},
 		{name: "user deferred", event: ReviewEventV1{Type: EventTypeUserDeferred, Actor: "richhaase"}},
 		{name: "user snoozed", event: ReviewEventV1{Type: EventTypeUserSnoozed, Actor: "richhaase"}},
 		{name: "user retried", event: ReviewEventV1{Type: EventTypeUserRetried, Actor: "richhaase"}},
-		{name: "user resolved", event: ReviewEventV1{Type: EventTypeUserResolved, Actor: "richhaase"}},
+		{name: "user resolved", event: ReviewEventV1{Type: EventTypeUserResolved, HeadObjectID: "head-1", BaseObjectID: "base-1", Actor: "richhaase"}},
+		{name: "user released", event: ReviewEventV1{Type: EventTypeUserReleased, Actor: "richhaase"}},
+		{name: "user opted out", event: ReviewEventV1{Type: EventTypeUserOptedOut, Actor: "richhaase"}},
+		{name: "user resumed", event: ReviewEventV1{Type: EventTypeUserResumed, Actor: "richhaase"}},
 	}
 
 	for i, tt := range tests {
@@ -82,7 +87,22 @@ func TestReviewEventV1_Validate_RequiredFieldsPerType(t *testing.T) {
 		event ReviewEventV1
 	}{
 		{name: "review completed missing run id", event: func() ReviewEventV1 { e := base(); e.Type = EventTypeReviewCompleted; return e }()},
-		{name: "finding selected missing finding id", event: func() ReviewEventV1 { e := base(); e.Type = EventTypeFindingSelected; return e }()},
+		{name: "review completed missing head object id", event: func() ReviewEventV1 { e := base(); e.Type = EventTypeReviewCompleted; e.RunID = "run-1"; return e }()},
+		{name: "user resolved missing head object id", event: func() ReviewEventV1 { e := base(); e.Type = EventTypeUserResolved; e.Actor = "richhaase"; return e }()},
+		{name: "user resolved missing base object id", event: func() ReviewEventV1 {
+			e := base()
+			e.Type = EventTypeUserResolved
+			e.Actor = "richhaase"
+			e.HeadObjectID = "head-1"
+			return e
+		}()},
+		{name: "finding selected missing finding id", event: func() ReviewEventV1 { e := base(); e.Type = EventTypeFindingSelected; e.RunID = "run-1"; return e }()},
+		{name: "finding selected missing run id", event: func() ReviewEventV1 {
+			e := base()
+			e.Type = EventTypeFindingSelected
+			e.FindingID = "finding-1"
+			return e
+		}()},
 		{name: "action approval posted missing actor", event: func() ReviewEventV1 { e := base(); e.Type = EventTypeActionApprovalPosted; return e }()},
 		{name: "user resolved missing actor", event: func() ReviewEventV1 { e := base(); e.Type = EventTypeUserResolved; return e }()},
 		{name: "unsupported schema version", event: func() ReviewEventV1 { e := base(); e.Type = EventTypePRDiscovered; e.SchemaVersion = 99; return e }()},
@@ -100,6 +120,68 @@ func TestReviewEventV1_Validate_RequiredFieldsPerType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := tt.event.Validate(); err == nil {
 				t.Fatalf("expected a validation error for %+v", tt.event)
+			}
+		})
+	}
+}
+
+func TestReviewEventV1_ToLifecycleEvent(t *testing.T) {
+	occurredAt := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name      string
+		eventType ReviewEventTypeV1
+		wantKind  domain.LifecycleEventKind
+		wantOK    bool
+	}{
+		{"review queued", EventTypeReviewQueued, domain.LifecycleEventQueued, true},
+		{"review started", EventTypeReviewStarted, domain.LifecycleEventStarted, true},
+		{"review completed", EventTypeReviewCompleted, domain.LifecycleEventCompleted, true},
+		{"review failed", EventTypeReviewFailed, domain.LifecycleEventFailed, true},
+		{"review interrupted", EventTypeReviewInterrupted, domain.LifecycleEventInterrupted, true},
+		{"review superseded", EventTypeReviewSuperseded, domain.LifecycleEventSuperseded, true},
+		{"finding selected", EventTypeFindingSelected, domain.LifecycleEventFindingSelected, true},
+		{"finding dismissed", EventTypeFindingDismissed, domain.LifecycleEventFindingDismissed, true},
+		{"action comment posted", EventTypeActionCommentPosted, domain.LifecycleEventActionPosted, true},
+		{"action request changes posted", EventTypeActionRequestChangesPosted, domain.LifecycleEventActionPosted, true},
+		{"action approval posted", EventTypeActionApprovalPosted, domain.LifecycleEventActionPosted, true},
+		{"user resolved", EventTypeUserResolved, domain.LifecycleEventUserResolved, true},
+		{"user released", EventTypeUserReleased, domain.LifecycleEventUserReleased, true},
+		{"user snoozed", EventTypeUserSnoozed, domain.LifecycleEventUserSnoozed, true},
+		{"user opted out", EventTypeUserOptedOut, domain.LifecycleEventUserOptedOut, true},
+		{"user resumed", EventTypeUserResumed, domain.LifecycleEventUserResumed, true},
+		{"pr discovered has no lifecycle mapping", EventTypePRDiscovered, "", false},
+		{"pr refreshed has no lifecycle mapping", EventTypePRRefreshed, "", false},
+		{"pr closed has no lifecycle mapping", EventTypePRClosed, "", false},
+		{"pr merged has no lifecycle mapping", EventTypePRMerged, "", false},
+		{"finding posted has no lifecycle mapping", EventTypeFindingPosted, "", false},
+		{"user deferred has no lifecycle mapping", EventTypeUserDeferred, "", false},
+		{"user retried has no lifecycle mapping", EventTypeUserRetried, "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := ReviewEventV1{
+				Type:         tt.eventType,
+				OccurredAt:   occurredAt,
+				RunID:        "run-1",
+				HeadObjectID: "head-1",
+				BaseObjectID: "base-1",
+				FindingID:    "finding-1",
+			}
+
+			got, ok := event.ToLifecycleEvent()
+			if ok != tt.wantOK {
+				t.Fatalf("expected ok=%v, got %v", tt.wantOK, ok)
+			}
+			if !ok {
+				return
+			}
+			if got.Kind != tt.wantKind {
+				t.Errorf("expected kind %q, got %q", tt.wantKind, got.Kind)
+			}
+			if got.OccurredAt != occurredAt || got.RunID != "run-1" || got.HeadObjectID != "head-1" || got.BaseObjectID != "base-1" || got.FindingID != "finding-1" {
+				t.Errorf("expected fields to carry through unchanged, got %+v", got)
 			}
 		})
 	}
