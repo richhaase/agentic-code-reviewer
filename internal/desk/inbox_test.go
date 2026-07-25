@@ -722,7 +722,7 @@ func TestDiscoverCandidateKeys_BareTeamWithNoOrganizationsWarns(t *testing.T) {
 	}
 }
 
-func TestDiscoverCandidateKeys_UnscopedDirectUserSearchWhenNoOrganizationsConfigured(t *testing.T) {
+func TestDiscoverCandidateKeys_RestrictsToPersonalAccountWhenNoOrganizationsConfigured(t *testing.T) {
 	cfg := workspace.Config{
 		Identity: workspace.IdentityConfig{ExpectedUser: "me"},
 		Scope:    workspace.ScopeConfig{Include: []string{"acme/widgets"}},
@@ -733,7 +733,7 @@ func TestDiscoverCandidateKeys_UnscopedDirectUserSearchWhenNoOrganizationsConfig
 
 	var reviewRequested, authored bool
 	for _, call := range discovery.calls {
-		if call.Organization != "" {
+		if call.Organization != "me" {
 			continue
 		}
 		switch call.Kind {
@@ -744,7 +744,12 @@ func TestDiscoverCandidateKeys_UnscopedDirectUserSearchWhenNoOrganizationsConfig
 		}
 	}
 	if !reviewRequested || !authored {
-		t.Fatalf("expected unscoped review-requested and authored searches when no organizations are configured, got calls %+v", discovery.calls)
+		t.Fatalf("expected review-requested and authored searches scoped to the user's own account when no organizations are configured, got calls %+v", discovery.calls)
+	}
+	for _, call := range discovery.calls {
+		if call.Kind != github.SearchKindTeamReviewRequested && call.Organization == "" {
+			t.Errorf("expected no globally-unscoped search when no organizations are configured, got %+v", call)
+		}
 	}
 }
 

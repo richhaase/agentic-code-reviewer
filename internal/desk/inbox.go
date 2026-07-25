@@ -297,8 +297,8 @@ func discoverCandidateKeys(ctx context.Context, discovery github.Discovery, cfg 
 
 	if cfg.Identity.ExpectedUser != "" {
 		if len(cfg.Scope.Organizations) == 0 {
-			search(github.SearchQuery{Kind: github.SearchKindReviewRequested, Login: cfg.Identity.ExpectedUser}, "review-requested search (no organization scope configured)")
-			search(github.SearchQuery{Kind: github.SearchKindAuthored, Login: cfg.Identity.ExpectedUser}, "authored search (no organization scope configured)")
+			search(github.SearchQuery{Kind: github.SearchKindReviewRequested, Organization: cfg.Identity.ExpectedUser, Login: cfg.Identity.ExpectedUser}, "review-requested search (no organization scope configured, restricted to personal repositories)")
+			search(github.SearchQuery{Kind: github.SearchKindAuthored, Organization: cfg.Identity.ExpectedUser, Login: cfg.Identity.ExpectedUser}, "authored search (no organization scope configured, restricted to personal repositories)")
 		}
 		for _, org := range cfg.Scope.Organizations {
 			search(github.SearchQuery{Kind: github.SearchKindReviewRequested, Organization: org, Login: cfg.Identity.ExpectedUser}, fmt.Sprintf("review-requested search in %s", org))
