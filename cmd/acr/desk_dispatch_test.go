@@ -182,6 +182,7 @@ type fakeGHResponses struct {
 	repoSSHURL    string
 	baseRefName   string
 	watchHeadSHA  string
+	watchBaseSHA  string
 	watchState    string
 	prAuthor      string
 	ciBucket      string
@@ -210,8 +211,8 @@ case "$args" in
   "repo view --json url,sshUrl")
     echo '{"url":%q,"sshUrl":%q}'
     ;;
-  *"--json headRefOid,state,reviewRequests"*)
-    echo '{"headRefOid":%q,"state":%q,"reviewRequests":[]}'
+  *"--json headRefOid,baseRefOid,state,reviewRequests"*)
+    echo '{"headRefOid":%q,"baseRefOid":%q,"state":%q,"reviewRequests":[]}'
     ;;
   *"--json baseRefName"*)
     echo '{"baseRefName":%q}'
@@ -237,7 +238,7 @@ esac
 `,
 		responses.user,
 		responses.repoURL, responses.repoSSHURL,
-		responses.watchHeadSHA, watchState,
+		responses.watchHeadSHA, responses.watchBaseSHA, watchState,
 		responses.baseRefName,
 		responses.prAuthor,
 		ciBucket,

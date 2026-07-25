@@ -138,6 +138,7 @@ func TestRunDeskAct_PostsApprovalForCleanReview(t *testing.T) {
 		repoSSHURL:    env.fixture.remoteURL,
 		baseRefName:   "main",
 		watchHeadSHA:  env.fixture.prHeadSHA,
+		watchBaseSHA:  env.fixture.baseSHA,
 		prAuthor:      "someone-else",
 		ciBucket:      "pass",
 		postReviewLog: env.postReviewLog,
@@ -180,6 +181,7 @@ func TestRunDeskAct_PostsRequestChangesForFindingsReview(t *testing.T) {
 		repoSSHURL:    env.fixture.remoteURL,
 		baseRefName:   "main",
 		watchHeadSHA:  env.fixture.prHeadSHA,
+		watchBaseSHA:  env.fixture.baseSHA,
 		prAuthor:      "someone-else",
 		postReviewLog: env.postReviewLog,
 	})
@@ -208,6 +210,7 @@ func TestRunDeskAct_PostsCommentForFindingsReview(t *testing.T) {
 		repoSSHURL:    env.fixture.remoteURL,
 		baseRefName:   "main",
 		watchHeadSHA:  env.fixture.prHeadSHA,
+		watchBaseSHA:  env.fixture.baseSHA,
 		prAuthor:      "someone-else",
 		postReviewLog: env.postReviewLog,
 	})
@@ -236,6 +239,7 @@ func TestRunDeskAct_RejectsWhenPostingDisabled(t *testing.T) {
 		repoSSHURL:    env.fixture.remoteURL,
 		baseRefName:   "main",
 		watchHeadSHA:  env.fixture.prHeadSHA,
+		watchBaseSHA:  env.fixture.baseSHA,
 		prAuthor:      "someone-else",
 		postReviewLog: env.postReviewLog,
 	})
@@ -262,6 +266,7 @@ func TestRunDeskAct_FailsClosedOnIdentityMismatch(t *testing.T) {
 		repoSSHURL:    env.fixture.remoteURL,
 		baseRefName:   "main",
 		watchHeadSHA:  env.fixture.prHeadSHA,
+		watchBaseSHA:  env.fixture.baseSHA,
 		prAuthor:      "someone-else",
 		postReviewLog: env.postReviewLog,
 	})
@@ -284,6 +289,7 @@ func TestRunDeskAct_SelfAuthoredPRForcesComment(t *testing.T) {
 		repoSSHURL:    env.fixture.remoteURL,
 		baseRefName:   "main",
 		watchHeadSHA:  env.fixture.prHeadSHA,
+		watchBaseSHA:  env.fixture.baseSHA,
 		prAuthor:      "me",
 		ciBucket:      "pass",
 		postReviewLog: env.postReviewLog,
@@ -318,6 +324,7 @@ func TestRunDeskAct_StaleHeadPreventsPostingAndRecordsAuditEvent(t *testing.T) {
 		repoSSHURL:    env.fixture.remoteURL,
 		baseRefName:   "main",
 		watchHeadSHA:  env.fixture.staleSHA,
+		watchBaseSHA:  env.fixture.baseSHA,
 		prAuthor:      "someone-else",
 		ciBucket:      "pass",
 		postReviewLog: env.postReviewLog,
@@ -349,6 +356,7 @@ func TestRunDeskAct_DeclinedConfirmationDoesNotPost(t *testing.T) {
 		repoSSHURL:    env.fixture.remoteURL,
 		baseRefName:   "main",
 		watchHeadSHA:  env.fixture.prHeadSHA,
+		watchBaseSHA:  env.fixture.baseSHA,
 		prAuthor:      "someone-else",
 		ciBucket:      "pass",
 		postReviewLog: env.postReviewLog,
@@ -376,6 +384,7 @@ func TestRunDeskAct_CIDowngradedApprovalStaysActionable(t *testing.T) {
 		repoSSHURL:    env.fixture.remoteURL,
 		baseRefName:   "main",
 		watchHeadSHA:  env.fixture.prHeadSHA,
+		watchBaseSHA:  env.fixture.baseSHA,
 		prAuthor:      "someone-else",
 		ciBucket:      "fail",
 		postReviewLog: env.postReviewLog,
@@ -420,6 +429,7 @@ func TestRunDeskAct_RejectsNoChangesRun(t *testing.T) {
 		repoSSHURL:    env.fixture.remoteURL,
 		baseRefName:   "main",
 		watchHeadSHA:  env.fixture.prHeadSHA,
+		watchBaseSHA:  env.fixture.baseSHA,
 		prAuthor:      "someone-else",
 		postReviewLog: env.postReviewLog,
 	})
@@ -446,6 +456,7 @@ func TestRunDeskAct_BaseMismatchPreventsPosting(t *testing.T) {
 		repoSSHURL:    env.fixture.remoteURL,
 		baseRefName:   "main",
 		watchHeadSHA:  env.fixture.prHeadSHA,
+		watchBaseSHA:  env.fixture.baseSHA,
 		prAuthor:      "someone-else",
 		ciBucket:      "pass",
 		postReviewLog: env.postReviewLog,
@@ -472,6 +483,7 @@ func TestRunDeskAct_RejectsWhenRunHistoryHasCorruptRecords(t *testing.T) {
 		repoSSHURL:    env.fixture.remoteURL,
 		baseRefName:   "main",
 		watchHeadSHA:  env.fixture.prHeadSHA,
+		watchBaseSHA:  env.fixture.baseSHA,
 		prAuthor:      "someone-else",
 		postReviewLog: env.postReviewLog,
 	})
@@ -491,5 +503,51 @@ func TestRunDeskAct_RejectsWhenRunHistoryHasCorruptRecords(t *testing.T) {
 	}
 	if posted := readPostReviewLog(t, env.postReviewLog); posted != "" {
 		t.Fatalf("expected no GitHub mutation with corrupt run history present, got %q", posted)
+	}
+}
+
+func TestRunDeskAct_FinalCheckCatchesBaseMoveMissedByPreflight(t *testing.T) {
+	env := setupDeskActTest(t, 33, fakeReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
+	withFakeGH(t, fakeGHResponses{
+		user:          "me",
+		repoURL:       env.fixture.remoteURL,
+		repoSSHURL:    env.fixture.remoteURL,
+		baseRefName:   "main",
+		watchHeadSHA:  env.fixture.prHeadSHA,
+		watchBaseSHA:  "a-base-that-moved-after-the-preflight-check",
+		prAuthor:      "someone-else",
+		ciBucket:      "pass",
+		postReviewLog: env.postReviewLog,
+	})
+
+	err := runDeskAct(context.Background(), env.key, deskActApprove, true, env.discovery)
+	if err == nil {
+		t.Fatal("expected an error when the final live check finds a base mismatch the preflight discovery check missed")
+	}
+	if posted := readPostReviewLog(t, env.postReviewLog); posted != "" {
+		t.Fatalf("expected no GitHub mutation, got %q", posted)
+	}
+}
+
+func TestRunDeskAct_FinalCheckFailsClosedWhenLiveLookupIsUnavailable(t *testing.T) {
+	env := setupDeskActTest(t, 34, fakeReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
+	withFakeGH(t, fakeGHResponses{
+		user:          "me",
+		repoURL:       env.fixture.remoteURL,
+		repoSSHURL:    env.fixture.remoteURL,
+		baseRefName:   "main",
+		watchHeadSHA:  "",
+		watchBaseSHA:  "",
+		prAuthor:      "someone-else",
+		ciBucket:      "pass",
+		postReviewLog: env.postReviewLog,
+	})
+
+	err := runDeskAct(context.Background(), env.key, deskActApprove, true, env.discovery)
+	if err == nil {
+		t.Fatal("expected an error when the final live revision lookup returns no data")
+	}
+	if posted := readPostReviewLog(t, env.postReviewLog); posted != "" {
+		t.Fatalf("expected no GitHub mutation, got %q", posted)
 	}
 }

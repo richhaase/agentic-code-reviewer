@@ -371,6 +371,7 @@ func ParseCIChecks(data []byte) CIStatus {
 
 type PRWatchState struct {
 	HeadSHA        string
+	BaseSHA        string
 	State          string
 	ReviewRequests []string
 	TeamRequests   []string
@@ -393,7 +394,7 @@ func (s PRWatchState) ReviewRequestedFrom(login string) bool {
 }
 
 func GetPRWatchState(ctx context.Context, repositoryRoot, prNumber string) (PRWatchState, error) {
-	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "headRefOid,state,reviewRequests")
+	cmd := exec.CommandContext(ctx, "gh", "pr", "view", prNumber, "--json", "headRefOid,baseRefOid,state,reviewRequests")
 	cmd.Dir = repositoryRoot
 	out, err := cmd.Output()
 	if err != nil {
@@ -405,6 +406,7 @@ func GetPRWatchState(ctx context.Context, repositoryRoot, prNumber string) (PRWa
 func ParsePRWatchState(data []byte) (PRWatchState, error) {
 	var resp struct {
 		HeadRefOid     string `json:"headRefOid"`
+		BaseRefOid     string `json:"baseRefOid"`
 		State          string `json:"state"`
 		ReviewRequests []struct {
 			Login string `json:"login"`
@@ -417,6 +419,7 @@ func ParsePRWatchState(data []byte) (PRWatchState, error) {
 
 	state := PRWatchState{
 		HeadSHA: resp.HeadRefOid,
+		BaseSHA: resp.BaseRefOid,
 		State:   resp.State,
 	}
 	for _, r := range resp.ReviewRequests {

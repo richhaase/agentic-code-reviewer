@@ -156,12 +156,18 @@ func handleFindings(ctx context.Context, opts ReviewOpts, grouped domain.Grouped
 		}
 		if canceled {
 			logger.Log("Skipped posting findings.", terminal.StyleDim)
+			opts.record(OutcomeReviewSkipped)
 			return domain.ExitFindings
 		}
 		selectedFindings = filterFindingsByIndices(grouped.Findings, indices)
 
 		if len(selectedFindings) == 0 {
 			logger.Log("No findings selected to post.", terminal.StyleDim)
+
+			if opts.SuppressZeroSelectionFallback {
+				opts.record(OutcomeReviewSkipped)
+				return domain.ExitFindings
+			}
 
 			lgtmBody := runner.RenderDismissedLGTMMarkdown(grouped.Findings, stats, version)
 			pr := getPRContext(ctx, opts)
@@ -427,15 +433,24 @@ func headMovedSinceReview(ctx context.Context, opts ReviewOpts, prNumber string,
 	if opts.ExpectedHeadSHA == "" {
 		return false
 	}
+	strict := opts.ExpectedBaseSHA != ""
 	st, err := github.GetPRWatchState(ctx, opts.RepositoryRoot, prNumber)
 	if err != nil || st.HeadSHA == "" {
+		if strict {
+			logger.Logf(terminal.StyleWarning, "could not verify the current PR revision; treating as stale.")
+			return true
+		}
 		return false
 	}
-	if strings.EqualFold(st.HeadSHA, opts.ExpectedHeadSHA) {
-		return false
+	if !strings.EqualFold(st.HeadSHA, opts.ExpectedHeadSHA) {
+		logger.Logf(terminal.StyleWarning, "PR head moved since the review; skipping post (the new head will be re-reviewed).")
+		return true
 	}
-	logger.Logf(terminal.StyleWarning, "PR head moved since the review; skipping post (the new head will be re-reviewed).")
-	return true
+	if strict && !strings.EqualFold(st.BaseSHA, opts.ExpectedBaseSHA) {
+		logger.Logf(terminal.StyleWarning, "PR base moved since the review; skipping post (the revision will be re-reviewed).")
+		return true
+	}
+	return false
 }
 
 func logCIChecks(logger *terminal.Logger, checks []string) {
@@ -468,6 +483,7 @@ func checkCIAndMaybeDowngrade(ctx context.Context, prNum string, action lgtmActi
 		fmt.Print(formatPrompt("Post as comment instead?", "[C]omment (default) / [S]kip:"))
 		switch readUserInput() {
 		case "", "c", "y", "yes":
+			opts.Outcome.CIDowngraded = true
 			return actionComment, nil
 		default:
 			logger.Log("Skipped posting LGTM.", terminal.StyleDim)
@@ -506,6 +522,9 @@ func checkCIAndMaybeDowngrade(ctx context.Context, prNum string, action lgtmActi
 
 	switch response {
 	case "", "c", "y", "yes":
+		if opts.Outcome != nil {
+			opts.Outcome.CIDowngraded = true
+		}
 		return actionComment, nil
 	default:
 		logger.Log("Skipped posting LGTM.", terminal.StyleDim)

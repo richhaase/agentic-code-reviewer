@@ -202,13 +202,15 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 
 	outcome := &CycleOutcome{}
 	opts := ReviewOpts{
-		RepositoryRoot:       item.RepositoryPath,
-		PRNumber:             prNumber,
-		AutoYes:              autoYes,
-		SkipReviewTypePrompt: true,
-		ForcePostComment:     action == deskActComment,
-		ExpectedHeadSHA:      run.Target.Revision.HeadObjectID,
-		Outcome:              outcome,
+		RepositoryRoot:                item.RepositoryPath,
+		PRNumber:                      prNumber,
+		AutoYes:                       autoYes,
+		SkipReviewTypePrompt:          true,
+		SuppressZeroSelectionFallback: action == deskActRequestChanges,
+		ForcePostComment:              action == deskActComment,
+		ExpectedHeadSHA:               run.Target.Revision.HeadObjectID,
+		ExpectedBaseSHA:               run.Target.Revision.BaseObjectID,
+		Outcome:                       outcome,
 	}
 
 	code := handleTypedReviewRun(ctx, opts, run, logger)
