@@ -67,7 +67,7 @@ func Refresh(ctx context.Context, cfg workspace.Config, dataDir string, discover
 		return Inbox{}, err
 	}
 	for _, key := range tracked {
-		keys = appendUniqueKey(keys, key.ToDomain())
+		keys = mergeTrackedKey(keys, key.ToDomain())
 	}
 
 	snapshotStore := store.NewFilesystemSnapshotStore(dataDir)
@@ -329,6 +329,16 @@ func appendUniqueKey(keys []domain.PullRequestKey, key domain.PullRequestKey) []
 		}
 	}
 	return append(keys, key)
+}
+
+func mergeTrackedKey(keys []domain.PullRequestKey, tracked domain.PullRequestKey) []domain.PullRequestKey {
+	for i, existing := range keys {
+		if sameRepositoryIdentity(existing, tracked) && existing.Number == tracked.Number {
+			keys[i] = tracked
+			return keys
+		}
+	}
+	return append(keys, tracked)
 }
 
 func sameRepositoryIdentity(a, b domain.PullRequestKey) bool {

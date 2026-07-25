@@ -769,3 +769,99 @@ func TestAppendUniqueKey_DistinctRepositoriesAreNotMerged(t *testing.T) {
 		t.Fatalf("expected genuinely distinct repositories to both be kept, got %+v", keys)
 	}
 }
+
+func TestMergeTrackedKey_PrefersStoredCasingOverLiveDiscoveryCasing(t *testing.T) {
+	keys := []domain.PullRequestKey{
+		{Host: "github.com", Owner: "Acme", Repository: "Widgets", Number: 1},
+	}
+	stored := domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "widgets", Number: 1}
+	keys = mergeTrackedKey(keys, stored)
+
+	if len(keys) != 1 {
+		t.Fatalf("expected the case-variant to be merged into one entry, got %+v", keys)
+	}
+	if keys[0] != stored {
+		t.Errorf("expected the stored/tracked key's casing to win over the live-discovered casing, got %+v", keys[0])
+	}
+}
+
+func TestRefresh_UsesStoredCasingForHistoryLookupDespiteLiveCasingDifference(t *testing.T) {
+	root := t.TempDir()
+	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/acme/widgets.git")
+	cfg := baseWorkspaceConfig(t, root)
+	now := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	dataDir := t.TempDir()
+
+	storedKey := domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "widgets", Number: 30}
+	storedSchemaKey := store.ToPullRequestKeySchema(storedKey)
+	if err := store.NewFilesystemSnapshotStore(dataDir).SaveSnapshot(store.ToPRSnapshotSchema(fixtureSnapshot(storedKey, "someone-else", "head-1", now.Add(-time.Hour)))); err != nil {
+		t.Fatalf("seed snapshot: %v", err)
+	}
+	reviewConfig, err := domain.NewReviewConfiguration(domain.ReviewConfigurationValues{
+		Reviewers:         1,
+		Concurrency:       1,
+		Timeout:           time.Minute,
+		ReviewerAgents:    []string{"codex"},
+		SummarizerAgent:   "codex",
+		SummarizerTimeout: time.Minute,
+		FPFilterTimeout:   time.Minute,
+		FPThreshold:       75,
+	})
+	if err != nil {
+		t.Fatalf("NewReviewConfiguration: %v", err)
+	}
+	run := domain.ReviewRun{
+		ID:      "run-1",
+		Trigger: domain.ReviewTriggerDesk,
+		Target: domain.ReviewTarget{
+			RepositoryRoot: "/repo",
+			WorktreeRoot:   "/repo",
+			Revision: domain.RevisionEvidence{
+				RequestedBaseRef: "main",
+				ResolvedBaseRef:  "main",
+				HeadObjectID:     "head-1",
+				BaseObjectID:     "base-sha",
+			},
+			PullRequest: &storedKey,
+		},
+		Engine:                   domain.ReviewEngine{Name: "acr", Version: "test"},
+		StartedAt:                now.Add(-2 * time.Hour),
+		CompletedAt:              now.Add(-2 * time.Hour),
+		Configuration:            reviewConfig,
+		ConfigurationSource:      domain.ConfigurationSourceIdentity{Kind: "defaults"},
+		ConfigurationFingerprint: reviewConfig.Fingerprint(),
+		Status:                   domain.ReviewStatusCompleted,
+		Conclusion:               domain.ReviewConclusionClean,
+	}
+	schema, err := store.ToReviewRunSchema(run, store.RenderedOutcomeV1{})
+	if err != nil {
+		t.Fatalf("ToReviewRunSchema: %v", err)
+	}
+	if _, err := store.NewFilesystemRunStore(dataDir).SaveRun(schema); err != nil {
+		t.Fatalf("save run: %v", err)
+	}
+
+	liveKey := domain.PullRequestKey{Host: "github.com", Owner: "Acme", Repository: "Widgets", Number: 30}
+	discovery := &fixtureDiscovery{
+		search: map[github.SearchKind][]domain.PullRequestKey{
+			github.SearchKindReviewRequested: {liveKey},
+		},
+		enrich: map[domain.PullRequestKey]domain.PullRequestSnapshot{
+			storedKey: fixtureSnapshot(storedKey, "someone-else", "head-1", now),
+		},
+	}
+
+	inbox, err := Refresh(context.Background(), cfg, dataDir, discovery, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(inbox.Items) != 1 {
+		t.Fatalf("expected 1 item, got %+v", inbox.Items)
+	}
+	if inbox.Items[0].DeskState != domain.DeskStateDecisionReady {
+		t.Errorf("expected decision_ready from the existing completed run under the stored casing, got %q (a casing bug would report needs_review instead)", inbox.Items[0].DeskState)
+	}
+	if inbox.Items[0].Key != storedSchemaKey {
+		t.Errorf("expected the item to keep the stored key's casing, got %+v", inbox.Items[0].Key)
+	}
+}

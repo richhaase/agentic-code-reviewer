@@ -339,3 +339,14 @@ notifications:
 		t.Errorf("expected the identity-failure fallback notice, got %q", output)
 	}
 }
+
+func TestDeskCmd_RejectsUnexpectedArguments(t *testing.T) {
+	t.Setenv("ACR_DATA_DIR", t.TempDir())
+	t.Setenv("ACR_CONFIG_DIR", t.TempDir())
+
+	cmd := newDeskCmd()
+	cmd.SetArgs([]string{"histroy", "--once"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("expected an unknown subcommand to be rejected instead of silently running the refresh path")
+	}
+}
