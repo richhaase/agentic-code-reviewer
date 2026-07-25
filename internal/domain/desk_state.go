@@ -95,13 +95,13 @@ func Classify(input ClassificationInput) Classification {
 		return Classification{State: DeskStateResolved, Tracked: true, Reason: "a review action was already posted for this revision"}
 	}
 
-	if queued, running := activeRunState(input.Runs, input.Events, head); running {
-		return Classification{State: DeskStateRunning, Tracked: true, Reason: "a review is running for this head"}
+	if queued, running := activeRunState(input.Runs, input.Events, head, base); running {
+		return Classification{State: DeskStateRunning, Tracked: true, Reason: "a review is running for this revision"}
 	} else if queued {
-		return Classification{State: DeskStateQueued, Tracked: true, Reason: "a review is queued for this head"}
+		return Classification{State: DeskStateQueued, Tracked: true, Reason: "a review is queued for this revision"}
 	}
 
-	if run := runForRevision(input.Runs, head, input.Snapshot.BaseObjectID); run != nil {
+	if run := runForRevision(input.Runs, head, base); run != nil {
 		switch run.Status {
 		case ReviewStatusFailed:
 			return Classification{State: DeskStateFailed, Tracked: true, Reason: "the review for this head failed"}
@@ -177,7 +177,7 @@ func actionPostedForRevision(events []LifecycleEvent, head, base string) bool {
 	return false
 }
 
-func activeRunState(runs []ReviewRun, events []LifecycleEvent, head string) (queued, running bool) {
+func activeRunState(runs []ReviewRun, events []LifecycleEvent, head, base string) (queued, running bool) {
 	type progress struct {
 		queuedAt   time.Time
 		startedAt  time.Time
@@ -193,7 +193,7 @@ func activeRunState(runs []ReviewRun, events []LifecycleEvent, head string) (que
 	}
 
 	for _, event := range events {
-		if event.HeadObjectID != head || event.RunID == "" {
+		if event.HeadObjectID != head || event.BaseObjectID != base || event.RunID == "" {
 			continue
 		}
 		if savedRunIDs[event.RunID] {

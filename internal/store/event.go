@@ -82,7 +82,9 @@ func (t ReviewEventTypeV1) requiresHeadObjectID() bool {
 
 func (t ReviewEventTypeV1) requiresBaseObjectID() bool {
 	switch t {
-	case EventTypeActionCommentPosted, EventTypeActionRequestChangesPosted, EventTypeActionApprovalPosted,
+	case EventTypeReviewQueued, EventTypeReviewStarted, EventTypeReviewCompleted,
+		EventTypeReviewFailed, EventTypeReviewInterrupted, EventTypeReviewSuperseded,
+		EventTypeActionCommentPosted, EventTypeActionRequestChangesPosted, EventTypeActionApprovalPosted,
 		EventTypeUserResolved:
 		return true
 	default:

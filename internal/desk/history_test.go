@@ -24,6 +24,7 @@ func testDeskReviewEvent(id string, key store.PullRequestKeyV1, eventType store.
 		OccurredAt:    occurredAt,
 		RunID:         runID,
 		HeadObjectID:  "head-1",
+		BaseObjectID:  "base-1",
 	}
 }
 

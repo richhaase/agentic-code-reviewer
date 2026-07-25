@@ -145,7 +145,7 @@ func TestClassify_NeedsReview_NoRunHistory(t *testing.T) {
 func TestClassify_Queued(t *testing.T) {
 	input := baseInput()
 	input.Events = []LifecycleEvent{
-		{Kind: LifecycleEventQueued, RunID: "run-a", HeadObjectID: "head-1", OccurredAt: baseNow.Add(-time.Minute)},
+		{Kind: LifecycleEventQueued, RunID: "run-a", HeadObjectID: "head-1", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-time.Minute)},
 	}
 	got := Classify(input)
 	if got.State != DeskStateQueued {
@@ -156,8 +156,8 @@ func TestClassify_Queued(t *testing.T) {
 func TestClassify_Running(t *testing.T) {
 	input := baseInput()
 	input.Events = []LifecycleEvent{
-		{Kind: LifecycleEventQueued, RunID: "run-a", HeadObjectID: "head-1", OccurredAt: baseNow.Add(-2 * time.Minute)},
-		{Kind: LifecycleEventStarted, RunID: "run-a", HeadObjectID: "head-1", OccurredAt: baseNow.Add(-time.Minute)},
+		{Kind: LifecycleEventQueued, RunID: "run-a", HeadObjectID: "head-1", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-2 * time.Minute)},
+		{Kind: LifecycleEventStarted, RunID: "run-a", HeadObjectID: "head-1", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-time.Minute)},
 	}
 	got := Classify(input)
 	if got.State != DeskStateRunning {
@@ -168,9 +168,9 @@ func TestClassify_Running(t *testing.T) {
 func TestClassify_TerminatedRunDoesNotReportQueuedOrRunning(t *testing.T) {
 	input := baseInput()
 	input.Events = []LifecycleEvent{
-		{Kind: LifecycleEventQueued, RunID: "run-a", HeadObjectID: "head-1", OccurredAt: baseNow.Add(-3 * time.Minute)},
-		{Kind: LifecycleEventStarted, RunID: "run-a", HeadObjectID: "head-1", OccurredAt: baseNow.Add(-2 * time.Minute)},
-		{Kind: LifecycleEventCompleted, RunID: "run-a", HeadObjectID: "head-1", OccurredAt: baseNow.Add(-time.Minute)},
+		{Kind: LifecycleEventQueued, RunID: "run-a", HeadObjectID: "head-1", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-3 * time.Minute)},
+		{Kind: LifecycleEventStarted, RunID: "run-a", HeadObjectID: "head-1", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-2 * time.Minute)},
+		{Kind: LifecycleEventCompleted, RunID: "run-a", HeadObjectID: "head-1", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-time.Minute)},
 	}
 	input.Runs = []ReviewRun{completedRun("head-1", ReviewConclusionClean, nil)}
 
@@ -391,7 +391,7 @@ func TestClassify_ActiveRunForNewHeadTakesPrecedenceOverStale(t *testing.T) {
 	input.SettleTime = 10 * time.Minute
 	input.Runs = []ReviewRun{completedRun("head-1", ReviewConclusionClean, nil)}
 	input.Events = []LifecycleEvent{
-		{Kind: LifecycleEventQueued, RunID: "run-b", HeadObjectID: "head-2", OccurredAt: baseNow.Add(-time.Minute)},
+		{Kind: LifecycleEventQueued, RunID: "run-b", HeadObjectID: "head-2", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-time.Minute)},
 	}
 
 	got := Classify(input)
@@ -474,12 +474,31 @@ func TestClassify_ActionPostedForOldBaseDoesNotBlockRereviewAfterBaseChanges(t *
 	}
 }
 
+func TestClassify_ActiveEventForOldBaseDoesNotBlockRereviewAfterBaseChanges(t *testing.T) {
+	input := baseInput()
+	input.Runs = []ReviewRun{completedRun("head-1", ReviewConclusionClean, nil)}
+	input.Events = []LifecycleEvent{
+		{Kind: LifecycleEventQueued, RunID: "run-old-base", HeadObjectID: "head-1", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-time.Hour)},
+	}
+	input.Snapshot.BaseObjectID = "base-2"
+	input.Snapshot.UpdatedAt = baseNow.Add(-20 * time.Minute)
+	input.SettleTime = 10 * time.Minute
+
+	got := Classify(input)
+	if got.State == DeskStateQueued || got.State == DeskStateRunning {
+		t.Fatalf("a queued/running event for the old base must not suppress re-review once the base has changed, got %+v", got)
+	}
+	if got.State != DeskStateNeedsRereview {
+		t.Errorf("expected needs_rereview once the base changes past settling, got %q", got.State)
+	}
+}
+
 func TestClassify_SavedTerminalRunOverridesStaleActiveEvents(t *testing.T) {
 	input := baseInput()
 	input.Runs = []ReviewRun{completedRun("head-1", ReviewConclusionClean, nil)}
 	input.Events = []LifecycleEvent{
-		{Kind: LifecycleEventQueued, RunID: "run-head-1", HeadObjectID: "head-1", OccurredAt: baseNow.Add(-3 * time.Hour)},
-		{Kind: LifecycleEventStarted, RunID: "run-head-1", HeadObjectID: "head-1", OccurredAt: baseNow.Add(-3*time.Hour + time.Minute)},
+		{Kind: LifecycleEventQueued, RunID: "run-head-1", HeadObjectID: "head-1", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-3 * time.Hour)},
+		{Kind: LifecycleEventStarted, RunID: "run-head-1", HeadObjectID: "head-1", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-3*time.Hour + time.Minute)},
 	}
 
 	got := Classify(input)
@@ -494,8 +513,8 @@ func TestClassify_SavedTerminalRunOverridesStaleActiveEvents(t *testing.T) {
 func TestClassify_UnterminatedActiveEventForARunNotYetSavedStillReportsRunning(t *testing.T) {
 	input := baseInput()
 	input.Events = []LifecycleEvent{
-		{Kind: LifecycleEventQueued, RunID: "run-in-flight", HeadObjectID: "head-1", OccurredAt: baseNow.Add(-2 * time.Minute)},
-		{Kind: LifecycleEventStarted, RunID: "run-in-flight", HeadObjectID: "head-1", OccurredAt: baseNow.Add(-time.Minute)},
+		{Kind: LifecycleEventQueued, RunID: "run-in-flight", HeadObjectID: "head-1", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-2 * time.Minute)},
+		{Kind: LifecycleEventStarted, RunID: "run-in-flight", HeadObjectID: "head-1", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-time.Minute)},
 	}
 
 	got := Classify(input)
