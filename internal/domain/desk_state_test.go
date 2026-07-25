@@ -493,6 +493,50 @@ func TestClassify_ActiveEventForOldBaseDoesNotBlockRereviewAfterBaseChanges(t *t
 	}
 }
 
+func TestClassify_CompletedRerunAfterResolutionIsNotMaskedByOldResolution(t *testing.T) {
+	input := baseInput()
+	input.Events = []LifecycleEvent{
+		{Kind: LifecycleEventUserResolved, HeadObjectID: "head-1", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-3 * time.Hour)},
+	}
+	rerun := completedRun("head-1", ReviewConclusionFindings, []ReviewFinding{{ID: "f1"}})
+	rerun.CompletedAt = baseNow.Add(-time.Minute)
+	input.Runs = []ReviewRun{rerun}
+
+	got := Classify(input)
+	if got.State == DeskStateResolved {
+		t.Fatalf("a newer completed rerun for the same revision must not be masked by an older resolution, got %+v", got)
+	}
+	if got.State != DeskStateFindingsReady {
+		t.Errorf("expected findings_ready from the newer rerun, got %q", got.State)
+	}
+}
+
+func TestClassify_QueuedRerunAfterResolutionIsNotMaskedByOldResolution(t *testing.T) {
+	input := baseInput()
+	input.Events = []LifecycleEvent{
+		{Kind: LifecycleEventUserResolved, HeadObjectID: "head-1", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-3 * time.Hour)},
+		{Kind: LifecycleEventQueued, RunID: "run-rerun", HeadObjectID: "head-1", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-time.Minute)},
+	}
+
+	got := Classify(input)
+	if got.State != DeskStateQueued {
+		t.Errorf("expected queued from the newer rerun, not masked by the old resolution, got %q", got.State)
+	}
+}
+
+func TestClassify_ResolutionAfterRunStillWins(t *testing.T) {
+	input := baseInput()
+	input.Runs = []ReviewRun{completedRun("head-1", ReviewConclusionFindings, []ReviewFinding{{ID: "f1"}})}
+	input.Events = []LifecycleEvent{
+		{Kind: LifecycleEventUserResolved, HeadObjectID: "head-1", BaseObjectID: "base-1", OccurredAt: baseNow.Add(-time.Minute)},
+	}
+
+	got := Classify(input)
+	if got.State != DeskStateResolved {
+		t.Errorf("expected resolved when the resolution is newer than the run it resolves, got %q", got.State)
+	}
+}
+
 func TestClassify_SavedTerminalRunOverridesStaleActiveEvents(t *testing.T) {
 	input := baseInput()
 	input.Runs = []ReviewRun{completedRun("head-1", ReviewConclusionClean, nil)}

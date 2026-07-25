@@ -88,11 +88,12 @@ func Classify(input ClassificationInput) Classification {
 	head := input.Snapshot.HeadObjectID
 	base := input.Snapshot.BaseObjectID
 
-	if resolvedForRevision(input.Events, head, base) {
-		return Classification{State: DeskStateResolved, Tracked: true, Reason: "user marked this revision resolved"}
-	}
-	if actionPostedForRevision(input.Events, head, base) {
-		return Classification{State: DeskStateResolved, Tracked: true, Reason: "a review action was already posted for this revision"}
+	if resolution := latestResolutionEvent(input.Events, head, base); resolution != nil && !supersededByNewerActivity(input.Runs, input.Events, head, base, resolution.OccurredAt) {
+		reason := "user marked this revision resolved"
+		if resolution.Kind == LifecycleEventActionPosted {
+			reason = "a review action was already posted for this revision"
+		}
+		return Classification{State: DeskStateResolved, Tracked: true, Reason: reason}
 	}
 
 	if queued, running := activeRunState(input.Runs, input.Events, head, base); running {
@@ -159,18 +160,32 @@ func isReReviewSuppressed(events []LifecycleEvent) bool {
 	return latest != nil && (latest.Kind == LifecycleEventUserSnoozed || latest.Kind == LifecycleEventUserOptedOut)
 }
 
-func resolvedForRevision(events []LifecycleEvent, head, base string) bool {
-	for _, event := range events {
-		if event.Kind == LifecycleEventUserResolved && event.HeadObjectID == head && event.BaseObjectID == base {
-			return true
+func latestResolutionEvent(events []LifecycleEvent, head, base string) *LifecycleEvent {
+	var latest *LifecycleEvent
+	for i := range events {
+		event := events[i]
+		if event.HeadObjectID != head || event.BaseObjectID != base {
+			continue
+		}
+		if event.Kind != LifecycleEventUserResolved && event.Kind != LifecycleEventActionPosted {
+			continue
+		}
+		if latest == nil || event.OccurredAt.After(latest.OccurredAt) {
+			latest = &event
 		}
 	}
-	return false
+	return latest
 }
 
-func actionPostedForRevision(events []LifecycleEvent, head, base string) bool {
+func supersededByNewerActivity(runs []ReviewRun, events []LifecycleEvent, head, base string, since time.Time) bool {
+	if run := runForRevision(runs, head, base); run != nil && runTimestamp(*run).After(since) {
+		return true
+	}
 	for _, event := range events {
-		if event.Kind == LifecycleEventActionPosted && event.HeadObjectID == head && event.BaseObjectID == base {
+		if event.HeadObjectID != head || event.BaseObjectID != base || event.RunID == "" {
+			continue
+		}
+		if (event.Kind == LifecycleEventQueued || event.Kind == LifecycleEventStarted) && event.OccurredAt.After(since) {
 			return true
 		}
 	}
