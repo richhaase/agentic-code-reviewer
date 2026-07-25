@@ -30,7 +30,7 @@ func baseInput() ClassificationInput {
 func completedRun(head string, conclusion ReviewConclusion, findings []ReviewFinding) ReviewRun {
 	return ReviewRun{
 		ID:          "run-" + head,
-		Target:      ReviewTarget{Revision: RevisionEvidence{HeadObjectID: head}},
+		Target:      ReviewTarget{Revision: RevisionEvidence{HeadObjectID: head, BaseObjectID: "base-1"}},
 		Status:      ReviewStatusCompleted,
 		Conclusion:  conclusion,
 		CompletedAt: baseNow.Add(-2 * time.Hour),
@@ -397,5 +397,71 @@ func TestClassify_ActiveRunForNewHeadTakesPrecedenceOverStale(t *testing.T) {
 	got := Classify(input)
 	if got.State != DeskStateQueued {
 		t.Errorf("expected an active run for the new head to take precedence over stale, got %q", got.State)
+	}
+}
+
+func TestClassify_BaseChangeWithSameHeadTriggersRereview(t *testing.T) {
+	input := baseInput()
+	input.Snapshot.BaseObjectID = "base-2"
+	input.Snapshot.UpdatedAt = baseNow.Add(-20 * time.Minute)
+	input.SettleTime = 10 * time.Minute
+	input.Runs = []ReviewRun{completedRun("head-1", ReviewConclusionClean, nil)}
+
+	got := Classify(input)
+	if got.State != DeskStateNeedsRereview {
+		t.Fatalf("a base change with an unchanged head must invalidate the prior run's diff, got %+v", got)
+	}
+}
+
+func TestClassify_BaseChangeWithSameHeadIsStaleWhileSettling(t *testing.T) {
+	input := baseInput()
+	input.Snapshot.BaseObjectID = "base-2"
+	input.Snapshot.UpdatedAt = baseNow.Add(-5 * time.Minute)
+	input.SettleTime = 10 * time.Minute
+	input.Runs = []ReviewRun{completedRun("head-1", ReviewConclusionClean, nil)}
+
+	got := Classify(input)
+	if got.State != DeskStateStale {
+		t.Errorf("expected a base-only change to settle through the same stale window as a head change, got %q", got.State)
+	}
+}
+
+func TestClassify_MatchingHeadAndBaseIsCurrent(t *testing.T) {
+	input := baseInput()
+	input.Runs = []ReviewRun{completedRun("head-1", ReviewConclusionClean, nil)}
+
+	got := Classify(input)
+	if got.State != DeskStateDecisionReady {
+		t.Errorf("expected a run matching both head and base to be treated as current, got %q", got.State)
+	}
+}
+
+func TestClassify_SavedTerminalRunOverridesStaleActiveEvents(t *testing.T) {
+	input := baseInput()
+	input.Runs = []ReviewRun{completedRun("head-1", ReviewConclusionClean, nil)}
+	input.Events = []LifecycleEvent{
+		{Kind: LifecycleEventQueued, RunID: "run-head-1", HeadObjectID: "head-1", OccurredAt: baseNow.Add(-3 * time.Hour)},
+		{Kind: LifecycleEventStarted, RunID: "run-head-1", HeadObjectID: "head-1", OccurredAt: baseNow.Add(-3*time.Hour + time.Minute)},
+	}
+
+	got := Classify(input)
+	if got.State == DeskStateQueued || got.State == DeskStateRunning {
+		t.Fatalf("a saved completed run must override a stale queued/started event pair missing its terminal event (crash before it was appended), got %+v", got)
+	}
+	if got.State != DeskStateDecisionReady {
+		t.Errorf("expected the saved run's own outcome to apply, got %q", got.State)
+	}
+}
+
+func TestClassify_UnterminatedActiveEventForARunNotYetSavedStillReportsRunning(t *testing.T) {
+	input := baseInput()
+	input.Events = []LifecycleEvent{
+		{Kind: LifecycleEventQueued, RunID: "run-in-flight", HeadObjectID: "head-1", OccurredAt: baseNow.Add(-2 * time.Minute)},
+		{Kind: LifecycleEventStarted, RunID: "run-in-flight", HeadObjectID: "head-1", OccurredAt: baseNow.Add(-time.Minute)},
+	}
+
+	got := Classify(input)
+	if got.State != DeskStateRunning {
+		t.Errorf("expected a genuinely in-flight run (no saved record yet) to still report running, got %q", got.State)
 	}
 }

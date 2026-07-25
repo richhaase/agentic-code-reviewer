@@ -93,13 +93,13 @@ func Classify(input ClassificationInput) Classification {
 		return Classification{State: DeskStateResolved, Tracked: true, Reason: "a review action was already posted for this head"}
 	}
 
-	if queued, running := activeRunState(input.Events, head); running {
+	if queued, running := activeRunState(input.Runs, input.Events, head); running {
 		return Classification{State: DeskStateRunning, Tracked: true, Reason: "a review is running for this head"}
 	} else if queued {
 		return Classification{State: DeskStateQueued, Tracked: true, Reason: "a review is queued for this head"}
 	}
 
-	if run := runForHead(input.Runs, head); run != nil {
+	if run := runForRevision(input.Runs, head, input.Snapshot.BaseObjectID); run != nil {
 		switch run.Status {
 		case ReviewStatusFailed:
 			return Classification{State: DeskStateFailed, Tracked: true, Reason: "the review for this head failed"}
@@ -175,7 +175,7 @@ func actionPostedForHead(events []LifecycleEvent, head string) bool {
 	return false
 }
 
-func activeRunState(events []LifecycleEvent, head string) (queued, running bool) {
+func activeRunState(runs []ReviewRun, events []LifecycleEvent, head string) (queued, running bool) {
 	type progress struct {
 		queuedAt   time.Time
 		startedAt  time.Time
@@ -183,8 +183,18 @@ func activeRunState(events []LifecycleEvent, head string) (queued, running bool)
 	}
 	byRun := map[string]*progress{}
 
+	savedRunIDs := map[string]bool{}
+	for _, run := range runs {
+		if run.ID != "" {
+			savedRunIDs[run.ID] = true
+		}
+	}
+
 	for _, event := range events {
 		if event.HeadObjectID != head || event.RunID == "" {
+			continue
+		}
+		if savedRunIDs[event.RunID] {
 			continue
 		}
 		p, ok := byRun[event.RunID]
@@ -228,11 +238,11 @@ func mostRecentRun(runs []ReviewRun) *ReviewRun {
 	return latest
 }
 
-func runForHead(runs []ReviewRun, head string) *ReviewRun {
+func runForRevision(runs []ReviewRun, head, base string) *ReviewRun {
 	var latest *ReviewRun
 	for i := range runs {
 		run := runs[i]
-		if run.Target.Revision.HeadObjectID != head {
+		if run.Target.Revision.HeadObjectID != head || run.Target.Revision.BaseObjectID != base {
 			continue
 		}
 		if latest == nil || runTimestamp(run).After(runTimestamp(*latest)) {
