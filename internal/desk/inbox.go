@@ -61,13 +61,11 @@ func Refresh(ctx context.Context, cfg workspace.Config, dataDir string, discover
 	}
 
 	keys, warnings := discoverCandidateKeys(ctx, discovery, cfg)
+	discovered := append([]domain.PullRequestKey(nil), keys...)
 
 	tracked, err := store.ListTrackedPullRequests(dataDir)
 	if err != nil {
 		return Inbox{}, err
-	}
-	for _, key := range tracked {
-		keys = mergeTrackedKey(keys, key.ToDomain())
 	}
 
 	snapshotStore := store.NewFilesystemSnapshotStore(dataDir)
@@ -75,6 +73,24 @@ func Refresh(ctx context.Context, cfg workspace.Config, dataDir string, discover
 	inbox := Inbox{GeneratedAt: now}
 	inbox.Warnings = append(inbox.Warnings, warnings...)
 	inbox.Warnings = append(inbox.Warnings, resolution.RootWarnings...)
+
+	for _, key := range tracked {
+		trackedKey := key.ToDomain()
+		if !containsKeyIdentity(discovered, trackedKey) {
+			if scopeExcludesKey(cfg, key) {
+				continue
+			}
+			hasHistory, historyErr := trackedKeyHasHistory(dataDir, key)
+			if historyErr != nil {
+				inbox.Warnings = append(inbox.Warnings, fmt.Sprintf("%s: %v", key.String(), historyErr))
+				continue
+			}
+			if !hasHistory {
+				continue
+			}
+		}
+		keys = mergeTrackedKey(keys, trackedKey)
+	}
 
 	for _, key := range keys {
 		schemaKey := store.ToPullRequestKeySchema(key)
@@ -137,6 +153,15 @@ func LoadStored(dataDir string, cfg workspace.Config, now time.Time) (Inbox, err
 
 	for _, schemaKey := range tracked {
 		if scopeExcludesKey(cfg, schemaKey) {
+			continue
+		}
+
+		hasHistory, err := trackedKeyHasHistory(dataDir, schemaKey)
+		if err != nil {
+			inbox.Warnings = append(inbox.Warnings, fmt.Sprintf("%s: %v", schemaKey.String(), err))
+			continue
+		}
+		if !hasHistory {
 			continue
 		}
 
@@ -329,6 +354,35 @@ func appendUniqueKey(keys []domain.PullRequestKey, key domain.PullRequestKey) []
 		}
 	}
 	return append(keys, key)
+}
+
+func containsKeyIdentity(keys []domain.PullRequestKey, target domain.PullRequestKey) bool {
+	for _, key := range keys {
+		if sameRepositoryIdentity(key, target) && key.Number == target.Number {
+			return true
+		}
+	}
+	return false
+}
+
+func trackedKeyHasHistory(dataDir string, key store.PullRequestKeyV1) (bool, error) {
+	runs, corruptRuns, err := store.NewFilesystemRunStore(dataDir).ListRuns(key)
+	if err != nil {
+		return false, fmt.Errorf("load review runs: %w", err)
+	}
+	if len(runs) > 0 || len(corruptRuns) > 0 {
+		return true, nil
+	}
+
+	events, corruptEvents, err := loadDomainEvents(dataDir, key)
+	if err != nil {
+		return false, fmt.Errorf("load review events: %w", err)
+	}
+	if len(events) > 0 || len(corruptEvents) > 0 {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func mergeTrackedKey(keys []domain.PullRequestKey, tracked domain.PullRequestKey) []domain.PullRequestKey {
