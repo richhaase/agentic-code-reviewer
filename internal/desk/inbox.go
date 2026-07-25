@@ -156,15 +156,6 @@ func LoadStored(dataDir string, cfg workspace.Config, now time.Time) (Inbox, err
 			continue
 		}
 
-		hasHistory, err := trackedKeyHasHistory(dataDir, schemaKey)
-		if err != nil {
-			inbox.Warnings = append(inbox.Warnings, fmt.Sprintf("%s: %v", schemaKey.String(), err))
-			continue
-		}
-		if !hasHistory {
-			continue
-		}
-
 		storedSchema, err := snapshotStore.LoadSnapshot(schemaKey)
 		if err != nil {
 			inbox.Warnings = append(inbox.Warnings, fmt.Sprintf("%s: no stored snapshot: %v", schemaKey.String(), err))

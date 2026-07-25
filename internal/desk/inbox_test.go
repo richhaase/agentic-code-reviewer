@@ -479,7 +479,6 @@ func TestLoadStored_RendersWithoutDiscoveryAndReportsAge(t *testing.T) {
 	if err := store.NewFilesystemSnapshotStore(dataDir).SaveSnapshot(store.ToPRSnapshotSchema(fixtureSnapshot(key, "someone-else", "head-1", captured))); err != nil {
 		t.Fatalf("seed snapshot: %v", err)
 	}
-	seedCompletedRun(t, dataDir, key, captured)
 
 	now := captured.Add(37 * time.Minute)
 	inbox, err := LoadStored(dataDir, cfg, now)
@@ -497,7 +496,7 @@ func TestLoadStored_RendersWithoutDiscoveryAndReportsAge(t *testing.T) {
 	}
 }
 
-func TestLoadStored_ExcludesBareHistorylessTrackedKey(t *testing.T) {
+func TestLoadStored_IncludesBareSnapshotOnlyTrackedKey(t *testing.T) {
 	root := t.TempDir()
 	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/acme/widgets.git")
 	cfg := baseWorkspaceConfig(t, root)
@@ -514,40 +513,8 @@ func TestLoadStored_ExcludesBareHistorylessTrackedKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(inbox.Items) != 0 {
-		t.Fatalf("expected a bare, history-less tracked key to be excluded from the locked/read-only path, got %+v", inbox.Items)
-	}
-}
-
-func TestLoadStored_IncludesTrackedKeyWithOnlyNonLifecycleEvent(t *testing.T) {
-	root := t.TempDir()
-	initGitRepoWithRemote(t, filepath.Join(root, "widgets"), "https://github.com/acme/widgets.git")
-	cfg := baseWorkspaceConfig(t, root)
-	dataDir := t.TempDir()
-
-	captured := time.Date(2026, 7, 25, 11, 0, 0, 0, time.UTC)
-	key := domain.PullRequestKey{Host: "github.com", Owner: "acme", Repository: "widgets", Number: 15}
-	schemaKey := store.ToPullRequestKeySchema(key)
-	if err := store.NewFilesystemSnapshotStore(dataDir).SaveSnapshot(store.ToPRSnapshotSchema(fixtureSnapshot(key, "someone-else", "head-1", captured))); err != nil {
-		t.Fatalf("seed snapshot: %v", err)
-	}
-	if _, err := store.NewFilesystemEventStore(dataDir).AppendEvent(store.ReviewEventV1{
-		SchemaVersion: store.CurrentSchemaVersion,
-		ID:            "event-1",
-		PullRequest:   schemaKey,
-		Type:          store.EventTypePRDiscovered,
-		OccurredAt:    captured,
-	}); err != nil {
-		t.Fatalf("append event: %v", err)
-	}
-
-	now := captured.Add(37 * time.Minute)
-	inbox, err := LoadStored(dataDir, cfg, now)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
 	if len(inbox.Items) != 1 {
-		t.Fatalf("expected a tracked key with a stored non-lifecycle event (e.g. pr_discovered) to count as having history and be included, got %+v", inbox.Items)
+		t.Fatalf("expected a bare, history-less tracked key (the common case for a first-sighting PR under the default auto_review=false policy) to still render from the locked/read-only path, got %+v", inbox.Items)
 	}
 }
 
