@@ -117,7 +117,9 @@ for sharing. In particular:
 ## Filesystem storage (issue #197)
 
 `store.DataDir()` resolves the application-data directory: an `ACR_DATA_DIR`
-environment variable override, or `os.UserCacheDir()/acr` by default. Every
+environment variable override, `$XDG_DATA_HOME/acr` if set, or
+`~/.local/share/acr` by default (matching the XDG Base Directory convention
+used across this project's tools, on every platform). Every
 write goes through `atomicWriteFile`: content is written to a hidden temporary
 sibling file (`.tmp-<name>-*`) in the same directory, `fsync`'d, `chmod`'d,
 then atomically renamed over the destination; the containing directory is

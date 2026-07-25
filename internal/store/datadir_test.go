@@ -17,17 +17,31 @@ func TestDataDir_EnvVarOverride(t *testing.T) {
 	}
 }
 
-func TestDataDir_DefaultsUnderUserCacheDir(t *testing.T) {
+func TestDataDir_DefaultsUnderXDGDataHome(t *testing.T) {
 	t.Setenv(DataDirEnvVar, "")
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("XDG_DATA_HOME", "/xdg/data")
 
 	dir, err := DataDir()
 	if err != nil {
 		t.Fatalf("DataDir: %v", err)
 	}
-	if filepath.Base(dir) != "acr" {
-		t.Fatalf("expected data dir to be named acr, got %q", dir)
+	if dir != "/xdg/data/acr" {
+		t.Fatalf("expected XDG_DATA_HOME to be honored, got %q", dir)
+	}
+}
+
+func TestDataDir_DefaultsUnderDotLocalShareWhenXDGUnset(t *testing.T) {
+	t.Setenv(DataDirEnvVar, "")
+	t.Setenv("XDG_DATA_HOME", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	dir, err := DataDir()
+	if err != nil {
+		t.Fatalf("DataDir: %v", err)
+	}
+	want := filepath.Join(home, ".local", "share", "acr")
+	if dir != want {
+		t.Fatalf("expected %q, got %q", want, dir)
 	}
 }
