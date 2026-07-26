@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -357,6 +356,14 @@ func (b *syncBuffer) String() string {
 func startGitDaemon(t *testing.T, baseDir string) {
 	t.Helper()
 
+	preflight, err := net.Listen("tcp", "127.0.0.1:"+gitDaemonPort)
+	if err != nil {
+		t.Skipf("port %s is unavailable for a local git daemon in this environment: %v", gitDaemonPort, err)
+	}
+	if err := preflight.Close(); err != nil {
+		t.Fatalf("failed to release the preflight listener on port %s: %v", gitDaemonPort, err)
+	}
+
 	stderr := &syncBuffer{}
 	cmd := exec.Command("git", "daemon",
 		"--reuseaddr",
@@ -368,7 +375,7 @@ func startGitDaemon(t *testing.T, baseDir string) {
 	cmd.Stderr = stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
-		t.Fatalf("failed to start git daemon: %v", err)
+		t.Skipf("could not start a local git daemon in this environment: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
@@ -382,13 +389,9 @@ func startGitDaemon(t *testing.T, baseDir string) {
 			_ = conn.Close()
 			return
 		}
-		if strings.Contains(stderr.String(), "Address already in use") {
-			t.Skipf("port %s unavailable for git daemon: %s", gitDaemonPort, stderr.String())
-		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("git daemon did not become ready: %s", stderr.String())
-	t.Fatal("git daemon did not become ready")
+	t.Skipf("git daemon did not become ready in this environment: %s", stderr.String())
 }
 
 func runGit(t *testing.T, dir string, args ...string) {

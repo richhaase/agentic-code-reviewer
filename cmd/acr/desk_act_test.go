@@ -420,6 +420,80 @@ func TestRunDeskAct_UnverifiableRevisionDoesNotRecordFalseStaleEvent(t *testing.
 	}
 }
 
+func TestRunDeskAct_EmptyLiveBaseIsUnverifiableNotStale(t *testing.T) {
+	env := setupDeskActTest(t, 275, fakeReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
+	now := time.Now()
+	env.discovery.enrichResponses = []domain.PullRequestSnapshot{
+		dispatchSnapshotWithAuthor(env.key, "someone-else", env.fixture.prHeadSHA, env.fixture.baseSHA, now),
+		dispatchSnapshotWithAuthor(env.key, "someone-else", env.fixture.prHeadSHA, "", now.Add(time.Minute)),
+	}
+	withFakeGH(t, fakeGHResponses{
+		user:          "me",
+		repoURL:       env.fixture.remoteURL,
+		repoSSHURL:    env.fixture.remoteURL,
+		baseRefName:   "main",
+		watchHeadSHA:  env.fixture.prHeadSHA,
+		watchBaseSHA:  env.fixture.baseSHA,
+		prAuthor:      "someone-else",
+		ciBucket:      "pass",
+		postReviewLog: env.postReviewLog,
+	})
+
+	err := runDeskAct(context.Background(), env.key, deskActApprove, true, env.discovery)
+	if err == nil {
+		t.Fatal("expected an error when the live base object id could not be verified")
+	}
+	if !strings.Contains(err.Error(), "verify") {
+		t.Fatalf("expected an unverifiable-revision error, not a false moved/stale report, got %q", err.Error())
+	}
+
+	if posted := readPostReviewLog(t, env.postReviewLog); posted != "" {
+		t.Fatalf("expected no GitHub mutation when the base could not be verified, got %q", posted)
+	}
+
+	events := loadEvents(t, env.dataDir, env.key)
+	if len(events) != 0 {
+		t.Fatalf("expected no false review_stale audit event when the base could not be verified (only unverifiable), got %+v", events)
+	}
+}
+
+func TestRunDeskAct_RecordStaleResultTreatsEmptyBaseAsUnverifiableNotMoved(t *testing.T) {
+	env := setupDeskActTest(t, 276, fakeReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
+	now := time.Now()
+	env.discovery.enrichResponses = []domain.PullRequestSnapshot{
+		dispatchSnapshotWithAuthor(env.key, "someone-else", env.fixture.prHeadSHA, env.fixture.baseSHA, now),
+		dispatchSnapshotWithAuthor(env.key, "someone-else", env.fixture.prHeadSHA, "", now.Add(time.Minute)),
+	}
+	withFakeGH(t, fakeGHResponses{
+		user:          "me",
+		repoURL:       env.fixture.remoteURL,
+		repoSSHURL:    env.fixture.remoteURL,
+		baseRefName:   "main",
+		watchHeadSHA:  env.fixture.staleSHA,
+		watchBaseSHA:  env.fixture.baseSHA,
+		prAuthor:      "someone-else",
+		ciBucket:      "pass",
+		postReviewLog: env.postReviewLog,
+	})
+
+	err := runDeskAct(context.Background(), env.key, deskActApprove, true, env.discovery)
+	if err == nil {
+		t.Fatal("expected an error when the stale re-check's live base object id could not be verified")
+	}
+	if !strings.Contains(err.Error(), "verify") {
+		t.Fatalf("expected an unverifiable-revision error, not a false moved/stale report, got %q", err.Error())
+	}
+
+	if posted := readPostReviewLog(t, env.postReviewLog); posted != "" {
+		t.Fatalf("expected no GitHub mutation, got %q", posted)
+	}
+
+	events := loadEvents(t, env.dataDir, env.key)
+	if len(events) != 0 {
+		t.Fatalf("expected no false review_stale audit event when the re-check base could not be verified, got %+v", events)
+	}
+}
+
 func TestRunDeskAct_RevisionMovedDuringPreSubmitCheckRoutesToStaleOutcome(t *testing.T) {
 	env := setupDeskActTest(t, 272, fakeReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
 	now := time.Now()

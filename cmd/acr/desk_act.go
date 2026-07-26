@@ -187,6 +187,9 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 	if enrichErr != nil || liveSnapshot.HeadObjectID == "" {
 		return fmt.Errorf("could not verify the current pull request head before posting: %w", enrichErr)
 	}
+	if liveSnapshot.BaseObjectID == "" {
+		return errors.New("could not verify the current pull request base before posting: enrichment returned an incomplete revision")
+	}
 	if liveSnapshot.HeadObjectID != run.Target.Revision.HeadObjectID || liveSnapshot.BaseObjectID != run.Target.Revision.BaseObjectID {
 		if staleErr := appendStaleEvent(dataDir, key, run, liveSnapshot.HeadObjectID, liveSnapshot.BaseObjectID); staleErr != nil {
 			return fmt.Errorf("the pull request revision moved since this review, and the stale result could not be recorded: %w", staleErr)
@@ -383,6 +386,9 @@ func recordStaleResult(ctx context.Context, dataDir string, key store.PullReques
 	snapshot, err := discovery.Enrich(ctx, key.ToDomain())
 	if err != nil {
 		return false, fmt.Errorf("re-check current PR head: %w", err)
+	}
+	if snapshot.HeadObjectID == "" || snapshot.BaseObjectID == "" {
+		return false, errors.New("re-check current PR head: enrichment returned an incomplete revision")
 	}
 	moved := snapshot.HeadObjectID != run.Target.Revision.HeadObjectID || snapshot.BaseObjectID != run.Target.Revision.BaseObjectID
 	if !moved {
