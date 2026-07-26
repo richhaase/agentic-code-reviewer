@@ -27,5 +27,6 @@ type ReviewOpts struct {
 	SuppressZeroSelectionFallback bool
 	ExpectedHeadSHA               string
 	ExpectedBaseSHA               string
+	PreSubmitCheck                func() error
 	Outcome                       *CycleOutcome
 }

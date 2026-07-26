@@ -171,7 +171,9 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 	prNumber := strconv.Itoa(item.Key.Number)
 	logger := terminal.NewLogger()
 
-	if !autoYes && !confirmDeskAction(action, prNumber) {
+	isSelfReview := github.IsSelfReview(ctx, item.RepositoryPath, prNumber)
+
+	if !autoYes && !confirmDeskAction(action, prNumber, isSelfReview) {
 		return errors.New("action was not confirmed; nothing was posted")
 	}
 
@@ -180,7 +182,7 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 		return fmt.Errorf("could not verify the current pull request head before posting: %w", enrichErr)
 	}
 	if liveSnapshot.HeadObjectID != run.Target.Revision.HeadObjectID || liveSnapshot.BaseObjectID != run.Target.Revision.BaseObjectID {
-		if staleErr := appendStaleEvent(dataDir, key, run, liveSnapshot.HeadObjectID); staleErr != nil {
+		if staleErr := appendStaleEvent(dataDir, key, run, liveSnapshot.HeadObjectID, liveSnapshot.BaseObjectID); staleErr != nil {
 			return fmt.Errorf("the pull request revision moved since this review, and the stale result could not be recorded: %w", staleErr)
 		}
 		return errors.New("the pull request's head or base moved since this review; nothing was posted")
@@ -210,6 +212,7 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 		ForcePostComment:              action == deskActComment,
 		ExpectedHeadSHA:               run.Target.Revision.HeadObjectID,
 		ExpectedBaseSHA:               run.Target.Revision.BaseObjectID,
+		PreSubmitCheck:                func() error { return revalidatePostingPolicyAndIdentity(ctx, configDir) },
 		Outcome:                       outcome,
 	}
 
@@ -269,16 +272,20 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 	return nil
 }
 
-func confirmDeskAction(action deskActAction, prNumber string) bool {
+func confirmDeskAction(action deskActAction, prNumber string, isSelfReview bool) bool {
 	if !terminal.IsStdinTTY() {
 		return false
 	}
 	label := "post a comment on"
-	switch action {
-	case deskActApprove:
-		label = "approve"
-	case deskActRequestChanges:
-		label = "request changes on"
+	if !isSelfReview {
+		switch action {
+		case deskActApprove:
+			label = "approve"
+		case deskActRequestChanges:
+			label = "request changes on"
+		}
+	} else if action != deskActComment {
+		label = "post a comment on (self-authored PRs cannot be approved or receive request-changes)"
 	}
 	fmt.Print(formatPrompt(fmt.Sprintf("About to %s PR %s", label, formatPRRef(prNumber)), "[y/N]:"))
 	response := readUserInput()
@@ -358,10 +365,10 @@ func recordStaleResult(ctx context.Context, dataDir string, key store.PullReques
 	if err != nil {
 		return fmt.Errorf("re-check current PR head: %w", err)
 	}
-	return appendStaleEvent(dataDir, key, run, snapshot.HeadObjectID)
+	return appendStaleEvent(dataDir, key, run, snapshot.HeadObjectID, snapshot.BaseObjectID)
 }
 
-func appendStaleEvent(dataDir string, key store.PullRequestKeyV1, run *domain.ReviewRun, currentHeadObjectID string) error {
+func appendStaleEvent(dataDir string, key store.PullRequestKeyV1, run *domain.ReviewRun, currentHeadObjectID, currentBaseObjectID string) error {
 	now := time.Now()
 	id, err := newDeskEventID(now)
 	if err != nil {
@@ -375,10 +382,28 @@ func appendStaleEvent(dataDir string, key store.PullRequestKeyV1, run *domain.Re
 		OccurredAt:        now,
 		RunID:             run.ID,
 		HeadObjectID:      currentHeadObjectID,
+		BaseObjectID:      currentBaseObjectID,
 		PriorHeadObjectID: run.Target.Revision.HeadObjectID,
 	}
 	_, err = store.NewFilesystemEventStore(dataDir).AppendEvent(event)
 	return err
+}
+
+func revalidatePostingPolicyAndIdentity(ctx context.Context, configDir string) error {
+	cfg, err := workspace.Load(configDir)
+	if err != nil {
+		return fmt.Errorf("could not reload workspace configuration: %w", err)
+	}
+	if errs := cfg.Validate(); len(errs) > 0 {
+		return fmt.Errorf("workspace configuration has %d error(s): %v", len(errs), errs)
+	}
+	if err := cfg.RequirePosting(); err != nil {
+		return err
+	}
+	if err := workspace.CheckIdentity(ctx, *cfg); err != nil {
+		return err
+	}
+	return nil
 }
 
 func newDeskEventID(now time.Time) (string, error) {

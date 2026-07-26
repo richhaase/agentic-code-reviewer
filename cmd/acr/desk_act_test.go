@@ -473,6 +473,9 @@ func TestRunDeskAct_BaseMismatchPreventsPosting(t *testing.T) {
 	if len(events) != 1 || events[0].Type != store.EventTypeReviewStale {
 		t.Fatalf("expected exactly one review_stale audit event for the base mismatch, got %+v", events)
 	}
+	if events[0].BaseObjectID != "a-different-base-sha" {
+		t.Fatalf("expected the stale event to record the live base that actually moved, got base=%q", events[0].BaseObjectID)
+	}
 }
 
 func TestRunDeskAct_RejectsWhenRunHistoryHasCorruptRecords(t *testing.T) {
@@ -507,6 +510,10 @@ func TestRunDeskAct_RejectsWhenRunHistoryHasCorruptRecords(t *testing.T) {
 }
 
 func TestRunDeskAct_FinalCheckCatchesBaseMoveMissedByPreflight(t *testing.T) {
+	oldDelay := submissionRetryDelay
+	submissionRetryDelay = 0
+	defer func() { submissionRetryDelay = oldDelay }()
+
 	env := setupDeskActTest(t, 33, fakeReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
 	withFakeGH(t, fakeGHResponses{
 		user:          "me",
@@ -530,6 +537,10 @@ func TestRunDeskAct_FinalCheckCatchesBaseMoveMissedByPreflight(t *testing.T) {
 }
 
 func TestRunDeskAct_FinalCheckFailsClosedWhenLiveLookupIsUnavailable(t *testing.T) {
+	oldDelay := submissionRetryDelay
+	submissionRetryDelay = 0
+	defer func() { submissionRetryDelay = oldDelay }()
+
 	env := setupDeskActTest(t, 34, fakeReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
 	withFakeGH(t, fakeGHResponses{
 		user:          "me",

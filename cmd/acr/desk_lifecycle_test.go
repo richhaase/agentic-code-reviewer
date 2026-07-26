@@ -135,3 +135,34 @@ func TestRunDeskLifecycleAction_SnoozeSuppressesRereviewInFavorOfStale(t *testin
 		t.Fatalf("expected a snoozed PR with a new head to read as stale (not needs_rereview), got %+v", item)
 	}
 }
+
+func TestRunDeskLifecycleAction_ResolveRejectsStateResolutionCannotAffect(t *testing.T) {
+	fixture := newDispatchGitFixture(t, 35)
+
+	dataDir := t.TempDir()
+	t.Setenv("ACR_DATA_DIR", dataDir)
+	configDir := t.TempDir()
+	t.Setenv(workspace.ConfigDirEnvVar, configDir)
+	writeWorkspaceConfigFull(t, configDir, "me", []string{fixture.repoRoot}, false, "disabled")
+
+	key := dispatchPullRequestKey(fixture.host, 35)
+	now := time.Now()
+	discovery := &dispatchFixtureDiscovery{
+		searchResult: []domain.PullRequestKey{key.ToDomain()},
+		enrichResponses: []domain.PullRequestSnapshot{
+			dispatchSnapshotWithAuthor(key, "me", fixture.prHeadSHA, fixture.baseSHA, now),
+		},
+	}
+	env := deskActTestEnv{fixture: fixture, dataDir: dataDir, configDir: configDir, key: key, discovery: discovery}
+	withFakeGH(t, fakeGHResponses{user: "me"})
+
+	err := runDeskLifecycleAction(context.Background(), env.key, store.EventTypeUserResolved, env.discovery)
+	if err == nil {
+		t.Fatal("expected resolve to be rejected for an own PR waiting on others, since the event would have no effect")
+	}
+
+	events := loadEvents(t, env.dataDir, env.key)
+	if len(events) != 0 {
+		t.Fatalf("expected no event to be recorded, got %+v", events)
+	}
+}

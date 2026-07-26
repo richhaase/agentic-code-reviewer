@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/desk"
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/github"
 	"github.com/richhaase/agentic-code-reviewer/internal/store"
 	"github.com/richhaase/agentic-code-reviewer/internal/workspace"
@@ -101,8 +102,13 @@ func runDeskLifecycleAction(ctx context.Context, key store.PullRequestKeyV1, eve
 	}
 	liveItem, foundLive := findDeskItem(inbox, key)
 
-	if eventType == store.EventTypeUserResolved && (!foundLive || liveItem.SnapshotStale) {
-		return fmt.Errorf("%s is not currently visible on the desk with a fresh, live-observed revision; cannot resolve a possibly-stale cached snapshot", key.String())
+	if eventType == store.EventTypeUserResolved {
+		if !foundLive || liveItem.SnapshotStale {
+			return fmt.Errorf("%s is not currently visible on the desk with a fresh, live-observed revision; cannot resolve a possibly-stale cached snapshot", key.String())
+		}
+		if liveItem.DeskState == domain.DeskStateRepositoryUnavailable || liveItem.DeskState == domain.DeskStateWaitingOnOthers {
+			return fmt.Errorf("%s: resolving has no effect while the desk state is %s; nothing was recorded", key.String(), liveItem.DeskState)
+		}
 	}
 	if eventType != store.EventTypeUserResolved {
 		if _, snapErr := store.NewFilesystemSnapshotStore(dataDir).LoadSnapshot(key); snapErr != nil {

@@ -17,6 +17,8 @@ import (
 
 const maxDisplayedCIChecks = 5
 
+var errRevisionMovedSinceReview = errors.New("pull request revision moved since the review")
+
 type prContext struct {
 	number       string
 	isSelfReview bool
@@ -260,14 +262,21 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 		}
 	}
 
-	if headMovedSinceReview(ctx, opts, pr.number, logger) {
-		opts.record(OutcomeStaleHead)
-		return nil
-	}
-
 	if err := retrySubmission(ctx, func() error {
+		if headMovedSinceReview(ctx, opts, pr.number, logger) {
+			return errRevisionMovedSinceReview
+		}
+		if opts.PreSubmitCheck != nil {
+			if checkErr := opts.PreSubmitCheck(); checkErr != nil {
+				return checkErr
+			}
+		}
 		return github.SubmitPRReview(ctx, opts.RepositoryRoot, pr.number, body, requestChanges)
 	}, opts.Outcome != nil, logger); err != nil {
+		if errors.Is(err, errRevisionMovedSinceReview) {
+			opts.record(OutcomeStaleHead)
+			return nil
+		}
 		logger.Logf(terminal.StyleError, "Failed: %v", err)
 		return err
 	}
@@ -350,14 +359,21 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 		}
 	}
 
-	if headMovedSinceReview(ctx, opts, pr.number, logger) {
-		opts.record(OutcomeStaleHead)
-		return nil
-	}
-
 	if err := retrySubmission(ctx, func() error {
+		if headMovedSinceReview(ctx, opts, pr.number, logger) {
+			return errRevisionMovedSinceReview
+		}
+		if opts.PreSubmitCheck != nil {
+			if checkErr := opts.PreSubmitCheck(); checkErr != nil {
+				return checkErr
+			}
+		}
 		return executeLGTMAction(ctx, opts.RepositoryRoot, action, pr.number, body, logger)
 	}, opts.Outcome != nil, logger); err != nil {
+		if errors.Is(err, errRevisionMovedSinceReview) {
+			opts.record(OutcomeStaleHead)
+			return nil
+		}
 		return err
 	}
 	if action == actionApprove {
