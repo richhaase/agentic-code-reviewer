@@ -374,6 +374,7 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 			opts.record(OutcomeStaleHead)
 			return nil
 		}
+		logger.Logf(terminal.StyleError, "Failed: %v", err)
 		return err
 	}
 	if action == actionApprove {
