@@ -423,7 +423,7 @@ const submissionAttempts = 3
 
 func retrySubmission(ctx context.Context, submit func() error, watchMode bool, logger *terminal.Logger) error {
 	err := submit()
-	if err == nil || !watchMode {
+	if err == nil || !watchMode || errors.Is(err, errRevisionMovedSinceReview) {
 		return err
 	}
 	for attempt := 2; attempt <= submissionAttempts; attempt++ {
@@ -438,8 +438,8 @@ func retrySubmission(ctx context.Context, submit func() error, watchMode bool, l
 			return err
 		case <-timer.C:
 		}
-		if err = submit(); err == nil {
-			return nil
+		if err = submit(); err == nil || errors.Is(err, errRevisionMovedSinceReview) {
+			return err
 		}
 	}
 	return err

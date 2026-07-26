@@ -509,6 +509,37 @@ func TestRunDeskAct_RejectsWhenRunHistoryHasCorruptRecords(t *testing.T) {
 	}
 }
 
+func TestRunDeskAct_RejectsWhenEventHistoryHasCorruptRecords(t *testing.T) {
+	env := setupDeskActTest(t, 36, fakeReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
+	withFakeGH(t, fakeGHResponses{
+		user:          "me",
+		repoURL:       env.fixture.remoteURL,
+		repoSSHURL:    env.fixture.remoteURL,
+		baseRefName:   "main",
+		watchHeadSHA:  env.fixture.prHeadSHA,
+		watchBaseSHA:  env.fixture.baseSHA,
+		prAuthor:      "someone-else",
+		postReviewLog: env.postReviewLog,
+	})
+
+	eventsDir := filepath.Join(env.dataDir, "prs", env.key.Host, env.key.Owner, env.key.Repository, "36", "events")
+	if err := os.MkdirAll(eventsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	corruptPath := filepath.Join(eventsDir, "20260101T000000.000000000Z-corrupt.json")
+	if err := os.WriteFile(corruptPath, []byte("not valid json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := runDeskAct(context.Background(), env.key, deskActApprove, true, env.discovery)
+	if err == nil {
+		t.Fatal("expected an error when stored event history has an unreadable record")
+	}
+	if posted := readPostReviewLog(t, env.postReviewLog); posted != "" {
+		t.Fatalf("expected no GitHub mutation with corrupt event history present, got %q", posted)
+	}
+}
+
 func TestRunDeskAct_FinalCheckCatchesBaseMoveMissedByPreflight(t *testing.T) {
 	oldDelay := submissionRetryDelay
 	submissionRetryDelay = 0

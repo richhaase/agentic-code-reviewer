@@ -153,6 +153,12 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 		return fmt.Errorf("%s has no decision-ready result (current state: %s); run `acr desk dispatch %s` first",
 			key.String(), item.DeskState, key.String())
 	}
+	if _, corruptEvents, eventsErr := store.NewFilesystemEventStore(dataDir).ListEvents(key); eventsErr != nil {
+		return eventsErr
+	} else if len(corruptEvents) > 0 {
+		return fmt.Errorf("%d stored event(s) could not be read; run `acr desk history %s` to investigate before acting",
+			len(corruptEvents), key.String())
+	}
 
 	run, err := loadCurrentRun(dataDir, item)
 	if err != nil {
@@ -209,10 +215,10 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 		AutoYes:                       autoYes,
 		SkipReviewTypePrompt:          true,
 		SuppressZeroSelectionFallback: action == deskActRequestChanges,
-		ForcePostComment:              action == deskActComment,
+		ForcePostComment:              action == deskActComment || isSelfReview,
 		ExpectedHeadSHA:               run.Target.Revision.HeadObjectID,
 		ExpectedBaseSHA:               run.Target.Revision.BaseObjectID,
-		PreSubmitCheck:                func() error { return revalidatePostingPolicyAndIdentity(ctx, configDir) },
+		PreSubmitCheck:                func() error { return revalidateDeskEligibility(ctx, configDir, dataDir, key, discovery) },
 		Outcome:                       outcome,
 	}
 
@@ -389,7 +395,7 @@ func appendStaleEvent(dataDir string, key store.PullRequestKeyV1, run *domain.Re
 	return err
 }
 
-func revalidatePostingPolicyAndIdentity(ctx context.Context, configDir string) error {
+func revalidateDeskEligibility(ctx context.Context, configDir, dataDir string, key store.PullRequestKeyV1, discovery github.Discovery) error {
 	cfg, err := workspace.Load(configDir)
 	if err != nil {
 		return fmt.Errorf("could not reload workspace configuration: %w", err)
@@ -402,6 +408,14 @@ func revalidatePostingPolicyAndIdentity(ctx context.Context, configDir string) e
 	}
 	if err := workspace.CheckIdentity(ctx, *cfg); err != nil {
 		return err
+	}
+	inbox, err := desk.Refresh(ctx, *cfg, dataDir, discovery, time.Now())
+	if err != nil {
+		return fmt.Errorf("could not re-check desk eligibility: %w", err)
+	}
+	item, ok := findDeskItem(inbox, key)
+	if !ok || (item.DeskState != domain.DeskStateFindingsReady && item.DeskState != domain.DeskStateDecisionReady) {
+		return fmt.Errorf("%s is no longer eligible for this action under the current workspace configuration", key.String())
 	}
 	return nil
 }
