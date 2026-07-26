@@ -116,6 +116,15 @@ func runDeskLifecycleAction(ctx context.Context, key store.PullRequestKeyV1, eve
 			return fmt.Errorf("%s is not known to the desk; run `acr desk --once` first", key.String())
 		}
 	}
+	if eventType == store.EventTypeUserSnoozed {
+		released, releasedErr := currentlyReleased(dataDir, key)
+		if releasedErr != nil {
+			return fmt.Errorf("could not load lifecycle history for %s: %w", key.String(), releasedErr)
+		}
+		if released {
+			return fmt.Errorf("%s is released; snoozing has no effect while released; run `acr desk resume` first", key.String())
+		}
+	}
 
 	now := time.Now()
 	id, err := newDeskEventID(now)
@@ -154,4 +163,18 @@ func runDeskLifecycleAction(ctx context.Context, key store.PullRequestKeyV1, eve
 		fmt.Printf("%s is no longer tracked on the desk.\n", key.String())
 	}
 	return nil
+}
+
+func currentlyReleased(dataDir string, key store.PullRequestKeyV1) (bool, error) {
+	eventSchemas, _, err := store.NewFilesystemEventStore(dataDir).ListEvents(key)
+	if err != nil {
+		return false, err
+	}
+	events := make([]domain.LifecycleEvent, 0, len(eventSchemas))
+	for _, schema := range eventSchemas {
+		if event, ok := schema.ToLifecycleEvent(); ok {
+			events = append(events, event)
+		}
+	}
+	return domain.IsReleased(events), nil
 }

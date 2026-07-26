@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,6 +102,30 @@ func TestRunDeskLifecycleAction_ResumeAfterReleaseRetracksItem(t *testing.T) {
 	}
 	if item.DeskState == domain.DeskStateResolved {
 		t.Fatalf("did not expect a resumed PR to read as resolved, got %+v", item)
+	}
+}
+
+func TestRunDeskLifecycleAction_SnoozeRejectsAlreadyReleasedItem(t *testing.T) {
+	env := setupDeskLifecycleTest(t, 341)
+	withFakeGH(t, fakeGHResponses{user: "me"})
+
+	if err := runDeskLifecycleAction(context.Background(), env.key, store.EventTypeUserReleased, env.discovery); err != nil {
+		t.Fatalf("release failed: %v", err)
+	}
+	if _, ok := loadStoredItem(t, env); ok {
+		t.Fatal("expected the PR to be untracked after release")
+	}
+
+	err := runDeskLifecycleAction(context.Background(), env.key, store.EventTypeUserSnoozed, env.discovery)
+	if err == nil {
+		t.Fatal("expected snoozing an already released item to be rejected")
+	}
+	if !strings.Contains(err.Error(), "released") {
+		t.Fatalf("expected the error to explain the item is released, got %q", err.Error())
+	}
+
+	if _, ok := loadStoredItem(t, env); ok {
+		t.Fatal("expected the PR to remain untracked; a rejected snooze must not resume tracking")
 	}
 }
 
