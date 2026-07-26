@@ -272,7 +272,7 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 			return errRevisionMovedSinceReview
 		}
 		return github.SubmitPRReview(ctx, opts.RepositoryRoot, pr.number, body, requestChanges)
-	}, opts.Outcome != nil, logger); err != nil {
+	}, opts.AllowSubmissionRetry, logger); err != nil {
 		if errors.Is(err, errRevisionMovedSinceReview) {
 			opts.record(OutcomeStaleHead)
 			return nil
@@ -369,7 +369,7 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 			return errRevisionMovedSinceReview
 		}
 		return executeLGTMAction(ctx, opts.RepositoryRoot, action, pr.number, body, logger)
-	}, opts.Outcome != nil, logger); err != nil {
+	}, opts.AllowSubmissionRetry, logger); err != nil {
 		if errors.Is(err, errRevisionMovedSinceReview) {
 			opts.record(OutcomeStaleHead)
 			return nil

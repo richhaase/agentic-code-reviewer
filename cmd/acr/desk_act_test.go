@@ -173,6 +173,42 @@ func TestRunDeskAct_PostsApprovalForCleanReview(t *testing.T) {
 	}
 }
 
+func TestRunDeskAct_DoesNotRetryAfterAmbiguousSubmissionFailure(t *testing.T) {
+	env := setupDeskActTest(t, 21, fakeReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
+	withFakeGH(t, fakeGHResponses{
+		user:              "me",
+		repoURL:           env.fixture.remoteURL,
+		repoSSHURL:        env.fixture.remoteURL,
+		baseRefName:       "main",
+		watchHeadSHA:      env.fixture.prHeadSHA,
+		watchBaseSHA:      env.fixture.baseSHA,
+		prAuthor:          "someone-else",
+		ciBucket:          "pass",
+		postReviewLog:     env.postReviewLog,
+		postReviewFailFor: 1,
+	})
+
+	err := runDeskAct(context.Background(), env.key, deskActApprove, true, env.discovery)
+	if err == nil {
+		t.Fatal("expected runDeskAct to fail when the first gh pr review invocation fails")
+	}
+
+	attempts := readPostReviewLog(t, env.postReviewLog+".count")
+	if strings.TrimSpace(attempts) != "1" {
+		t.Fatalf("desk act must not retry a non-idempotent submission after an ambiguous failure; expected exactly 1 gh invocation, got count file %q", attempts)
+	}
+
+	posted := readPostReviewLog(t, env.postReviewLog)
+	if posted != "" {
+		t.Fatalf("no review should have been recorded as posted, got %q", posted)
+	}
+
+	events := loadEvents(t, env.dataDir, env.key)
+	if len(events) != 0 {
+		t.Fatalf("expected no action event to be recorded for a failed post, got %+v", events)
+	}
+}
+
 func TestRunDeskAct_PostsRequestChangesForFindingsReview(t *testing.T) {
 	env := setupDeskActTest(t, 22, fakeFindingsReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
 	withFakeGH(t, fakeGHResponses{

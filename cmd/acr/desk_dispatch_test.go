@@ -177,17 +177,18 @@ func joinStrings(parts []string, sep string) string {
 }
 
 type fakeGHResponses struct {
-	user          string
-	repoURL       string
-	repoSSHURL    string
-	baseRefName   string
-	watchHeadSHA  string
-	watchBaseSHA  string
-	watchState    string
-	watchFail     bool
-	prAuthor      string
-	ciBucket      string
-	postReviewLog string
+	user              string
+	repoURL           string
+	repoSSHURL        string
+	baseRefName       string
+	watchHeadSHA      string
+	watchBaseSHA      string
+	watchState        string
+	watchFail         bool
+	prAuthor          string
+	ciBucket          string
+	postReviewLog     string
+	postReviewFailFor int
 }
 
 func withFakeGH(t *testing.T, responses fakeGHResponses) {
@@ -233,6 +234,17 @@ case "$args" in
       echo "fake gh: unexpected pr review invocation: $args" >&2
       exit 1
     fi
+    count_file=%q
+    count=0
+    if [ -f "$count_file" ]; then
+      count=$(cat "$count_file")
+    fi
+    count=$((count + 1))
+    echo "$count" > "$count_file"
+    if [ "$count" -le %d ]; then
+      echo "fake gh: simulated pr review failure ($count)" >&2
+      exit 1
+    fi
     echo "$args" >> %q
     ;;
   *)
@@ -248,7 +260,7 @@ esac
 		responses.baseRefName,
 		responses.prAuthor,
 		ciBucket,
-		responses.postReviewLog, responses.postReviewLog,
+		responses.postReviewLog, responses.postReviewLog+".count", responses.postReviewFailFor, responses.postReviewLog,
 	)
 
 	path := filepath.Join(binDir, "gh")

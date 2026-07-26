@@ -254,20 +254,21 @@ func resolveInitialTrustedReviewConfiguration(
 
 func buildWatchReviewOpts(cfgResult configResult, wt worktreeResult, watchPR string, mode watch.PostMode, reviewedHead string, outcome *CycleOutcome) ReviewOpts {
 	return ReviewOpts{
-		ResolvedConfig:   cfgResult.resolved,
-		Verbose:          verbose,
-		AutoYes:          mode != watch.PostModeInteractive,
-		PRNumber:         watchPR,
-		DetectedPR:       watchPR,
-		UseRefFile:       refFile,
-		ExcludePatterns:  cfgResult.excludePatterns,
-		RepositoryRoot:   wt.repositoryRoot,
-		WorkDir:          wt.workDir,
-		ForcePostComment: mode == watch.PostModeComment,
-		ExpectedHeadSHA:  reviewedHead,
-		Outcome:          outcome,
-		ConfigSource:     cfgResult.source,
-		Trigger:          domain.ReviewTriggerWatch,
+		ResolvedConfig:       cfgResult.resolved,
+		Verbose:              verbose,
+		AutoYes:              mode != watch.PostModeInteractive,
+		PRNumber:             watchPR,
+		DetectedPR:           watchPR,
+		UseRefFile:           refFile,
+		ExcludePatterns:      cfgResult.excludePatterns,
+		RepositoryRoot:       wt.repositoryRoot,
+		WorkDir:              wt.workDir,
+		ForcePostComment:     mode == watch.PostModeComment,
+		ExpectedHeadSHA:      reviewedHead,
+		Outcome:              outcome,
+		AllowSubmissionRetry: true,
+		ConfigSource:         cfgResult.source,
+		Trigger:              domain.ReviewTriggerWatch,
 	}
 }
 

@@ -29,4 +29,5 @@ type ReviewOpts struct {
 	ExpectedBaseSHA               string
 	PreSubmitCheck                func() error
 	Outcome                       *CycleOutcome
+	AllowSubmissionRetry          bool
 }
