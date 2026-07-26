@@ -348,6 +348,42 @@ func TestRunDeskAct_StaleHeadPreventsPostingAndRecordsAuditEvent(t *testing.T) {
 	}
 }
 
+func TestRunDeskAct_UnverifiableRevisionDoesNotRecordFalseStaleEvent(t *testing.T) {
+	env := setupDeskActTest(t, 271, fakeReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
+	now := time.Now()
+	env.discovery.enrichResponses = []domain.PullRequestSnapshot{
+		dispatchSnapshotWithAuthor(env.key, "someone-else", env.fixture.prHeadSHA, env.fixture.baseSHA, now),
+		dispatchSnapshotWithAuthor(env.key, "someone-else", env.fixture.prHeadSHA, env.fixture.baseSHA, now.Add(time.Minute)),
+	}
+	withFakeGH(t, fakeGHResponses{
+		user:          "me",
+		repoURL:       env.fixture.remoteURL,
+		repoSSHURL:    env.fixture.remoteURL,
+		baseRefName:   "main",
+		watchFail:     true,
+		prAuthor:      "someone-else",
+		ciBucket:      "pass",
+		postReviewLog: env.postReviewLog,
+	})
+
+	err := runDeskAct(context.Background(), env.key, deskActApprove, true, env.discovery)
+	if err == nil {
+		t.Fatal("expected an error when the revision could not be verified before posting")
+	}
+	if !strings.Contains(err.Error(), "unchanged") {
+		t.Fatalf("expected the error to explain the revision was actually unchanged, got %q", err.Error())
+	}
+
+	if posted := readPostReviewLog(t, env.postReviewLog); posted != "" {
+		t.Fatalf("expected no GitHub mutation when the revision could not be verified, got %q", posted)
+	}
+
+	events := loadEvents(t, env.dataDir, env.key)
+	if len(events) != 0 {
+		t.Fatalf("expected no false review_stale audit event when the revision was actually unchanged, got %+v", events)
+	}
+}
+
 func TestRunDeskAct_DeclinedConfirmationDoesNotPost(t *testing.T) {
 	env := setupDeskActTest(t, 28, fakeReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
 	withFakeGH(t, fakeGHResponses{

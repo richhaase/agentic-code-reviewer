@@ -24,7 +24,8 @@ func newDeskResolveCmd() *cobra.Command {
 
 func newDeskReleaseCmd() *cobra.Command {
 	return newDeskLifecycleCmd("release", "Stop tracking a pull request on the desk",
-		"Release a pull request from the desk workspace entirely. It will reappear only if discovery finds it again.",
+		"Release a pull request from the desk workspace entirely. It stays suppressed even if discovery finds it again; "+
+			"run `acr desk resume` to bring it back onto the desk.",
 		store.EventTypeUserReleased)
 }
 

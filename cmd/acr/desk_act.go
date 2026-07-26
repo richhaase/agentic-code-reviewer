@@ -224,6 +224,11 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 
 	code := handleTypedReviewRun(ctx, opts, run, logger)
 
+	actor := freshCfg.Identity.ExpectedUser
+	if finalCfg, finalErr := workspace.Load(configDir); finalErr == nil {
+		actor = finalCfg.Identity.ExpectedUser
+	}
+
 	var recordErr error
 	var deferredForCI bool
 	var actionErrResult error
@@ -232,22 +237,26 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 	} else {
 		switch outcome.Kind {
 		case OutcomeLGTMApproved:
-			recordErr = appendActionEvent(dataDir, key, store.EventTypeActionApprovalPosted, run, freshCfg.Identity.ExpectedUser)
+			recordErr = appendActionEvent(dataDir, key, store.EventTypeActionApprovalPosted, run, actor)
 		case OutcomeLGTMComment:
 			if outcome.CIDowngraded {
 				deferredForCI = true
 			} else {
-				recordErr = appendActionEvent(dataDir, key, store.EventTypeActionCommentPosted, run, freshCfg.Identity.ExpectedUser)
+				recordErr = appendActionEvent(dataDir, key, store.EventTypeActionCommentPosted, run, actor)
 			}
 		case OutcomeReviewComment:
-			recordErr = appendActionEvent(dataDir, key, store.EventTypeActionCommentPosted, run, freshCfg.Identity.ExpectedUser)
+			recordErr = appendActionEvent(dataDir, key, store.EventTypeActionCommentPosted, run, actor)
 		case OutcomeReviewRequestChanges:
-			recordErr = appendActionEvent(dataDir, key, store.EventTypeActionRequestChangesPosted, run, freshCfg.Identity.ExpectedUser)
+			recordErr = appendActionEvent(dataDir, key, store.EventTypeActionRequestChangesPosted, run, actor)
 		case OutcomeStaleHead:
-			if staleErr := recordStaleResult(ctx, dataDir, key, run, discovery); staleErr != nil {
-				actionErrResult = fmt.Errorf("the pull request head moved since this review, and the stale result could not be recorded: %w", staleErr)
-			} else {
-				actionErrResult = errors.New("the pull request head moved since this review; nothing was posted")
+			moved, staleErr := recordStaleResult(ctx, dataDir, key, run, discovery)
+			switch {
+			case staleErr != nil:
+				actionErrResult = fmt.Errorf("could not verify whether the pull request revision moved: %w", staleErr)
+			case moved:
+				actionErrResult = errors.New("the pull request head or base moved since this review; nothing was posted")
+			default:
+				actionErrResult = errors.New("the revision check could not be completed reliably while posting, but a follow-up check found the pull request unchanged; nothing was posted — please retry")
 			}
 		default:
 			actionErrResult = fmt.Errorf("action was not posted (outcome: %d)", outcome.Kind)
@@ -273,7 +282,7 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 		}
 	}
 	if deferredForCI {
-		fmt.Println("CI is not green; posted a comment instead of approving. The item remains actionable — run `acr desk act --approve` again once CI passes.")
+		fmt.Printf("CI is not green; posted a comment instead of approving. The item remains actionable — run `acr desk act %s --approve` again once CI passes.\n", key.String())
 	}
 	return nil
 }
@@ -366,12 +375,19 @@ func appendActionEvent(dataDir string, key store.PullRequestKeyV1, eventType sto
 	return err
 }
 
-func recordStaleResult(ctx context.Context, dataDir string, key store.PullRequestKeyV1, run *domain.ReviewRun, discovery github.Discovery) error {
+func recordStaleResult(ctx context.Context, dataDir string, key store.PullRequestKeyV1, run *domain.ReviewRun, discovery github.Discovery) (bool, error) {
 	snapshot, err := discovery.Enrich(ctx, key.ToDomain())
 	if err != nil {
-		return fmt.Errorf("re-check current PR head: %w", err)
+		return false, fmt.Errorf("re-check current PR head: %w", err)
 	}
-	return appendStaleEvent(dataDir, key, run, snapshot.HeadObjectID, snapshot.BaseObjectID)
+	moved := snapshot.HeadObjectID != run.Target.Revision.HeadObjectID || snapshot.BaseObjectID != run.Target.Revision.BaseObjectID
+	if !moved {
+		return false, nil
+	}
+	if appendErr := appendStaleEvent(dataDir, key, run, snapshot.HeadObjectID, snapshot.BaseObjectID); appendErr != nil {
+		return true, appendErr
+	}
+	return true, nil
 }
 
 func appendStaleEvent(dataDir string, key store.PullRequestKeyV1, run *domain.ReviewRun, currentHeadObjectID, currentBaseObjectID string) error {

@@ -263,13 +263,13 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 	}
 
 	if err := retrySubmission(ctx, func() error {
-		if headMovedSinceReview(ctx, opts, pr.number, logger) {
-			return errRevisionMovedSinceReview
-		}
 		if opts.PreSubmitCheck != nil {
 			if checkErr := opts.PreSubmitCheck(); checkErr != nil {
 				return checkErr
 			}
+		}
+		if headMovedSinceReview(ctx, opts, pr.number, logger) {
+			return errRevisionMovedSinceReview
 		}
 		return github.SubmitPRReview(ctx, opts.RepositoryRoot, pr.number, body, requestChanges)
 	}, opts.Outcome != nil, logger); err != nil {
@@ -360,13 +360,13 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 	}
 
 	if err := retrySubmission(ctx, func() error {
-		if headMovedSinceReview(ctx, opts, pr.number, logger) {
-			return errRevisionMovedSinceReview
-		}
 		if opts.PreSubmitCheck != nil {
 			if checkErr := opts.PreSubmitCheck(); checkErr != nil {
 				return checkErr
 			}
+		}
+		if headMovedSinceReview(ctx, opts, pr.number, logger) {
+			return errRevisionMovedSinceReview
 		}
 		return executeLGTMAction(ctx, opts.RepositoryRoot, action, pr.number, body, logger)
 	}, opts.Outcome != nil, logger); err != nil {

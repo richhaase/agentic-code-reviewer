@@ -184,6 +184,7 @@ type fakeGHResponses struct {
 	watchHeadSHA  string
 	watchBaseSHA  string
 	watchState    string
+	watchFail     bool
 	prAuthor      string
 	ciBucket      string
 	postReviewLog string
@@ -212,6 +213,10 @@ case "$args" in
     echo '{"url":%q,"sshUrl":%q}'
     ;;
   *"--json headRefOid,baseRefOid,state,reviewRequests"*)
+    if [ %q = "true" ]; then
+      echo "fake gh: simulated watch-state lookup failure" >&2
+      exit 1
+    fi
     echo '{"headRefOid":%q,"baseRefOid":%q,"state":%q,"reviewRequests":[]}'
     ;;
   *"--json baseRefName"*)
@@ -238,6 +243,7 @@ esac
 `,
 		responses.user,
 		responses.repoURL, responses.repoSSHURL,
+		fmt.Sprintf("%t", responses.watchFail),
 		responses.watchHeadSHA, responses.watchBaseSHA, watchState,
 		responses.baseRefName,
 		responses.prAuthor,
