@@ -208,6 +208,7 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 		return fmt.Errorf("GitHub identity could not be verified before posting: %w", identityErr)
 	}
 
+	verifiedActor := freshCfg.Identity.ExpectedUser
 	outcome := &CycleOutcome{}
 	opts := ReviewOpts{
 		RepositoryRoot:                item.RepositoryPath,
@@ -218,16 +219,19 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 		ForcePostComment:              action == deskActComment || isSelfReview,
 		ExpectedHeadSHA:               run.Target.Revision.HeadObjectID,
 		ExpectedBaseSHA:               run.Target.Revision.BaseObjectID,
-		PreSubmitCheck:                func() error { return revalidateDeskEligibility(ctx, configDir, dataDir, key, discovery) },
-		Outcome:                       outcome,
+		PreSubmitCheck: func() error {
+			actor, checkErr := revalidateDeskEligibility(ctx, configDir, dataDir, key, discovery)
+			if checkErr == nil {
+				verifiedActor = actor
+			}
+			return checkErr
+		},
+		Outcome: outcome,
 	}
 
 	code := handleTypedReviewRun(ctx, opts, run, logger)
 
-	actor := freshCfg.Identity.ExpectedUser
-	if finalCfg, finalErr := workspace.Load(configDir); finalErr == nil {
-		actor = finalCfg.Identity.ExpectedUser
-	}
+	actor := verifiedActor
 
 	var recordErr error
 	var deferredForCI bool
@@ -411,29 +415,32 @@ func appendStaleEvent(dataDir string, key store.PullRequestKeyV1, run *domain.Re
 	return err
 }
 
-func revalidateDeskEligibility(ctx context.Context, configDir, dataDir string, key store.PullRequestKeyV1, discovery github.Discovery) error {
+func revalidateDeskEligibility(ctx context.Context, configDir, dataDir string, key store.PullRequestKeyV1, discovery github.Discovery) (string, error) {
 	cfg, err := workspace.Load(configDir)
 	if err != nil {
-		return fmt.Errorf("could not reload workspace configuration: %w", err)
+		return "", fmt.Errorf("could not reload workspace configuration: %w", err)
 	}
 	if errs := cfg.Validate(); len(errs) > 0 {
-		return fmt.Errorf("workspace configuration has %d error(s): %v", len(errs), errs)
+		return "", fmt.Errorf("workspace configuration has %d error(s): %v", len(errs), errs)
 	}
 	if err := cfg.RequirePosting(); err != nil {
-		return err
+		return "", err
 	}
 	if err := workspace.CheckIdentity(ctx, *cfg); err != nil {
-		return err
+		return "", err
 	}
 	inbox, err := desk.Refresh(ctx, *cfg, dataDir, discovery, time.Now())
 	if err != nil {
-		return fmt.Errorf("could not re-check desk eligibility: %w", err)
+		return "", fmt.Errorf("could not re-check desk eligibility: %w", err)
 	}
 	item, ok := findDeskItem(inbox, key)
-	if !ok || (item.DeskState != domain.DeskStateFindingsReady && item.DeskState != domain.DeskStateDecisionReady) {
-		return fmt.Errorf("%s is no longer eligible for this action under the current workspace configuration", key.String())
+	if ok && (item.DeskState == domain.DeskStateStale || item.DeskState == domain.DeskStateNeedsRereview) {
+		return "", errRevisionMovedSinceReview
 	}
-	return nil
+	if !ok || (item.DeskState != domain.DeskStateFindingsReady && item.DeskState != domain.DeskStateDecisionReady) {
+		return "", fmt.Errorf("%s is no longer eligible for this action under the current workspace configuration", key.String())
+	}
+	return cfg.Identity.ExpectedUser, nil
 }
 
 func newDeskEventID(now time.Time) (string, error) {

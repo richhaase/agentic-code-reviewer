@@ -384,6 +384,41 @@ func TestRunDeskAct_UnverifiableRevisionDoesNotRecordFalseStaleEvent(t *testing.
 	}
 }
 
+func TestRunDeskAct_RevisionMovedDuringPreSubmitCheckRoutesToStaleOutcome(t *testing.T) {
+	env := setupDeskActTest(t, 272, fakeReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
+	now := time.Now()
+	env.discovery.enrichResponses = []domain.PullRequestSnapshot{
+		dispatchSnapshotWithAuthor(env.key, "someone-else", env.fixture.prHeadSHA, env.fixture.baseSHA, now),
+		dispatchSnapshotWithAuthor(env.key, "someone-else", env.fixture.prHeadSHA, env.fixture.baseSHA, now.Add(time.Minute)),
+		dispatchSnapshotWithAuthor(env.key, "someone-else", env.fixture.staleSHA, env.fixture.baseSHA, now.Add(2*time.Minute)),
+	}
+	withFakeGH(t, fakeGHResponses{
+		user:          "me",
+		repoURL:       env.fixture.remoteURL,
+		repoSSHURL:    env.fixture.remoteURL,
+		baseRefName:   "main",
+		watchHeadSHA:  env.fixture.prHeadSHA,
+		watchBaseSHA:  env.fixture.baseSHA,
+		prAuthor:      "someone-else",
+		ciBucket:      "pass",
+		postReviewLog: env.postReviewLog,
+	})
+
+	err := runDeskAct(context.Background(), env.key, deskActApprove, true, env.discovery)
+	if err == nil {
+		t.Fatal("expected an error when the revision moved during the pre-submit eligibility recheck")
+	}
+
+	if posted := readPostReviewLog(t, env.postReviewLog); posted != "" {
+		t.Fatalf("expected no GitHub mutation when the pre-submit recheck finds a moved revision, got %q", posted)
+	}
+
+	events := loadEvents(t, env.dataDir, env.key)
+	if len(events) != 1 || events[0].Type != store.EventTypeReviewStale {
+		t.Fatalf("expected exactly one review_stale audit event routed through the stale outcome, got %+v", events)
+	}
+}
+
 func TestRunDeskAct_DeclinedConfirmationDoesNotPost(t *testing.T) {
 	env := setupDeskActTest(t, 28, fakeReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
 	withFakeGH(t, fakeGHResponses{
