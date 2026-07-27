@@ -17,6 +17,8 @@ import (
 
 const maxDisplayedCIChecks = 5
 
+var errRevisionMovedSinceReview = errors.New("pull request revision moved since the review")
+
 type prContext struct {
 	number       string
 	isSelfReview bool
@@ -31,7 +33,7 @@ func getPRContext(ctx context.Context, opts ReviewOpts) prContext {
 	if opts.PRNumber != "" {
 		return prContext{
 			number:       opts.PRNumber,
-			isSelfReview: github.IsSelfReview(ctx, opts.RepositoryRoot, opts.PRNumber),
+			isSelfReview: resolveSelfReview(ctx, opts, opts.PRNumber),
 		}
 	}
 
@@ -41,8 +43,15 @@ func getPRContext(ctx context.Context, opts ReviewOpts) prContext {
 	}
 	return prContext{
 		number:       foundPR,
-		isSelfReview: github.IsSelfReview(ctx, opts.RepositoryRoot, foundPR),
+		isSelfReview: resolveSelfReview(ctx, opts, foundPR),
 	}
+}
+
+func resolveSelfReview(ctx context.Context, opts ReviewOpts, prNumber string) bool {
+	if opts.KnownSelfReview != nil {
+		return *opts.KnownSelfReview
+	}
+	return github.IsSelfReview(ctx, opts.RepositoryRoot, prNumber)
 }
 
 func checkPRAvailable(pr prContext, opts ReviewOpts, logger *terminal.Logger) (bool, error) {
@@ -156,12 +165,18 @@ func handleFindings(ctx context.Context, opts ReviewOpts, grouped domain.Grouped
 		}
 		if canceled {
 			logger.Log("Skipped posting findings.", terminal.StyleDim)
+			opts.record(OutcomeReviewSkipped)
 			return domain.ExitFindings
 		}
 		selectedFindings = filterFindingsByIndices(grouped.Findings, indices)
 
 		if len(selectedFindings) == 0 {
 			logger.Log("No findings selected to post.", terminal.StyleDim)
+
+			if opts.SuppressZeroSelectionFallback {
+				opts.record(OutcomeReviewSkipped)
+				return domain.ExitFindings
+			}
 
 			lgtmBody := runner.RenderDismissedLGTMMarkdown(grouped.Findings, stats, version)
 			pr := getPRContext(ctx, opts)
@@ -202,10 +217,11 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 
 	requestChanges := !pr.isSelfReview && !opts.ForcePostComment
 
-	if !opts.AutoYes {
+	if !opts.AutoYes && !opts.SkipReviewTypePrompt {
 
 		if !terminal.IsStdinTTY() {
 			logger.Log("Non-interactive mode without --yes flag; skipping PR review.", terminal.StyleDim)
+			opts.record(OutcomeReviewSkipped)
 			return nil
 		}
 
@@ -227,6 +243,7 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 			switch response {
 			case "s", "n", "no":
 				logger.Log("Skipped posting review.", terminal.StyleDim)
+				opts.record(OutcomeReviewSkipped)
 				return nil
 			default:
 				requestChanges = false
@@ -237,6 +254,7 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 				requestChanges = false
 			case "s", "n", "no":
 				logger.Log("Skipped posting review.", terminal.StyleDim)
+				opts.record(OutcomeReviewSkipped)
 				return nil
 			default:
 				requestChanges = true
@@ -251,14 +269,21 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 		}
 	}
 
-	if headMovedSinceReview(ctx, opts, pr.number, logger) {
-		opts.record(OutcomeStaleHead)
-		return nil
-	}
-
 	if err := retrySubmission(ctx, func() error {
+		if opts.PreSubmitCheck != nil {
+			if checkErr := opts.PreSubmitCheck(); checkErr != nil {
+				return checkErr
+			}
+		}
+		if headMovedSinceReview(ctx, opts, pr.number, logger) {
+			return errRevisionMovedSinceReview
+		}
 		return github.SubmitPRReview(ctx, opts.RepositoryRoot, pr.number, body, requestChanges)
-	}, opts.Outcome != nil, logger); err != nil {
+	}, opts.AllowSubmissionRetry, logger); err != nil {
+		if errors.Is(err, errRevisionMovedSinceReview) {
+			opts.record(OutcomeStaleHead)
+			return nil
+		}
 		logger.Logf(terminal.StyleError, "Failed: %v", err)
 		return err
 	}
@@ -266,6 +291,11 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 	reviewType := "request changes"
 	if !requestChanges {
 		reviewType = "comment"
+	}
+	if requestChanges {
+		opts.record(OutcomeReviewRequestChanges)
+	} else {
+		opts.record(OutcomeReviewComment)
 	}
 	logger.Logf(terminal.StyleSuccess, "Posted %s review to PR #%s.", reviewType, pr.number)
 	return nil
@@ -303,7 +333,7 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 		action = actionComment
 	}
 
-	if !opts.AutoYes {
+	if !opts.AutoYes && !opts.SkipReviewTypePrompt {
 		if !terminal.IsStdinTTY() {
 			logger.Log("Non-interactive mode without --yes flag; skipping LGTM.", terminal.StyleDim)
 			opts.record(OutcomeLGTMSkipped)
@@ -336,14 +366,22 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 		}
 	}
 
-	if headMovedSinceReview(ctx, opts, pr.number, logger) {
-		opts.record(OutcomeStaleHead)
-		return nil
-	}
-
 	if err := retrySubmission(ctx, func() error {
+		if opts.PreSubmitCheck != nil {
+			if checkErr := opts.PreSubmitCheck(); checkErr != nil {
+				return checkErr
+			}
+		}
+		if headMovedSinceReview(ctx, opts, pr.number, logger) {
+			return errRevisionMovedSinceReview
+		}
 		return executeLGTMAction(ctx, opts.RepositoryRoot, action, pr.number, body, logger)
-	}, opts.Outcome != nil, logger); err != nil {
+	}, opts.AllowSubmissionRetry, logger); err != nil {
+		if errors.Is(err, errRevisionMovedSinceReview) {
+			opts.record(OutcomeStaleHead)
+			return nil
+		}
+		logger.Logf(terminal.StyleError, "Failed: %v", err)
 		return err
 	}
 	if action == actionApprove {
@@ -393,7 +431,7 @@ const submissionAttempts = 3
 
 func retrySubmission(ctx context.Context, submit func() error, watchMode bool, logger *terminal.Logger) error {
 	err := submit()
-	if err == nil || !watchMode {
+	if err == nil || !watchMode || errors.Is(err, errRevisionMovedSinceReview) {
 		return err
 	}
 	for attempt := 2; attempt <= submissionAttempts; attempt++ {
@@ -408,8 +446,8 @@ func retrySubmission(ctx context.Context, submit func() error, watchMode bool, l
 			return err
 		case <-timer.C:
 		}
-		if err = submit(); err == nil {
-			return nil
+		if err = submit(); err == nil || errors.Is(err, errRevisionMovedSinceReview) {
+			return err
 		}
 	}
 	return err
@@ -419,15 +457,28 @@ func headMovedSinceReview(ctx context.Context, opts ReviewOpts, prNumber string,
 	if opts.ExpectedHeadSHA == "" {
 		return false
 	}
+	strict := opts.ExpectedBaseSHA != ""
 	st, err := github.GetPRWatchState(ctx, opts.RepositoryRoot, prNumber)
 	if err != nil || st.HeadSHA == "" {
+		if strict {
+			logger.Logf(terminal.StyleWarning, "could not verify the current PR revision; treating as stale.")
+			return true
+		}
 		return false
 	}
-	if strings.EqualFold(st.HeadSHA, opts.ExpectedHeadSHA) {
-		return false
+	if st.Closed() || st.Merged() {
+		logger.Logf(terminal.StyleWarning, "PR closed or merged since the review; skipping post.")
+		return true
 	}
-	logger.Logf(terminal.StyleWarning, "PR head moved since the review; skipping post (the new head will be re-reviewed).")
-	return true
+	if !strings.EqualFold(st.HeadSHA, opts.ExpectedHeadSHA) {
+		logger.Logf(terminal.StyleWarning, "PR head moved since the review; skipping post (the new head will be re-reviewed).")
+		return true
+	}
+	if strict && !strings.EqualFold(st.BaseSHA, opts.ExpectedBaseSHA) {
+		logger.Logf(terminal.StyleWarning, "PR base moved since the review; skipping post (the revision will be re-reviewed).")
+		return true
+	}
+	return false
 }
 
 func logCIChecks(logger *terminal.Logger, checks []string) {
@@ -460,6 +511,7 @@ func checkCIAndMaybeDowngrade(ctx context.Context, prNum string, action lgtmActi
 		fmt.Print(formatPrompt("Post as comment instead?", "[C]omment (default) / [S]kip:"))
 		switch readUserInput() {
 		case "", "c", "y", "yes":
+			opts.Outcome.CIDowngraded = true
 			return actionComment, nil
 		default:
 			logger.Log("Skipped posting LGTM.", terminal.StyleDim)
@@ -498,6 +550,9 @@ func checkCIAndMaybeDowngrade(ctx context.Context, prNum string, action lgtmActi
 
 	switch response {
 	case "", "c", "y", "yes":
+		if opts.Outcome != nil {
+			opts.Outcome.CIDowngraded = true
+		}
 		return actionComment, nil
 	default:
 		logger.Log("Skipped posting LGTM.", terminal.StyleDim)

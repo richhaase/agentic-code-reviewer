@@ -72,8 +72,8 @@ func (c Config) RequirePosting() error {
 	return nil
 }
 
-func CheckIdentity(ctx context.Context, c Config) error {
-	return matchIdentity(github.GetCurrentUser(ctx), c.Identity.ExpectedUser)
+func CheckIdentity(ctx context.Context, c Config, host string) error {
+	return matchIdentity(github.GetCurrentUser(ctx, host), c.Identity.ExpectedUser)
 }
 
 func matchIdentity(actual, expected string) error {

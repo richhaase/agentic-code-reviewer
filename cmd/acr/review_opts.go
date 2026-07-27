@@ -22,7 +22,13 @@ type ReviewOpts struct {
 	ConfigSource    config.SourceIdentity
 	Trigger         domain.ReviewTrigger
 
-	ForcePostComment bool
-	ExpectedHeadSHA  string
-	Outcome          *CycleOutcome
+	ForcePostComment              bool
+	SkipReviewTypePrompt          bool
+	SuppressZeroSelectionFallback bool
+	ExpectedHeadSHA               string
+	ExpectedBaseSHA               string
+	PreSubmitCheck                func() error
+	Outcome                       *CycleOutcome
+	AllowSubmissionRetry          bool
+	KnownSelfReview               *bool
 }

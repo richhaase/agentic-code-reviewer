@@ -345,6 +345,9 @@ func TestBuildWatchReviewOptsProducesRequestScopedToWatchTrigger(t *testing.T) {
 	if opts.ConfigSource != cfgResult.source {
 		t.Fatalf("opts.ConfigSource = %#v, want %#v", opts.ConfigSource, cfgResult.source)
 	}
+	if !opts.AllowSubmissionRetry {
+		t.Fatal("watch must allow submission retries; a fresh cycle makes retrying a non-idempotent post safe")
+	}
 
 	sink := &noopReviewEventSink{}
 	request, err := newReviewRequest(opts, cfgResult.resolved.Base, sink)
