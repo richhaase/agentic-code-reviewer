@@ -229,7 +229,8 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 			}
 			return checkErr
 		},
-		Outcome: outcome,
+		Outcome:         outcome,
+		KnownSelfReview: &isSelfReview,
 	}
 
 	code := handleTypedReviewRun(ctx, opts, run, logger)

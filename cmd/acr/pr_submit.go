@@ -33,7 +33,7 @@ func getPRContext(ctx context.Context, opts ReviewOpts) prContext {
 	if opts.PRNumber != "" {
 		return prContext{
 			number:       opts.PRNumber,
-			isSelfReview: github.IsSelfReview(ctx, opts.RepositoryRoot, opts.PRNumber),
+			isSelfReview: resolveSelfReview(ctx, opts, opts.PRNumber),
 		}
 	}
 
@@ -43,8 +43,15 @@ func getPRContext(ctx context.Context, opts ReviewOpts) prContext {
 	}
 	return prContext{
 		number:       foundPR,
-		isSelfReview: github.IsSelfReview(ctx, opts.RepositoryRoot, foundPR),
+		isSelfReview: resolveSelfReview(ctx, opts, foundPR),
 	}
+}
+
+func resolveSelfReview(ctx context.Context, opts ReviewOpts, prNumber string) bool {
+	if opts.KnownSelfReview != nil {
+		return *opts.KnownSelfReview
+	}
+	return github.IsSelfReview(ctx, opts.RepositoryRoot, prNumber)
 }
 
 func checkPRAvailable(pr prContext, opts ReviewOpts, logger *terminal.Logger) (bool, error) {

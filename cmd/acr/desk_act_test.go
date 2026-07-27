@@ -238,6 +238,35 @@ func TestRunDeskAct_PostsRequestChangesForFindingsReview(t *testing.T) {
 	}
 }
 
+func TestRunDeskAct_RequestChangesSurvivesFailedLiveAuthorLookup(t *testing.T) {
+	env := setupDeskActTest(t, 221, fakeFindingsReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
+	withFakeGH(t, fakeGHResponses{
+		user:          "me",
+		repoURL:       env.fixture.remoteURL,
+		repoSSHURL:    env.fixture.remoteURL,
+		baseRefName:   "main",
+		watchHeadSHA:  env.fixture.prHeadSHA,
+		watchBaseSHA:  env.fixture.baseSHA,
+		prAuthor:      "",
+		postReviewLog: env.postReviewLog,
+	})
+
+	err := runDeskAct(context.Background(), env.key, deskActRequestChanges, true, env.discovery)
+	if err != nil {
+		t.Fatalf("runDeskAct failed: %v", err)
+	}
+
+	posted := readPostReviewLog(t, env.postReviewLog)
+	if !strings.Contains(posted, "--request-changes") {
+		t.Fatalf("expected the confirmed --request-changes action to survive a failed live PR-author lookup, got %q", posted)
+	}
+
+	events := loadEvents(t, env.dataDir, env.key)
+	if len(events) != 1 || events[0].Type != store.EventTypeActionRequestChangesPosted {
+		t.Fatalf("expected exactly one action_request_changes_posted event, got %+v", events)
+	}
+}
+
 func TestRunDeskAct_PostsCommentForFindingsReview(t *testing.T) {
 	env := setupDeskActTest(t, 23, fakeFindingsReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
 	withFakeGH(t, fakeGHResponses{

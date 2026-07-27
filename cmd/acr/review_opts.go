@@ -30,4 +30,5 @@ type ReviewOpts struct {
 	PreSubmitCheck                func() error
 	Outcome                       *CycleOutcome
 	AllowSubmissionRetry          bool
+	KnownSelfReview               *bool
 }
