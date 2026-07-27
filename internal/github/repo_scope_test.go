@@ -197,13 +197,41 @@ func TestGetPRAuthor_ScopesToRepositoryRoot(t *testing.T) {
 	}
 }
 
-func TestGetCurrentUser_ScopesToRepositoryRoot(t *testing.T) {
-	repoRoot := t.TempDir()
+func TestGetCurrentUser_PassesHostnameFlagWhenHostKnown(t *testing.T) {
 	scriptDir := setupMockGH(t, "octocat")
 
-	user := GetCurrentUser(context.Background(), repoRoot)
+	user := GetCurrentUser(context.Background(), "ghe.example.com")
 	if user != "octocat" {
 		t.Errorf("expected octocat, got %q", user)
+	}
+
+	args := readCapturedArgs(t, scriptDir)
+	if len(args) != 1 || !strings.Contains(args[0], "--hostname ghe.example.com") {
+		t.Errorf("expected gh invoked with --hostname ghe.example.com, got %v", args)
+	}
+}
+
+func TestGetCurrentUser_OmitsHostnameFlagWhenHostUnknown(t *testing.T) {
+	scriptDir := setupMockGH(t, "octocat")
+
+	user := GetCurrentUser(context.Background(), "")
+	if user != "octocat" {
+		t.Errorf("expected octocat, got %q", user)
+	}
+
+	args := readCapturedArgs(t, scriptDir)
+	if len(args) != 1 || strings.Contains(args[0], "--hostname") {
+		t.Errorf("expected gh invoked without --hostname, got %v", args)
+	}
+}
+
+func TestGetRepositoryHost_ScopesToRepositoryRoot(t *testing.T) {
+	repoRoot := t.TempDir()
+	scriptDir := setupMockGH(t, "https://ghe.example.com/acme/widgets")
+
+	host := GetRepositoryHost(context.Background(), repoRoot)
+	if host != "ghe.example.com" {
+		t.Errorf("expected ghe.example.com, got %q", host)
 	}
 
 	cwds := readCapturedCwd(t, scriptDir)
@@ -212,11 +240,12 @@ func TestGetCurrentUser_ScopesToRepositoryRoot(t *testing.T) {
 	}
 }
 
-func TestIsSelfReview_BothGHCallsScopeToRepositoryRoot(t *testing.T) {
+func TestIsSelfReview_ResolvesHostAndScopesEveryGHCallCorrectly(t *testing.T) {
 	repoRoot := t.TempDir()
 	scriptDir := setupMockGHRoutedByArgs(t, map[string]string{
-		"api user": "octocat",
-		"pr view":  "octocat",
+		"repo view": "https://ghe.example.com/acme/widgets",
+		"api user":  "octocat",
+		"pr view":   "octocat",
 	})
 
 	if !IsSelfReview(context.Background(), repoRoot, "7") {
@@ -225,15 +254,19 @@ func TestIsSelfReview_BothGHCallsScopeToRepositoryRoot(t *testing.T) {
 
 	cwds := readCapturedCwd(t, scriptDir)
 	args := readCapturedArgs(t, scriptDir)
-	if len(cwds) != 2 || len(args) != 2 {
-		t.Fatalf("expected 2 gh invocations (current user + pr author), got cwds=%v args=%v", cwds, args)
+	if len(cwds) != 3 || len(args) != 3 {
+		t.Fatalf("expected 3 gh invocations (repo host + current user + pr author), got cwds=%v args=%v", cwds, args)
 	}
 
 	for i, a := range args {
 		switch {
-		case strings.HasPrefix(a, "api user"):
+		case strings.HasPrefix(a, "repo view"):
 			if cwds[i] != resolvedDir(t, repoRoot) {
-				t.Errorf("expected GetCurrentUser to run in %s, got %s", resolvedDir(t, repoRoot), cwds[i])
+				t.Errorf("expected repo host resolution to run in %s, got %s", resolvedDir(t, repoRoot), cwds[i])
+			}
+		case strings.HasPrefix(a, "api user"):
+			if !strings.Contains(a, "--hostname ghe.example.com") {
+				t.Errorf("expected GetCurrentUser to pass --hostname ghe.example.com, got %q", a)
 			}
 		case strings.HasPrefix(a, "pr view"):
 			if cwds[i] != resolvedDir(t, repoRoot) {

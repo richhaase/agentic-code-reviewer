@@ -446,14 +446,31 @@ func CheckGHAvailable() error {
 	return nil
 }
 
-func GetCurrentUser(ctx context.Context, repositoryRoot string) string {
-	cmd := exec.CommandContext(ctx, "gh", "api", "user", "--jq", ".login")
-	cmd.Dir = repositoryRoot
+func GetCurrentUser(ctx context.Context, host string) string {
+	args := []string{"api", "user", "--jq", ".login"}
+	if host != "" {
+		args = append(args, "--hostname", host)
+	}
+	cmd := exec.CommandContext(ctx, "gh", args...)
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func GetRepositoryHost(ctx context.Context, repositoryRoot string) string {
+	cmd := exec.CommandContext(ctx, "gh", "repo", "view", "--json", "url", "--jq", ".url")
+	cmd.Dir = repositoryRoot
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	host, _, _, ok := ParseRemoteURL(strings.TrimSpace(string(out)))
+	if !ok {
+		return ""
+	}
+	return host
 }
 
 func GetPRAuthor(ctx context.Context, repositoryRoot, prNumber string) string {
@@ -467,7 +484,7 @@ func GetPRAuthor(ctx context.Context, repositoryRoot, prNumber string) string {
 }
 
 func IsSelfReview(ctx context.Context, repositoryRoot, prNumber string) bool {
-	currentUser := GetCurrentUser(ctx, repositoryRoot)
+	currentUser := GetCurrentUser(ctx, GetRepositoryHost(ctx, repositoryRoot))
 	prAuthor := GetPRAuthor(ctx, repositoryRoot, prNumber)
 	return checkSelfReview(currentUser, prAuthor)
 }

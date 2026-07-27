@@ -206,11 +206,14 @@ func withFakeGH(t *testing.T, responses fakeGHResponses) {
 	script := fmt.Sprintf(`#!/bin/sh
 args="$*"
 case "$args" in
-  "api user --jq .login")
+  "api user --jq .login"|"api user --jq .login --hostname "*)
     echo %q
     ;;
   "repo view --json url,sshUrl")
     echo '{"url":%q,"sshUrl":%q}'
+    ;;
+  "repo view --json url --jq .url")
+    echo %q
     ;;
   *"--json headRefOid,baseRefOid,state,reviewRequests"*)
     if [ %q = "true" ]; then
@@ -254,6 +257,7 @@ esac
 `,
 		responses.user,
 		responses.repoURL, responses.repoSSHURL,
+		responses.repoURL,
 		fmt.Sprintf("%t", responses.watchFail),
 		responses.watchHeadSHA, responses.watchBaseSHA, watchState,
 		responses.baseRefName,
@@ -377,9 +381,15 @@ func startGitDaemon(t *testing.T, baseDir string) {
 	if err := cmd.Start(); err != nil {
 		t.Skipf("could not start a local git daemon in this environment: %v", err)
 	}
+
+	exited := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(exited)
+	}()
 	t.Cleanup(func() {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		_ = cmd.Wait()
+		<-exited
 	})
 
 	deadline := time.Now().Add(5 * time.Second)
@@ -389,9 +399,14 @@ func startGitDaemon(t *testing.T, baseDir string) {
 			_ = conn.Close()
 			return
 		}
+		select {
+		case <-exited:
+			t.Fatalf("git daemon exited before becoming ready: %s", stderr.String())
+		default:
+		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Skipf("git daemon did not become ready in this environment: %s", stderr.String())
+	t.Fatalf("git daemon did not become ready within the deadline: %s", stderr.String())
 }
 
 func runGit(t *testing.T, dir string, args ...string) {

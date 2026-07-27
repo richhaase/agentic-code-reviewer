@@ -164,7 +164,7 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 		MaxDuration:  cfgResult.resolved.WatchMaxDuration,
 	}
 
-	currentUser := github.GetCurrentUser(ctx, repoRoot)
+	currentUser := github.GetCurrentUser(ctx, github.GetRepositoryHost(ctx, repoRoot))
 	if currentUser == "" {
 		logger.Log("Could not determine the authenticated gh user; re-review request triggers are disabled.", terminal.StyleWarning)
 	}

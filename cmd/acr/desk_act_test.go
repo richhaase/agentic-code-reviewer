@@ -347,6 +347,31 @@ func TestRunDeskAct_SelfAuthoredPRForcesComment(t *testing.T) {
 	}
 }
 
+func TestRunDeskAct_SelfReviewClassificationUsesDeskStateNotLiveLookup(t *testing.T) {
+	env := setupDeskActTest(t, 261, fakeReviewRun(t, domain.ReviewTarget{}), "me", "comment-only", true)
+	withFakeGH(t, fakeGHResponses{
+		user:          "me",
+		repoURL:       env.fixture.remoteURL,
+		repoSSHURL:    env.fixture.remoteURL,
+		baseRefName:   "main",
+		watchHeadSHA:  env.fixture.prHeadSHA,
+		watchBaseSHA:  env.fixture.baseSHA,
+		prAuthor:      "someone-entirely-different",
+		ciBucket:      "pass",
+		postReviewLog: env.postReviewLog,
+	})
+
+	err := runDeskAct(context.Background(), env.key, deskActApprove, true, env.discovery)
+	if err != nil {
+		t.Fatalf("runDeskAct failed: %v", err)
+	}
+
+	posted := readPostReviewLog(t, env.postReviewLog)
+	if !strings.Contains(posted, "--comment") || strings.Contains(posted, "--approve") {
+		t.Fatalf("expected the self-authored PR to be downgraded to --comment based on desk classification even though a live PR-author lookup would disagree, got %q", posted)
+	}
+}
+
 func TestRunDeskAct_StaleHeadPreventsPostingAndRecordsAuditEvent(t *testing.T) {
 	env := setupDeskActTest(t, 27, fakeReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
 	now := time.Now()
