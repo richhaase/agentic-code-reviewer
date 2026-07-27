@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -126,6 +128,25 @@ func TestRunDeskLifecycleAction_SnoozeRejectsAlreadyReleasedItem(t *testing.T) {
 
 	if _, ok := loadStoredItem(t, env); ok {
 		t.Fatal("expected the PR to remain untracked; a rejected snooze must not resume tracking")
+	}
+}
+
+func TestRunDeskLifecycleAction_SnoozeFailsClosedOnCorruptLifecycleHistory(t *testing.T) {
+	env := setupDeskLifecycleTest(t, 342)
+	withFakeGH(t, fakeGHResponses{user: "me"})
+
+	eventsDir := filepath.Join(env.dataDir, "prs", env.key.Host, env.key.Owner, env.key.Repository, "342", "events")
+	if err := os.MkdirAll(eventsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	corruptPath := filepath.Join(eventsDir, "20260101T000000.000000000Z-corrupt.json")
+	if err := os.WriteFile(corruptPath, []byte("not valid json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := runDeskLifecycleAction(context.Background(), env.key, store.EventTypeUserSnoozed, env.discovery)
+	if err == nil {
+		t.Fatal("expected snooze to fail closed when stored lifecycle history has an unreadable record")
 	}
 }
 

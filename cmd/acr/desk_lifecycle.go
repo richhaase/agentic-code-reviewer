@@ -166,9 +166,13 @@ func runDeskLifecycleAction(ctx context.Context, key store.PullRequestKeyV1, eve
 }
 
 func currentlyReleased(dataDir string, key store.PullRequestKeyV1) (bool, error) {
-	eventSchemas, _, err := store.NewFilesystemEventStore(dataDir).ListEvents(key)
+	eventSchemas, corruptEvents, err := store.NewFilesystemEventStore(dataDir).ListEvents(key)
 	if err != nil {
 		return false, err
+	}
+	if len(corruptEvents) > 0 {
+		return false, fmt.Errorf("%d stored event(s) could not be read; run `acr desk history %s` to investigate before acting",
+			len(corruptEvents), key.String())
 	}
 	events := make([]domain.LifecycleEvent, 0, len(eventSchemas))
 	for _, schema := range eventSchemas {
