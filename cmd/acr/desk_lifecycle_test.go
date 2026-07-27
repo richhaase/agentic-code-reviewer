@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,6 +41,29 @@ func setupDeskLifecycleTest(t *testing.T, prNumber int) deskActTestEnv {
 		configDir: configDir,
 		key:       key,
 		discovery: discovery,
+	}
+}
+
+func writeWorkspaceConfigWithExclude(t *testing.T, configDir, expectedUser string, repositoryRoots, exclude []string) {
+	t.Helper()
+	writeWorkspaceConfigFull(t, configDir, expectedUser, repositoryRoots, false, "disabled")
+
+	path := workspace.ConfigPath(configDir)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	quoted := make([]string, len(exclude))
+	for i, pattern := range exclude {
+		quoted[i] = fmt.Sprintf("%q", pattern)
+	}
+	excludeYAML := "[" + strings.Join(quoted, ", ") + "]"
+	updated := strings.Replace(string(data), "exclude: []", "exclude: "+excludeYAML, 1)
+	if updated == string(data) {
+		t.Fatal("expected to find a single 'exclude: []' line to replace in the generated config")
+	}
+	if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -128,6 +152,48 @@ func TestRunDeskLifecycleAction_SnoozeRejectsAlreadyReleasedItem(t *testing.T) {
 
 	if _, ok := loadStoredItem(t, env); ok {
 		t.Fatal("expected the PR to remain untracked; a rejected snooze must not resume tracking")
+	}
+}
+
+func TestRunDeskLifecycleAction_RejectsNonResolveActionExcludedFromWorkspaceScope(t *testing.T) {
+	fixture := newDispatchGitFixture(t, 343)
+
+	dataDir := t.TempDir()
+	t.Setenv("ACR_DATA_DIR", dataDir)
+	configDir := t.TempDir()
+	t.Setenv(workspace.ConfigDirEnvVar, configDir)
+	writeWorkspaceConfigFull(t, configDir, "me", []string{fixture.repoRoot}, false, "disabled")
+
+	key := dispatchPullRequestKey(fixture.host, 343)
+	now := time.Now()
+	discovery := &dispatchFixtureDiscovery{
+		searchResult: []domain.PullRequestKey{key.ToDomain()},
+		enrichResponses: []domain.PullRequestSnapshot{
+			dispatchSnapshotWithAuthor(key, "someone-else", fixture.prHeadSHA, fixture.baseSHA, now),
+		},
+	}
+	env := deskActTestEnv{fixture: fixture, dataDir: dataDir, configDir: configDir, key: key, discovery: discovery}
+	withFakeGH(t, fakeGHResponses{user: "me"})
+
+	if err := runDeskLifecycleAction(context.Background(), env.key, store.EventTypeUserReleased, env.discovery); err != nil {
+		t.Fatalf("release failed while item was still in scope: %v", err)
+	}
+
+	writeWorkspaceConfigWithExclude(t, configDir, "me", []string{fixture.repoRoot}, []string{"acme/widgets"})
+
+	err := runDeskLifecycleAction(context.Background(), env.key, store.EventTypeUserResumed, env.discovery)
+	if err == nil {
+		t.Fatal("expected resume to be rejected once the item is excluded by workspace scope")
+	}
+	if !strings.Contains(err.Error(), "excluded") {
+		t.Fatalf("expected the error to explain scope exclusion, got %q", err.Error())
+	}
+
+	events := loadEvents(t, env.dataDir, env.key)
+	for _, event := range events {
+		if event.Type == store.EventTypeUserResumed {
+			t.Fatal("expected no resume event to be recorded once the item is excluded by workspace scope")
+		}
 	}
 }
 

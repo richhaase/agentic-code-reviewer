@@ -748,6 +748,34 @@ func TestRunDeskAct_FinalCheckCatchesBaseMoveMissedByPreflight(t *testing.T) {
 	}
 }
 
+func TestRunDeskAct_FinalCheckBlocksPostingWhenPRClosedDuringSubmissionWindow(t *testing.T) {
+	oldDelay := submissionRetryDelay
+	submissionRetryDelay = 0
+	defer func() { submissionRetryDelay = oldDelay }()
+
+	env := setupDeskActTest(t, 371, fakeReviewRun(t, domain.ReviewTarget{}), "someone-else", "disabled", true)
+	withFakeGH(t, fakeGHResponses{
+		user:          "me",
+		repoURL:       env.fixture.remoteURL,
+		repoSSHURL:    env.fixture.remoteURL,
+		baseRefName:   "main",
+		watchHeadSHA:  env.fixture.prHeadSHA,
+		watchBaseSHA:  env.fixture.baseSHA,
+		watchState:    "CLOSED",
+		prAuthor:      "someone-else",
+		ciBucket:      "pass",
+		postReviewLog: env.postReviewLog,
+	})
+
+	err := runDeskAct(context.Background(), env.key, deskActApprove, true, env.discovery)
+	if err == nil {
+		t.Fatal("expected an error when the pull request closed before the final submission check")
+	}
+	if posted := readPostReviewLog(t, env.postReviewLog); posted != "" {
+		t.Fatalf("expected no GitHub mutation when the pull request closed during the submission window, got %q", posted)
+	}
+}
+
 func TestRunDeskAct_FinalCheckFailsClosedWhenLiveLookupIsUnavailable(t *testing.T) {
 	oldDelay := submissionRetryDelay
 	submissionRetryDelay = 0

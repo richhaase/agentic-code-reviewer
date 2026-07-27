@@ -459,6 +459,10 @@ func headMovedSinceReview(ctx context.Context, opts ReviewOpts, prNumber string,
 		}
 		return false
 	}
+	if st.Closed() || st.Merged() {
+		logger.Logf(terminal.StyleWarning, "PR closed or merged since the review; skipping post.")
+		return true
+	}
 	if !strings.EqualFold(st.HeadSHA, opts.ExpectedHeadSHA) {
 		logger.Logf(terminal.StyleWarning, "PR head moved since the review; skipping post (the new head will be re-reviewed).")
 		return true

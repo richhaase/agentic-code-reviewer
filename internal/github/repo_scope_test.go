@@ -197,6 +197,21 @@ func TestGetPRAuthor_ScopesToRepositoryRoot(t *testing.T) {
 	}
 }
 
+func TestGetCurrentUser_ScopesToRepositoryRoot(t *testing.T) {
+	repoRoot := t.TempDir()
+	scriptDir := setupMockGH(t, "octocat")
+
+	user := GetCurrentUser(context.Background(), repoRoot)
+	if user != "octocat" {
+		t.Errorf("expected octocat, got %q", user)
+	}
+
+	cwds := readCapturedCwd(t, scriptDir)
+	if len(cwds) != 1 || cwds[0] != resolvedDir(t, repoRoot) {
+		t.Errorf("expected gh invoked in %s, got %v", resolvedDir(t, repoRoot), cwds)
+	}
+}
+
 func TestIsSelfReview_BothGHCallsScopeToRepositoryRoot(t *testing.T) {
 	repoRoot := t.TempDir()
 	scriptDir := setupMockGHRoutedByArgs(t, map[string]string{
@@ -217,8 +232,8 @@ func TestIsSelfReview_BothGHCallsScopeToRepositoryRoot(t *testing.T) {
 	for i, a := range args {
 		switch {
 		case strings.HasPrefix(a, "api user"):
-			if cwds[i] == resolvedDir(t, repoRoot) {
-				t.Errorf("expected GetCurrentUser (host-scoped, not repo-scoped) to NOT run in %s", repoRoot)
+			if cwds[i] != resolvedDir(t, repoRoot) {
+				t.Errorf("expected GetCurrentUser to run in %s, got %s", resolvedDir(t, repoRoot), cwds[i])
 			}
 		case strings.HasPrefix(a, "pr view"):
 			if cwds[i] != resolvedDir(t, repoRoot) {

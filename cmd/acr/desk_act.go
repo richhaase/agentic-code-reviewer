@@ -136,10 +136,6 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 	}
 	defer func() { _ = release() }()
 
-	if identityErr := workspace.CheckIdentity(ctx, *cfg); identityErr != nil {
-		return fmt.Errorf("GitHub identity could not be verified: %w", identityErr)
-	}
-
 	inbox, err := desk.Refresh(ctx, *cfg, dataDir, discovery, time.Now())
 	if err != nil {
 		return err
@@ -152,6 +148,9 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 	if item.DeskState != domain.DeskStateFindingsReady && item.DeskState != domain.DeskStateDecisionReady {
 		return fmt.Errorf("%s has no decision-ready result (current state: %s); run `acr desk dispatch %s` first",
 			key.String(), item.DeskState, key.String())
+	}
+	if identityErr := workspace.CheckIdentity(ctx, *cfg, item.RepositoryPath); identityErr != nil {
+		return fmt.Errorf("GitHub identity could not be verified: %w", identityErr)
 	}
 	if _, corruptEvents, eventsErr := store.NewFilesystemEventStore(dataDir).ListEvents(key); eventsErr != nil {
 		return eventsErr
@@ -207,7 +206,7 @@ func runDeskAct(ctx context.Context, key store.PullRequestKeyV1, action deskActA
 	if postingErr := freshCfg.RequirePosting(); postingErr != nil {
 		return fmt.Errorf("posting was disabled before this action could be posted: %w", postingErr)
 	}
-	if identityErr := workspace.CheckIdentity(ctx, *freshCfg); identityErr != nil {
+	if identityErr := workspace.CheckIdentity(ctx, *freshCfg, item.RepositoryPath); identityErr != nil {
 		return fmt.Errorf("GitHub identity could not be verified before posting: %w", identityErr)
 	}
 
@@ -432,14 +431,14 @@ func revalidateDeskEligibility(ctx context.Context, configDir, dataDir string, k
 	if err := cfg.RequirePosting(); err != nil {
 		return "", err
 	}
-	if err := workspace.CheckIdentity(ctx, *cfg); err != nil {
-		return "", err
-	}
 	inbox, err := desk.Refresh(ctx, *cfg, dataDir, discovery, time.Now())
 	if err != nil {
 		return "", fmt.Errorf("could not re-check desk eligibility: %w", err)
 	}
 	item, ok := findDeskItem(inbox, key)
+	if err := workspace.CheckIdentity(ctx, *cfg, item.RepositoryPath); err != nil {
+		return "", err
+	}
 	if ok && (item.DeskState == domain.DeskStateStale || item.DeskState == domain.DeskStateNeedsRereview) {
 		return "", errRevisionMovedSinceReview
 	}

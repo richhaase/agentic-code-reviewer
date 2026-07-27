@@ -93,7 +93,7 @@ func runDeskLifecycleAction(ctx context.Context, key store.PullRequestKeyV1, eve
 	}
 	defer func() { _ = release() }()
 
-	if identityErr := workspace.CheckIdentity(ctx, *cfg); identityErr != nil {
+	if identityErr := workspace.CheckIdentity(ctx, *cfg, ""); identityErr != nil {
 		return fmt.Errorf("GitHub identity could not be verified: %w", identityErr)
 	}
 
@@ -112,6 +112,9 @@ func runDeskLifecycleAction(ctx context.Context, key store.PullRequestKeyV1, eve
 		}
 	}
 	if eventType != store.EventTypeUserResolved {
+		if desk.ScopeExcludesKey(*cfg, key) {
+			return fmt.Errorf("%s is excluded by the current workspace scope; this action would have no effect on desk state", key.String())
+		}
 		if _, snapErr := store.NewFilesystemSnapshotStore(dataDir).LoadSnapshot(key); snapErr != nil {
 			return fmt.Errorf("%s is not known to the desk; run `acr desk --once` first", key.String())
 		}

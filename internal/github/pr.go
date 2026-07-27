@@ -446,8 +446,9 @@ func CheckGHAvailable() error {
 	return nil
 }
 
-func GetCurrentUser(ctx context.Context) string {
+func GetCurrentUser(ctx context.Context, repositoryRoot string) string {
 	cmd := exec.CommandContext(ctx, "gh", "api", "user", "--jq", ".login")
+	cmd.Dir = repositoryRoot
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
@@ -466,7 +467,7 @@ func GetPRAuthor(ctx context.Context, repositoryRoot, prNumber string) string {
 }
 
 func IsSelfReview(ctx context.Context, repositoryRoot, prNumber string) bool {
-	currentUser := GetCurrentUser(ctx)
+	currentUser := GetCurrentUser(ctx, repositoryRoot)
 	prAuthor := GetPRAuthor(ctx, repositoryRoot, prNumber)
 	return checkSelfReview(currentUser, prAuthor)
 }

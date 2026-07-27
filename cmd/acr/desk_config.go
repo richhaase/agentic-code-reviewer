@@ -38,7 +38,7 @@ func newDeskConfigInitCmd() *cobra.Command {
 				return err
 			}
 
-			defaultUser := github.GetCurrentUser(context.Background())
+			defaultUser := github.GetCurrentUser(context.Background(), "")
 			path, err := workspace.Init(configDir, defaultUser)
 			if err != nil {
 				return err
@@ -132,7 +132,7 @@ func newDeskConfigValidateCmd() *cobra.Command {
 			var errs []string
 			errs = append(errs, cfg.Validate()...)
 
-			if identityErr := workspace.CheckIdentity(context.Background(), *cfg); identityErr != nil {
+			if identityErr := workspace.CheckIdentity(context.Background(), *cfg, ""); identityErr != nil {
 				errs = append(errs, identityErr.Error())
 			}
 

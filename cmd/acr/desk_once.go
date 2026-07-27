@@ -44,7 +44,7 @@ func runDeskOnce(jsonOutput bool) error {
 	}
 
 	ctx := context.Background()
-	if identityErr := workspace.CheckIdentity(ctx, *cfg); identityErr != nil {
+	if identityErr := workspace.CheckIdentity(ctx, *cfg, ""); identityErr != nil {
 		if releaseErr := lock.Release(); releaseErr != nil {
 			return fmt.Errorf("%w (also failed to release desk lock: %v)", identityErr, releaseErr)
 		}
