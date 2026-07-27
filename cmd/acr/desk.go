@@ -35,6 +35,11 @@ func newDeskCmd() *cobra.Command {
 	cmd.AddCommand(newDeskForgetCmd())
 	cmd.AddCommand(newDeskConfigCmd())
 	cmd.AddCommand(newDeskDispatchCmd())
+	cmd.AddCommand(newDeskActCmd())
+	cmd.AddCommand(newDeskResolveCmd())
+	cmd.AddCommand(newDeskReleaseCmd())
+	cmd.AddCommand(newDeskResumeCmd())
+	cmd.AddCommand(newDeskSnoozeCmd())
 
 	return cmd
 }

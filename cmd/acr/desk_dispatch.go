@@ -92,7 +92,7 @@ func runDeskDispatch(ctx context.Context, key store.PullRequestKeyV1, discovery 
 	}
 	defer func() { _ = release() }()
 
-	if identityErr := workspace.CheckIdentity(ctx, *cfg); identityErr != nil {
+	if identityErr := workspace.CheckIdentity(ctx, *cfg, key.Host); identityErr != nil {
 		return fmt.Errorf("GitHub identity could not be verified: %w", identityErr)
 	}
 

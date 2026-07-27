@@ -77,7 +77,7 @@ func Refresh(ctx context.Context, cfg workspace.Config, dataDir string, discover
 	for _, key := range tracked {
 		trackedKey := key.ToDomain()
 		if !discoveryIncomplete && !containsKeyIdentity(discovered, trackedKey) {
-			if scopeExcludesKey(cfg, key) {
+			if ScopeExcludesKey(cfg, key) {
 				continue
 			}
 			hasHistory, historyErr := trackedKeyHasHistory(dataDir, key)
@@ -95,7 +95,7 @@ func Refresh(ctx context.Context, cfg workspace.Config, dataDir string, discover
 	for _, key := range keys {
 		schemaKey := store.ToPullRequestKeySchema(key)
 
-		if scopeExcludesKey(cfg, schemaKey) {
+		if ScopeExcludesKey(cfg, schemaKey) {
 			continue
 		}
 		if events, _, eventsErr := loadDomainEvents(dataDir, schemaKey); eventsErr == nil && domain.IsReleased(events) {
@@ -152,7 +152,7 @@ func LoadStored(dataDir string, cfg workspace.Config, now time.Time) (Inbox, err
 	inbox.Warnings = append(inbox.Warnings, resolution.RootWarnings...)
 
 	for _, schemaKey := range tracked {
-		if scopeExcludesKey(cfg, schemaKey) {
+		if ScopeExcludesKey(cfg, schemaKey) {
 			continue
 		}
 
@@ -196,7 +196,7 @@ func loadDomainEvents(dataDir string, key store.PullRequestKeyV1) ([]domain.Life
 	return events, corrupt, nil
 }
 
-func scopeExcludesKey(cfg workspace.Config, key store.PullRequestKeyV1) bool {
+func ScopeExcludesKey(cfg workspace.Config, key store.PullRequestKeyV1) bool {
 	identity := repos.Identity{
 		Host:  strings.ToLower(key.Host),
 		Owner: strings.ToLower(key.Owner),
