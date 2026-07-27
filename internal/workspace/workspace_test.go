@@ -88,15 +88,15 @@ func TestInit_FailsIfExists(t *testing.T) {
 	}
 }
 
-func TestLoad_MissingFileMentionsInit(t *testing.T) {
+func TestLoad_MissingFileIdentifiesPath(t *testing.T) {
 	dir := t.TempDir()
 
 	_, err := Load(dir)
 	if err == nil {
 		t.Fatal("expected error for missing workspace configuration")
 	}
-	if !strings.Contains(err.Error(), "acr desk config init") {
-		t.Errorf("expected error to reference init command, got: %v", err)
+	if !strings.Contains(err.Error(), ConfigPath(dir)) {
+		t.Errorf("expected error to identify missing path, got: %v", err)
 	}
 }
 

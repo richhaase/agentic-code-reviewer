@@ -85,7 +85,7 @@ func Load(configDir string) (*Config, error) {
 	path := ConfigPath(configDir)
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("workspace configuration not found at %s; run `acr desk config init` first", path)
+		return nil, fmt.Errorf("workspace configuration not found at %s", path)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to read workspace configuration: %w", err)

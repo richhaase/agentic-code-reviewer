@@ -89,7 +89,6 @@ Exit codes:
 
 	rootCmd.AddCommand(newConfigCmd())
 	rootCmd.AddCommand(newWatchCmd())
-	rootCmd.AddCommand(newDeskCmd())
 
 	setGroupedUsage(rootCmd)
 

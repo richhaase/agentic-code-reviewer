@@ -16,8 +16,8 @@ that writes and reads these records. Issue #223 added the adjudication /
 economics / loop-decision logic (`store.ResolveFindingAdjudication`,
 `store.ResolveAdjudicationPolicy`) that produces and interprets
 `AdjudicationRecordV1`, `ReviewEconomicsV1`, `LoopDecisionV1`, and
-`AdjudicationPolicyV1` values. Issue #198 added the `acr desk history` and
-`acr desk forget` commands documented below.
+`AdjudicationPolicyV1` values. Issue #198 added internal chronological history
+loading and per-pull-request deletion.
 
 ## Versioning
 
@@ -104,13 +104,13 @@ for sharing. In particular:
   can quote snippets of the reviewed code. Treat the data directory as
   containing source-derived content: do not assume it is safe to share
   outside the access the source repository itself already has.
-- **Deletion is per pull request and irreversible.** `acr desk forget
-  <owner/repo#number>` (see below) permanently removes every stored record for
-  that pull request — its snapshot, runs, events, adjudications, loop
-  decisions, and economics records, including any that failed to parse. There
-  is no undo and no partial deletion of one record kind; forgetting a pull
-  request forgets all of its local history at once. Other pull requests'
-  history, and the data directory itself, are left untouched.
+- **Deletion is per pull request and irreversible.**
+  `store.ForgetPullRequest` permanently removes every stored record for that
+  pull request — its snapshot, runs, events, adjudications, loop decisions,
+  and economics records, including any that failed to parse. There is no undo
+  and no partial deletion of one record kind; forgetting a pull request
+  forgets all of its local history at once. Other pull requests' history, and
+  the data directory itself, are left untouched.
 - **The data directory location and filesystem store are implemented by issue
   #197.** See the section below.
 
@@ -154,9 +154,8 @@ refuse to overwrite an existing record at the same path rather than silently
 replacing history. `SnapshotStore` (`internal/store/snapshotstore.go`) is the
 one mutable record per PR — each poll's `PRSnapshotV1` atomically replaces the
 previous one — and `PRSnapshotV1.Age(now)` reports how stale a loaded snapshot
-is relative to its `CapturedAt`, which is how a reader (for example `acr desk
---once` rendering a stored snapshot without refreshing it) knows the data's
-age.
+is relative to its `CapturedAt`, which is how a reader rendering a stored
+snapshot without refreshing it knows the data's age.
 
 Listing a PR's runs or events (`ListRuns`/`ListEvents`) never fails outright
 because of one bad record: each file is decoded and, for runs and events,
@@ -173,8 +172,8 @@ Because the lock is an OS-level `flock` on the open file description, it is
 automatically released if the owning process dies, so a crashed writer never
 leaves a stale lock behind. Read-only access through `RunStore`, `EventStore`,
 `AdjudicationStore`, `LoopDecisionStore`, `EconomicsStore`, and
-`SnapshotStore` never takes this lock; only a process that intends to write —
-today, only `acr desk forget` — acquires it.
+`SnapshotStore` never takes this lock; only a process that intends to write
+acquires it.
 
 `AdjudicationStore`, `LoopDecisionStore`, and `EconomicsStore`
 (`internal/store/adjudicationstore.go`, `internal/store/loopdecisionstore.go`,
@@ -185,54 +184,3 @@ request's directory. `ListEconomics` returns each `ReviewEconomicsV1` paired
 with the `RecordedAt` timestamp it was saved with (`EconomicsRecordV1`),
 because the schema itself carries no timestamp of its own; the timestamp is
 recovered from the record's filename, which every store already timestamps.
-
-## The `acr desk` command (issue #198)
-
-`acr desk` is the parent command for locally inspecting and managing the
-persistent review workspace. It currently has two subcommands; later epic
-phases add discovery and dispatch subcommands under the same parent.
-
-### `acr desk history <owner/repo#number>`
-
-Reads every stored run, event, adjudication, loop-decision, and economics
-record for the given pull request and renders them as one chronological
-timeline (`internal/desk.LoadHistory` / `internal/desk.BuildTimeline`), sorted
-by each record's own timestamp (`OccurredAt`, `CompletedAt`/`StartedAt`,
-`RecordedAt`, `DecidedAt`). `<owner/repo#number>` is parsed by
-`internal/desk.ParsePullRequestRef`; the host is always `github.com`, the only
-host this repository's GitHub integration supports.
-
-This is a read-only command: it never acquires the write lock, so history
-remains inspectable while another `acr` process (for example a long-running
-`acr desk` writer, once later phases add one) owns the workspace.
-
-Every adjudication record renders its own disposition, rationale, scope
-(head/configuration fingerprint), and invalidation conditions. Because
-reopening, correcting, or superseding an adjudication is always a new record
-(`RelationToPrior` + `SupersedesRecordID`) rather than an edit, the timeline
-naturally shows the full original → reopened → corrected chain in the order
-it happened. Loop decisions render their reason and budget state, printing
-`budget: unknown` rather than a fabricated zero when `BudgetStateV1.Known` is
-false. Economics records render provider usage the same way: known usage
-prints its token/cost figures, and usage recorded with `Known: false` prints
-as `usage unknown`, never as `0`.
-
-A pull request with no stored history renders `No stored history found for
-<key>` rather than an error. A record that fails to decode or validate is
-listed separately at the end of the output as an unreadable record and does
-not prevent the rest of that pull request's history — or any other pull
-request's history — from rendering.
-
-### `acr desk forget <owner/repo#number>`
-
-Permanently deletes a pull request's entire stored history:
-`store.ForgetPullRequest` removes its snapshot and every run, event,
-adjudication, loop-decision, and economics record (including any that are
-individually corrupt), then reports what it removed. A pull request with no
-stored history is reported as such and is not an error.
-
-`forget` is a mutation: it first calls `store.AcquireWriteLock`, and if
-another process already holds `desk.lock` it refuses immediately with an
-error identifying the conflict, rather than deleting partial state or
-blocking. It only ever removes the requested pull request's own directory;
-sibling pull requests under the same owner/repository are untouched.

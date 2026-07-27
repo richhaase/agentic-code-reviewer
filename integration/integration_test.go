@@ -30,7 +30,15 @@ func ensureBinary(t *testing.T) string {
 		builtAcrRoot = findRepoRoot(t)
 
 		builtAcrBin = filepath.Join(builtAcrRoot, "bin", "acr-test")
-		build := exec.Command("go", "build", "-o", builtAcrBin, "./cmd/acr")
+		build := exec.Command(
+			"go",
+			"build",
+			"-ldflags",
+			"-X main.version=vtest -X main.commit=test -X main.date=test",
+			"-o",
+			builtAcrBin,
+			"./cmd/acr",
+		)
 		build.Dir = builtAcrRoot
 		out, err := build.CombinedOutput()
 		if err != nil {
