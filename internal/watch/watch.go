@@ -57,8 +57,32 @@ type Deps struct {
 	RunCycle func(ctx context.Context, reviewNum int, trigger string) (Cycle, error)
 	CIGreen  func(ctx context.Context) (bool, error)
 	Approve  func(ctx context.Context, body string) error
+	Wait     func(ctx context.Context, duration time.Duration) (WaitResult, error)
+	Emit     func(event Event)
 	Clock    Clock
 	Logf     func(format string, args ...any)
+}
+
+type WaitResult struct {
+	ManualRequests int
+	Interrupted    bool
+}
+
+type EventType string
+
+const (
+	EventManualRequestReceived  EventType = "manual_request_received"
+	EventManualRequestCoalesced EventType = "manual_request_coalesced"
+	EventManualReviewStarted    EventType = "manual_review_started"
+	EventManualRequestRejected  EventType = "manual_request_rejected"
+	EventManualInputUnsafe      EventType = "manual_input_unsafe"
+)
+
+type Event struct {
+	Type         EventType
+	RequestCount int
+	ReviewNumber int
+	Reason       string
 }
 
 type Config struct {
@@ -120,12 +144,48 @@ type loop struct {
 	cycleErrors     int
 	retryPending    bool
 	retryHead       string
+	manualRequests  int
 }
 
 func (l *loop) logf(format string, args ...any) {
 	if l.deps.Logf != nil {
 		l.deps.Logf(format, args...)
 	}
+}
+
+func (l *loop) emit(event Event) {
+	if l.deps.Emit != nil {
+		l.deps.Emit(event)
+	}
+}
+
+func (l *loop) wait(ctx context.Context, duration time.Duration) (WaitResult, error) {
+	if l.deps.Wait != nil {
+		return l.deps.Wait(ctx, duration)
+	}
+	return WaitResult{}, l.deps.Clock.Sleep(ctx, duration)
+}
+
+func (l *loop) receiveManualRequests(count int) {
+	if count <= 0 {
+		return
+	}
+	l.manualRequests += count
+	l.emit(Event{Type: EventManualRequestReceived, RequestCount: count})
+	l.logf("Manual review requested.")
+	if l.manualRequests > 1 {
+		l.emit(Event{Type: EventManualRequestCoalesced, RequestCount: l.manualRequests})
+		l.logf("Coalesced %d manual review requests into one review.", l.manualRequests)
+	}
+}
+
+func (l *loop) rejectManualRequests(reason string) {
+	if l.manualRequests == 0 {
+		return
+	}
+	l.emit(Event{Type: EventManualRequestRejected, RequestCount: l.manualRequests, Reason: reason})
+	l.logf("Manual review request rejected: %s.", reason)
+	l.manualRequests = 0
 }
 
 func shortSHA(sha string) string {
@@ -166,20 +226,36 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 	for {
 		now := clock.Now()
 		if !now.Before(deadline) {
+			l.rejectManualRequests(ReasonMaxDuration.String())
 			l.logf("Reached maximum duration (%s) without a terminal LGTM; stopping.", cfg.MaxDuration)
 			return ReasonMaxDuration
 		}
-		sleep := cfg.PollInterval
-		if remaining := deadline.Sub(now); remaining < sleep {
-			sleep = remaining
-		}
-		if err := clock.Sleep(ctx, sleep); err != nil {
-			return ReasonInterrupted
+		if l.manualRequests == 0 {
+			sleep := cfg.PollInterval
+			if remaining := deadline.Sub(now); remaining < sleep {
+				sleep = remaining
+			}
+			waitResult, err := l.wait(ctx, sleep)
+			if err != nil {
+				if ctx.Err() != nil {
+					return ReasonInterrupted
+				}
+				l.emit(Event{Type: EventManualInputUnsafe, Reason: err.Error()})
+				l.logf("Manual input could not be handled safely: %v", err)
+				return ReasonError
+			}
+			if waitResult.Interrupted {
+				return ReasonInterrupted
+			}
+			l.receiveManualRequests(waitResult.ManualRequests)
 		}
 		if !clock.Now().Before(deadline) {
+			l.rejectManualRequests(ReasonMaxDuration.String())
 			l.logf("Reached maximum duration (%s) without a terminal LGTM; stopping.", cfg.MaxDuration)
 			return ReasonMaxDuration
 		}
+
+		manualTrigger := l.manualRequests > 0
 
 		st, err := deps.State(ctx)
 		if err != nil {
@@ -196,6 +272,9 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		pollErrors = 0
 
 		if reason, done := l.checkOpen(st); done {
+			if manualTrigger {
+				l.rejectManualRequests(reason.String())
+			}
 			return reason
 		}
 		if l.retryPending && st.HeadSHA != l.retryHead {
@@ -209,7 +288,9 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		}
 
 		trigger := ""
-		if st.ReviewRequested && l.requestArmed {
+		if manualTrigger {
+			trigger = "manual request"
+		} else if st.ReviewRequested && l.requestArmed {
 			trigger = "re-review requested"
 			l.requestArmed = false
 		}
@@ -250,6 +331,9 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		}
 
 		if l.reviews >= cfg.MaxReviews {
+			if manualTrigger {
+				l.rejectManualRequests(ReasonMaxReviews.String())
+			}
 			if l.pendingApproval != "" {
 				l.logf("Review budget exhausted; ignoring trigger (%s) and continuing to wait for CI.", trigger)
 				continue
@@ -347,6 +431,10 @@ func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, boo
 	l.retryHead = ""
 	l.pendingApproval = ""
 	l.reviews++
+	if trigger == "manual request" {
+		l.emit(Event{Type: EventManualReviewStarted, RequestCount: l.manualRequests, ReviewNumber: l.reviews})
+		l.manualRequests = 0
+	}
 	l.logf("Review #%d/%d starting (%s)", l.reviews, l.cfg.MaxReviews, trigger)
 
 	cycleCtx, cancel := context.WithTimeout(ctx, l.deadline.Sub(l.deps.Clock.Now()))

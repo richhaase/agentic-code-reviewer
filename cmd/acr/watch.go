@@ -30,6 +30,7 @@ keep watching the PR and re-review when a re-review is requested or new
 commits settle, until a terminal LGTM is posted or a safety bound is reached.
 
 The watched PR is selected with --pr or detected from the current branch.
+While an attached watcher is waiting, press r to request an immediate review.
 
 Post modes:
   interactive  Prompt for every submission decision (default; requires a TTY)
@@ -202,6 +203,10 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 		RunCycle: func(ctx context.Context, _ int, _ string) (watch.Cycle, error) {
 			return runWatchCycle(ctx, cmd, watchPR, mode, logger)
 		},
+	}
+	if terminal.IsStdinTTY() {
+		deps.Wait = newWatchInputAdapter(os.Stdin).Wait
+		logger.Log("Press r while waiting to request an immediate review.", terminal.StyleDim)
 	}
 
 	reason := watch.Run(ctx, wcfg, deps)
