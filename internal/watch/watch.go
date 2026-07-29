@@ -313,6 +313,9 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 			if reason, done := l.handleWaitError(err); done {
 				return reason
 			}
+			if waitResult.Interrupted {
+				return ReasonInterrupted
+			}
 			l.receiveManualRequests(waitResult.ManualRequests)
 			l.rejectManualRequests(ReasonMaxDuration.String())
 			l.logf("Reached maximum duration (%s) without a terminal LGTM; stopping.", cfg.MaxDuration)

@@ -401,6 +401,28 @@ func TestManualInputInterruptCancelsStateFetch(t *testing.T) {
 	}
 }
 
+func TestManualInputInterruptWinsAtDeadlineFinalization(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa")}
+	h.cycles = []Cycle{{Result: CycleFindings}}
+	cfg := defaultConfig(PostModeComment)
+	deps := h.deps()
+	deps.Wait = func(_ context.Context, duration time.Duration) (WaitResult, error) {
+		h.clock.now = h.clock.now.Add(duration)
+		return WaitResult{
+			ManualRequests: 1,
+			Finalize: func(_ context.Context, stateReady <-chan struct{}) (WaitResult, error) {
+				<-stateReady
+				return WaitResult{Interrupted: true}, nil
+			},
+		}, nil
+	}
+
+	if reason := Run(context.Background(), cfg, deps); reason != ReasonInterrupted {
+		t.Fatalf("reason = %v, want ReasonInterrupted", reason)
+	}
+}
+
 func TestManualRequestSurvivesTransientStateFailureWithRetryDelay(t *testing.T) {
 	h := newHarness(t)
 	h.cycles = []Cycle{
