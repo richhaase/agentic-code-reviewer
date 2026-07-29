@@ -55,19 +55,24 @@ func (a *watchInputAdapter) Wait(ctx context.Context, duration time.Duration) (r
 		return watch.WaitResult{}, fmt.Errorf("enable manual input: %w", err)
 	}
 
-	session, err := a.startSession()
-	if err != nil {
-		return watch.WaitResult{}, fmt.Errorf("prepare manual input: %w", err)
-	}
+	var session *watchInputSession
 	handedOff := false
 	defer func() {
 		if handedOff {
 			return
 		}
-		if err := releaseWatchInput(session, restore); err != nil && resultErr == nil {
+		if err := releaseWatchInput(session, restore); err != nil {
+			if resultErr != nil {
+				resultErr = fmt.Errorf("%v; restore terminal input: %w", resultErr, err)
+				return
+			}
 			resultErr = fmt.Errorf("restore terminal input: %w", err)
 		}
 	}()
+	session, err = a.startSession()
+	if err != nil {
+		return watch.WaitResult{}, fmt.Errorf("prepare manual input: %w", err)
+	}
 
 	timer := time.NewTimer(duration)
 	defer timer.Stop()
@@ -96,6 +101,9 @@ func (a *watchInputAdapter) Wait(ctx context.Context, duration time.Duration) (r
 				result, err := a.coalesce(ctx, &session, &restore, 1)
 				if err != nil {
 					return watch.WaitResult{}, err
+				}
+				if result.Interrupted {
+					return result, nil
 				}
 				result.Finalize = a.handoff(&session, &restore)
 				handedOff = true
@@ -235,14 +243,14 @@ func (a *watchInputAdapter) coalesce(
 func (a *watchInputAdapter) handoff(
 	session **watchInputSession,
 	restore *func() error,
-) func(context.Context) (watch.WaitResult, error) {
+) func(context.Context, <-chan struct{}) (watch.WaitResult, error) {
 	finalized := false
-	return func(ctx context.Context) (watch.WaitResult, error) {
+	return func(ctx context.Context, stateReady <-chan struct{}) (watch.WaitResult, error) {
 		if finalized {
 			return watch.WaitResult{}, nil
 		}
 		finalized = true
-		result, collectErr := a.coalesce(ctx, session, restore, 0)
+		result, collectErr := a.coalesceThroughState(ctx, session, restore, stateReady)
 		releaseErr := releaseWatchInput(*session, *restore)
 		*session = nil
 		*restore = nil
@@ -256,6 +264,67 @@ func (a *watchInputAdapter) handoff(
 			return result, fmt.Errorf("restore terminal input: %w", releaseErr)
 		}
 		return result, nil
+	}
+}
+
+func (a *watchInputAdapter) coalesceThroughState(
+	ctx context.Context,
+	session **watchInputSession,
+	restore *func() error,
+	stateReady <-chan struct{},
+) (watch.WaitResult, error) {
+	var timer *time.Timer
+	var quiet <-chan time.Time
+	if stateReady == nil {
+		timer = time.NewTimer(manualRequestCoalesceWindow)
+		quiet = timer.C
+		stateReady = nil
+	}
+	defer func() {
+		if timer != nil {
+			timer.Stop()
+		}
+	}()
+	count := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			return watch.WaitResult{}, ctx.Err()
+		case <-stateReady:
+			stateReady = nil
+			timer = time.NewTimer(manualRequestCoalesceWindow)
+			quiet = timer.C
+		case <-quiet:
+			return watch.WaitResult{ManualRequests: count}, nil
+		case read := <-sessionReads(*session):
+			if read.err != nil {
+				return watch.WaitResult{}, fmt.Errorf("read manual input: %w", read.err)
+			}
+			switch read.key {
+			case 3:
+				return watch.WaitResult{Interrupted: true}, nil
+			case 26:
+				if a.suspend != nil {
+					if err := a.suspendAndResume(session, restore); err != nil {
+						return watch.WaitResult{}, err
+					}
+				}
+			case 'r', 'R':
+				count++
+				if timer == nil {
+					continue
+				}
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				timer.Reset(manualRequestCoalesceWindow)
+				quiet = timer.C
+			}
+		}
 	}
 }
 

@@ -66,7 +66,7 @@ type Deps struct {
 type WaitResult struct {
 	ManualRequests int
 	Interrupted    bool
-	Finalize       func(context.Context) (WaitResult, error)
+	Finalize       func(context.Context, <-chan struct{}) (WaitResult, error)
 }
 
 type EventType string
@@ -167,15 +167,49 @@ func (l *loop) wait(ctx context.Context, duration time.Duration) (WaitResult, er
 	return WaitResult{}, l.deps.Clock.Sleep(ctx, duration)
 }
 
-func (l *loop) finalizeWait(ctx context.Context, result WaitResult) (WaitResult, error) {
+func (l *loop) finalizeWait(
+	ctx context.Context,
+	result WaitResult,
+	stateReady <-chan struct{},
+) (WaitResult, error) {
 	if result.Finalize == nil {
 		return result, nil
 	}
-	additional, err := result.Finalize(ctx)
+	additional, err := result.Finalize(ctx, stateReady)
 	result.Finalize = nil
 	result.ManualRequests += additional.ManualRequests
 	result.Interrupted = result.Interrupted || additional.Interrupted
 	return result, err
+}
+
+type stateOutcome struct {
+	state PRState
+	err   error
+}
+
+func (l *loop) stateAfterWait(
+	ctx context.Context,
+	result WaitResult,
+) (PRState, error, WaitResult, error) {
+	if result.Finalize == nil {
+		state, err := l.deps.State(ctx)
+		return state, err, result, nil
+	}
+	stateCtx, cancelState := context.WithCancel(ctx)
+	defer cancelState()
+	stateReady := make(chan struct{})
+	outcome := make(chan stateOutcome, 1)
+	go func() {
+		state, err := l.deps.State(stateCtx)
+		outcome <- stateOutcome{state: state, err: err}
+		close(stateReady)
+	}()
+	finalized, finalizeErr := l.finalizeWait(ctx, result, stateReady)
+	if finalizeErr != nil || finalized.Interrupted {
+		cancelState()
+	}
+	stateResult := <-outcome
+	return stateResult.state, stateResult.err, finalized, finalizeErr
 }
 
 func (l *loop) handleWaitError(err error) (ExitReason, bool) {
@@ -273,7 +307,9 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		}
 		if !clock.Now().Before(deadline) {
 			var err error
-			waitResult, err = l.finalizeWait(ctx, waitResult)
+			stateReady := make(chan struct{})
+			close(stateReady)
+			waitResult, err = l.finalizeWait(ctx, waitResult, stateReady)
 			if reason, done := l.handleWaitError(err); done {
 				return reason
 			}
@@ -283,8 +319,7 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 			return ReasonMaxDuration
 		}
 
-		st, err := deps.State(ctx)
-		waitResult, waitErr := l.finalizeWait(ctx, waitResult)
+		st, err, waitResult, waitErr := l.stateAfterWait(ctx, waitResult)
 		if reason, done := l.handleWaitError(waitErr); done {
 			return reason
 		}

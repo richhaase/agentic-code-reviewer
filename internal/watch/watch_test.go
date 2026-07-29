@@ -254,7 +254,8 @@ func TestManualRequestsCoalesceThroughPreReviewHandoff(t *testing.T) {
 	deps.Wait = func(context.Context, time.Duration) (WaitResult, error) {
 		return WaitResult{
 			ManualRequests: 1,
-			Finalize: func(context.Context) (WaitResult, error) {
+			Finalize: func(_ context.Context, stateReady <-chan struct{}) (WaitResult, error) {
+				<-stateReady
 				order = append(order, "finalize")
 				return WaitResult{ManualRequests: 2}, nil
 			},
@@ -344,7 +345,7 @@ func TestManualInputHandoffFailureStopsWatcher(t *testing.T) {
 	deps.Wait = func(context.Context, time.Duration) (WaitResult, error) {
 		return WaitResult{
 			ManualRequests: 1,
-			Finalize: func(context.Context) (WaitResult, error) {
+			Finalize: func(context.Context, <-chan struct{}) (WaitResult, error) {
 				return WaitResult{}, errors.New("terminal restore failed")
 			},
 		}, nil
@@ -358,6 +359,45 @@ func TestManualInputHandoffFailureStopsWatcher(t *testing.T) {
 	}
 	if len(h.triggers) != 1 {
 		t.Fatalf("cycles = %d, want only the initial review", len(h.triggers))
+	}
+}
+
+func TestManualInputInterruptCancelsStateFetch(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa")}
+	h.cycles = []Cycle{{Result: CycleFindings}}
+	deps := h.deps()
+	state := deps.State
+	stateCalls := 0
+	stateStarted := make(chan struct{})
+	stateCanceled := make(chan struct{})
+	deps.State = func(ctx context.Context) (PRState, error) {
+		stateCalls++
+		if stateCalls == 1 {
+			return state(ctx)
+		}
+		close(stateStarted)
+		<-ctx.Done()
+		close(stateCanceled)
+		return PRState{}, ctx.Err()
+	}
+	deps.Wait = func(context.Context, time.Duration) (WaitResult, error) {
+		return WaitResult{
+			ManualRequests: 1,
+			Finalize: func(context.Context, <-chan struct{}) (WaitResult, error) {
+				<-stateStarted
+				return WaitResult{Interrupted: true}, nil
+			},
+		}, nil
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeComment), deps); reason != ReasonInterrupted {
+		t.Fatalf("reason = %v, want ReasonInterrupted", reason)
+	}
+	select {
+	case <-stateCanceled:
+	default:
+		t.Fatal("state fetch was not canceled after manual input interrupted")
 	}
 }
 

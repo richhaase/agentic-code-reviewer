@@ -14,6 +14,11 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/watch"
 )
 
+type waitOutcome struct {
+	result watch.WaitResult
+	err    error
+}
+
 func TestWatchInputAdapterReadsAndCoalescesManualRequests(t *testing.T) {
 	reader, writer, err := os.Pipe()
 	if err != nil {
@@ -34,10 +39,6 @@ func TestWatchInputAdapterReadsAndCoalescesManualRequests(t *testing.T) {
 				return nil
 			}, nil
 		},
-	}
-	type waitOutcome struct {
-		result watch.WaitResult
-		err    error
 	}
 	outcome := make(chan waitOutcome, 1)
 	go func() {
@@ -61,10 +62,18 @@ func TestWatchInputAdapterReadsAndCoalescesManualRequests(t *testing.T) {
 		t.Fatal("manual input released before the pre-review handoff")
 	default:
 	}
+	stateReady := make(chan struct{})
+	finalized := make(chan waitOutcome, 1)
+	go func() {
+		result, err := got.result.Finalize(context.Background(), stateReady)
+		finalized <- waitOutcome{result: result, err: err}
+	}()
 	if _, err := writer.Write([]byte("r")); err != nil {
 		t.Fatal(err)
 	}
-	additional, err := got.result.Finalize(context.Background())
+	close(stateReady)
+	final := <-finalized
+	additional, err := final.result, final.err
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +268,9 @@ func TestWatchInputAdapterSuspendsDuringCoalescing(t *testing.T) {
 	if got.result.ManualRequests != 1 {
 		t.Fatalf("manual requests = %d, want 1", got.result.ManualRequests)
 	}
-	if _, err := got.result.Finalize(context.Background()); err != nil {
+	stateReady := make(chan struct{})
+	close(stateReady)
+	if _, err := got.result.Finalize(context.Background(), stateReady); err != nil {
 		t.Fatal(err)
 	}
 	<-released
@@ -398,8 +409,151 @@ func TestWatchInputAdapterReportsHandoffRestoreFailure(t *testing.T) {
 	if result.Finalize == nil {
 		t.Fatal("manual input handoff is missing")
 	}
-	if _, err := result.Finalize(context.Background()); err == nil || !strings.Contains(err.Error(), "restore terminal input: restore failed") {
+	stateReady := make(chan struct{})
+	close(stateReady)
+	if _, err := result.Finalize(context.Background(), stateReady); err == nil || !strings.Contains(err.Error(), "restore terminal input: restore failed") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestWatchInputAdapterRestoresWhenReaderSetupFails(t *testing.T) {
+	released := false
+	adapter := &watchInputAdapter{
+		input: strings.NewReader(""),
+		activate: func() (func() error, error) {
+			return func() error {
+				released = true
+				return nil
+			}, nil
+		},
+		newReader: func(io.Reader) (cancelreader.CancelReader, error) {
+			return nil, errors.New("reader failed")
+		},
+	}
+
+	_, err := adapter.Wait(context.Background(), time.Hour)
+	if err == nil || !strings.Contains(err.Error(), "prepare manual input: reader failed") {
+		t.Fatalf("error = %v", err)
+	}
+	if !released {
+		t.Fatal("terminal input was not restored after reader setup failed")
+	}
+}
+
+func TestWatchInputAdapterReleasesInterruptedCoalescing(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		reader.Close()
+		writer.Close()
+	})
+	activated := make(chan struct{})
+	released := make(chan struct{})
+	adapter := &watchInputAdapter{
+		input: reader,
+		activate: func() (func() error, error) {
+			close(activated)
+			return func() error {
+				close(released)
+				return nil
+			}, nil
+		},
+	}
+	outcome := make(chan waitOutcome, 1)
+	go func() {
+		result, err := adapter.Wait(context.Background(), time.Hour)
+		outcome <- waitOutcome{result: result, err: err}
+	}()
+
+	<-activated
+	if _, err := writer.Write([]byte{'r', 3}); err != nil {
+		t.Fatal(err)
+	}
+	got := <-outcome
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	if !got.result.Interrupted {
+		t.Fatal("control-C during coalescing did not interrupt the wait")
+	}
+	if got.result.Finalize != nil {
+		t.Fatal("interrupted coalescing retained a finalizer")
+	}
+	select {
+	case <-released:
+	case <-time.After(time.Second):
+		t.Fatal("terminal input was not restored after interrupted coalescing")
+	}
+}
+
+func TestWatchInputAdapterHandlesControlsDuringStateFetch(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		reader.Close()
+		writer.Close()
+	})
+	activated := make(chan struct{}, 2)
+	released := make(chan struct{}, 2)
+	suspended := make(chan struct{}, 1)
+	adapter := &watchInputAdapter{
+		input: reader,
+		activate: func() (func() error, error) {
+			activated <- struct{}{}
+			return func() error {
+				released <- struct{}{}
+				return nil
+			}, nil
+		},
+		suspend: func() error {
+			<-released
+			suspended <- struct{}{}
+			return nil
+		},
+	}
+	outcome := make(chan waitOutcome, 1)
+	go func() {
+		result, err := adapter.Wait(context.Background(), time.Hour)
+		outcome <- waitOutcome{result: result, err: err}
+	}()
+
+	<-activated
+	if _, err := writer.Write([]byte("r")); err != nil {
+		t.Fatal(err)
+	}
+	waited := <-outcome
+	if waited.err != nil {
+		t.Fatal(waited.err)
+	}
+	stateReady := make(chan struct{})
+	finalized := make(chan waitOutcome, 1)
+	go func() {
+		result, err := waited.result.Finalize(context.Background(), stateReady)
+		finalized <- waitOutcome{result: result, err: err}
+	}()
+	if _, err := writer.Write([]byte{26}); err != nil {
+		t.Fatal(err)
+	}
+	<-suspended
+	<-activated
+	if _, err := writer.Write([]byte{3}); err != nil {
+		t.Fatal(err)
+	}
+	got := <-finalized
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	if !got.result.Interrupted {
+		t.Fatal("control-C during state fetch did not interrupt the handoff")
+	}
+	select {
+	case <-released:
+	case <-time.After(time.Second):
+		t.Fatal("terminal input was not restored after state-fetch interruption")
 	}
 }
 
