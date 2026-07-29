@@ -1,0 +1,244 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"time"
+
+	"github.com/muesli/cancelreader"
+
+	"github.com/richhaase/agentic-code-reviewer/internal/watch"
+)
+
+const manualRequestCoalesceWindow = 30 * time.Millisecond
+
+var errWatchInputNotForeground = errors.New("watcher does not own the foreground terminal")
+
+type watchInputAdapter struct {
+	input     io.Reader
+	activate  func() (func() error, error)
+	suspend   func() error
+	newReader func(io.Reader) (cancelreader.CancelReader, error)
+}
+
+type watchInputRead struct {
+	key byte
+	err error
+}
+
+type watchInputSession struct {
+	reader cancelreader.CancelReader
+	reads  <-chan watchInputRead
+	stop   chan<- struct{}
+	done   <-chan struct{}
+}
+
+func newWatchInputAdapter(input *os.File) *watchInputAdapter {
+	return &watchInputAdapter{
+		input: input,
+		activate: func() (func() error, error) {
+			return activateWatchInput(input)
+		},
+		suspend: suspendWatchInput,
+	}
+}
+
+func (a *watchInputAdapter) Wait(ctx context.Context, duration time.Duration) (result watch.WaitResult, resultErr error) {
+	restore, err := a.activate()
+	if err != nil {
+		if errors.Is(err, errWatchInputNotForeground) {
+			return waitWithoutWatchInput(ctx, duration)
+		}
+		return watch.WaitResult{}, fmt.Errorf("enable manual input: %w", err)
+	}
+	defer func() {
+		if err := restore(); err != nil && resultErr == nil {
+			resultErr = fmt.Errorf("restore terminal input: %w", err)
+		}
+	}()
+
+	session, err := a.startSession()
+	if err != nil {
+		return watch.WaitResult{}, fmt.Errorf("prepare manual input: %w", err)
+	}
+	defer func() {
+		if session != nil {
+			session.close()
+		}
+	}()
+
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return watch.WaitResult{}, ctx.Err()
+		case <-timer.C:
+			return watch.WaitResult{}, nil
+		case read := <-sessionReads(session):
+			if read.err != nil {
+				return watch.WaitResult{}, fmt.Errorf("read manual input: %w", read.err)
+			}
+			switch read.key {
+			case 3:
+				return watch.WaitResult{Interrupted: true}, nil
+			case 26:
+				if a.suspend == nil {
+					continue
+				}
+				if err := a.suspendAndResume(&session, &restore); err != nil {
+					return watch.WaitResult{}, err
+				}
+			case 'r', 'R':
+				return a.coalesce(ctx, &session, &restore)
+			}
+		}
+	}
+}
+
+func (a *watchInputAdapter) startSession() (*watchInputSession, error) {
+	newReader := a.newReader
+	if newReader == nil {
+		newReader = cancelreader.NewReader
+	}
+	reader, err := newReader(a.input)
+	if err != nil {
+		return nil, err
+	}
+	reads := make(chan watchInputRead, 1)
+	done := make(chan struct{})
+	stop := make(chan struct{})
+	go readWatchInput(reader, reads, stop, done)
+	return &watchInputSession{reader: reader, reads: reads, stop: stop, done: done}, nil
+}
+
+func (s *watchInputSession) close() {
+	close(s.stop)
+	if s.reader.Cancel() {
+		<-s.done
+	}
+	s.reader.Close()
+}
+
+func sessionReads(session *watchInputSession) <-chan watchInputRead {
+	if session == nil {
+		return nil
+	}
+	return session.reads
+}
+
+func (a *watchInputAdapter) suspendAndResume(session **watchInputSession, restore *func() error) error {
+	(*session).close()
+	*session = nil
+	if err := (*restore)(); err != nil {
+		return fmt.Errorf("restore terminal input before suspend: %w", err)
+	}
+	*restore = func() error { return nil }
+	if err := a.suspend(); err != nil {
+		return fmt.Errorf("suspend watcher: %w", err)
+	}
+	nextRestore, err := a.activate()
+	if errors.Is(err, errWatchInputNotForeground) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("restore manual input after resume: %w", err)
+	}
+	nextSession, err := a.startSession()
+	if err != nil {
+		if restoreErr := nextRestore(); restoreErr != nil {
+			return fmt.Errorf(
+				"restore terminal after input reader failure: %v; prepare input reader: %w",
+				restoreErr,
+				err,
+			)
+		}
+		return fmt.Errorf("restore manual input reader after resume: %w", err)
+	}
+	*restore = nextRestore
+	*session = nextSession
+	return nil
+}
+
+func waitWithoutWatchInput(ctx context.Context, duration time.Duration) (watch.WaitResult, error) {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return watch.WaitResult{}, ctx.Err()
+	case <-timer.C:
+		return watch.WaitResult{}, nil
+	}
+}
+
+func (a *watchInputAdapter) coalesce(
+	ctx context.Context,
+	session **watchInputSession,
+	restore *func() error,
+) (watch.WaitResult, error) {
+	count := 1
+	timer := time.NewTimer(manualRequestCoalesceWindow)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return watch.WaitResult{}, ctx.Err()
+		case <-timer.C:
+			return watch.WaitResult{ManualRequests: count}, nil
+		case read := <-sessionReads(*session):
+			if read.err != nil {
+				return watch.WaitResult{}, fmt.Errorf("read manual input: %w", read.err)
+			}
+			switch read.key {
+			case 3:
+				return watch.WaitResult{Interrupted: true}, nil
+			case 26:
+				if a.suspend != nil {
+					if err := a.suspendAndResume(session, restore); err != nil {
+						return watch.WaitResult{}, err
+					}
+				}
+			case 'r', 'R':
+				count++
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				timer.Reset(manualRequestCoalesceWindow)
+			}
+		}
+	}
+}
+
+func readWatchInput(reader io.Reader, reads chan<- watchInputRead, stop <-chan struct{}, done chan<- struct{}) {
+	defer close(done)
+	var buffer [1]byte
+	for {
+		n, err := reader.Read(buffer[:])
+		if err != nil {
+			if err != cancelreader.ErrCanceled {
+				select {
+				case reads <- watchInputRead{err: err}:
+				case <-stop:
+				}
+			}
+			return
+		}
+		if n == 1 {
+			for _, key := range buffer {
+				select {
+				case reads <- watchInputRead{key: key}:
+				case <-stop:
+					return
+				}
+			}
+		}
+	}
+}

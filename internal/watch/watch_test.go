@@ -27,8 +27,9 @@ type harness struct {
 	t     *testing.T
 	clock *fakeClock
 
-	states []PRState
-	stateI int
+	states     []PRState
+	stateI     int
+	stateCalls int
 
 	cycles []Cycle
 	cycleI int
@@ -42,6 +43,7 @@ type harness struct {
 	triggers     []string
 	approvedWith []string
 	logs         []string
+	events       []Event
 }
 
 func newHarness(t *testing.T) *harness {
@@ -52,6 +54,7 @@ func (h *harness) deps() Deps {
 	return Deps{
 		Clock: h.clock,
 		State: func(ctx context.Context) (PRState, error) {
+			h.stateCalls++
 			if h.stateI < len(h.states)-1 {
 				h.stateI++
 				return h.states[h.stateI-1], nil
@@ -86,6 +89,9 @@ func (h *harness) deps() Deps {
 		},
 		Logf: func(format string, args ...any) {
 			h.logs = append(h.logs, fmt.Sprintf(format, args...))
+		},
+		Emit: func(event Event) {
+			h.events = append(h.events, event)
 		},
 	}
 }
@@ -163,6 +169,196 @@ func TestReReviewRequestTriggersWithoutSettleWait(t *testing.T) {
 	if elapsed := h.clock.now.Sub(start); elapsed > 5*time.Minute {
 		t.Errorf("request trigger waited %s; settle time must not apply", elapsed)
 	}
+}
+
+func TestManualRequestWakesAndReviewsFreshState(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{
+		open("aaa"),
+		open("bbb"),
+	}
+	h.cycles = []Cycle{
+		{Result: CycleFindings},
+		{Result: CycleLGTMApproved, HeadSHA: "bbb"},
+	}
+	deps := h.deps()
+	deps.Wait = func(context.Context, time.Duration) (WaitResult, error) {
+		return WaitResult{ManualRequests: 1}, nil
+	}
+
+	reason := Run(context.Background(), defaultConfig(PostModeApprove), deps)
+
+	if reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if len(h.triggers) != 2 || h.triggers[1] != "manual request" {
+		t.Fatalf("triggers = %v", h.triggers)
+	}
+	if h.stateCalls != 2 {
+		t.Fatalf("state captures = %d, want 2", h.stateCalls)
+	}
+	if !hasEvent(h.events, EventManualRequestReceived) || !hasEvent(h.events, EventManualReviewStarted) {
+		t.Fatalf("events = %#v", h.events)
+	}
+}
+
+func TestManualRequestsCoalesceBeforeReviewStarts(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa")}
+	h.cycles = []Cycle{
+		{Result: CycleFindings},
+		{Result: CycleLGTMApproved},
+	}
+	deps := h.deps()
+	deps.Wait = func(context.Context, time.Duration) (WaitResult, error) {
+		return WaitResult{ManualRequests: 4}, nil
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if len(h.triggers) != 2 {
+		t.Fatalf("cycles = %d, want initial plus one manual review", len(h.triggers))
+	}
+	var coalesced Event
+	for _, event := range h.events {
+		if event.Type == EventManualRequestCoalesced {
+			coalesced = event
+		}
+	}
+	if coalesced.RequestCount != 4 {
+		t.Fatalf("coalesced event = %#v", coalesced)
+	}
+}
+
+func TestManualRequestRejectedWhenReviewBudgetIsExhausted(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa")}
+	h.cycles = []Cycle{{Result: CycleLGTMCommentCIPending, LGTMBody: "LGTM body"}}
+	h.ci = []bool{true}
+	cfg := defaultConfig(PostModeApprove)
+	cfg.MaxReviews = 1
+	waits := 0
+	deps := h.deps()
+	deps.Wait = func(ctx context.Context, duration time.Duration) (WaitResult, error) {
+		waits++
+		if waits == 1 {
+			return WaitResult{ManualRequests: 1}, nil
+		}
+		h.clock.now = h.clock.now.Add(duration)
+		return WaitResult{}, nil
+	}
+
+	if reason := Run(context.Background(), cfg, deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if len(h.triggers) != 1 {
+		t.Fatalf("cycles = %d, want no review beyond the initial review", len(h.triggers))
+	}
+	var rejected Event
+	for _, event := range h.events {
+		if event.Type == EventManualRequestRejected {
+			rejected = event
+		}
+	}
+	if rejected.Reason != ReasonMaxReviews.String() {
+		t.Fatalf("rejected event = %#v", rejected)
+	}
+}
+
+func TestManualInputSafetyFailureStopsWatcher(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa")}
+	h.cycles = []Cycle{{Result: CycleFindings}}
+	deps := h.deps()
+	deps.Wait = func(context.Context, time.Duration) (WaitResult, error) {
+		return WaitResult{}, errors.New("terminal restore failed")
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeComment), deps); reason != ReasonError {
+		t.Fatalf("reason = %v, want ReasonError", reason)
+	}
+	if !hasEvent(h.events, EventManualInputUnsafe) {
+		t.Fatalf("events = %#v", h.events)
+	}
+}
+
+func TestManualRequestSurvivesTransientStateFailureWithRetryDelay(t *testing.T) {
+	h := newHarness(t)
+	h.cycles = []Cycle{
+		{Result: CycleFindings},
+		{Result: CycleLGTMApproved},
+	}
+	stateCalls := 0
+	waitCalls := 0
+	deps := h.deps()
+	deps.State = func(context.Context) (PRState, error) {
+		stateCalls++
+		if stateCalls == 2 {
+			return PRState{}, errors.New("transient gh failure")
+		}
+		return open("aaa"), nil
+	}
+	deps.Wait = func(context.Context, time.Duration) (WaitResult, error) {
+		waitCalls++
+		if waitCalls == 1 {
+			return WaitResult{ManualRequests: 1}, nil
+		}
+		return WaitResult{}, nil
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if waitCalls != 2 {
+		t.Fatalf("wait calls = %d, want 2", waitCalls)
+	}
+	if len(h.triggers) != 2 || h.triggers[1] != "manual request" {
+		t.Fatalf("triggers = %v", h.triggers)
+	}
+}
+
+func TestManualRequestConsumesConcurrentReReviewRequest(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{
+		open("aaa"),
+		requested("aaa"),
+	}
+	h.cycles = []Cycle{
+		{Result: CycleFindings},
+		{Result: CycleFindings},
+	}
+	cfg := defaultConfig(PostModeComment)
+	cfg.MaxDuration = 30 * time.Minute
+	waitCalls := 0
+	deps := h.deps()
+	deps.Wait = func(ctx context.Context, duration time.Duration) (WaitResult, error) {
+		waitCalls++
+		if waitCalls == 1 {
+			return WaitResult{ManualRequests: 1}, nil
+		}
+		h.clock.now = h.clock.now.Add(duration)
+		return WaitResult{}, nil
+	}
+
+	if reason := Run(context.Background(), cfg, deps); reason != ReasonMaxDuration {
+		t.Fatalf("reason = %v, want ReasonMaxDuration", reason)
+	}
+	if len(h.triggers) != 2 {
+		t.Fatalf("triggers = %v, want initial plus one manual review", h.triggers)
+	}
+	if h.triggers[1] != "manual request" {
+		t.Fatalf("triggers = %v", h.triggers)
+	}
+}
+
+func hasEvent(events []Event, eventType EventType) bool {
+	for _, event := range events {
+		if event.Type == eventType {
+			return true
+		}
+	}
+	return false
 }
 
 func TestPersistentRequestIsConsumedOnce(t *testing.T) {
