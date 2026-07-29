@@ -231,6 +231,59 @@ func TestManualRequestsCoalesceBeforeReviewStarts(t *testing.T) {
 	}
 }
 
+func TestManualRequestsCoalesceThroughPreReviewHandoff(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa")}
+	h.cycles = []Cycle{
+		{Result: CycleFindings},
+		{Result: CycleLGTMApproved},
+	}
+	deps := h.deps()
+	state := deps.State
+	runCycle := deps.RunCycle
+	stateCalls := 0
+	var order []string
+	deps.State = func(ctx context.Context) (PRState, error) {
+		stateCalls++
+		result, err := state(ctx)
+		if stateCalls == 2 {
+			order = append(order, "state")
+		}
+		return result, err
+	}
+	deps.Wait = func(context.Context, time.Duration) (WaitResult, error) {
+		return WaitResult{
+			ManualRequests: 1,
+			Finalize: func(context.Context) (WaitResult, error) {
+				order = append(order, "finalize")
+				return WaitResult{ManualRequests: 2}, nil
+			},
+		}, nil
+	}
+	deps.RunCycle = func(ctx context.Context, reviewNum int, trigger string) (Cycle, error) {
+		if trigger == "manual request" {
+			order = append(order, "cycle")
+		}
+		return runCycle(ctx, reviewNum, trigger)
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if strings.Join(order, ",") != "state,finalize,cycle" {
+		t.Fatalf("order = %v", order)
+	}
+	var started Event
+	for _, event := range h.events {
+		if event.Type == EventManualReviewStarted {
+			started = event
+		}
+	}
+	if started.RequestCount != 3 {
+		t.Fatalf("manual review event = %#v", started)
+	}
+}
+
 func TestManualRequestRejectedWhenReviewBudgetIsExhausted(t *testing.T) {
 	h := newHarness(t)
 	h.states = []PRState{open("aaa")}
@@ -280,6 +333,31 @@ func TestManualInputSafetyFailureStopsWatcher(t *testing.T) {
 	}
 	if !hasEvent(h.events, EventManualInputUnsafe) {
 		t.Fatalf("events = %#v", h.events)
+	}
+}
+
+func TestManualInputHandoffFailureStopsWatcher(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa")}
+	h.cycles = []Cycle{{Result: CycleFindings}}
+	deps := h.deps()
+	deps.Wait = func(context.Context, time.Duration) (WaitResult, error) {
+		return WaitResult{
+			ManualRequests: 1,
+			Finalize: func(context.Context) (WaitResult, error) {
+				return WaitResult{}, errors.New("terminal restore failed")
+			},
+		}, nil
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeComment), deps); reason != ReasonError {
+		t.Fatalf("reason = %v, want ReasonError", reason)
+	}
+	if !hasEvent(h.events, EventManualInputUnsafe) {
+		t.Fatalf("events = %#v", h.events)
+	}
+	if len(h.triggers) != 1 {
+		t.Fatalf("cycles = %d, want only the initial review", len(h.triggers))
 	}
 }
 

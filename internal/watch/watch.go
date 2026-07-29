@@ -66,6 +66,7 @@ type Deps struct {
 type WaitResult struct {
 	ManualRequests int
 	Interrupted    bool
+	Finalize       func(context.Context) (WaitResult, error)
 }
 
 type EventType string
@@ -166,6 +167,29 @@ func (l *loop) wait(ctx context.Context, duration time.Duration) (WaitResult, er
 	return WaitResult{}, l.deps.Clock.Sleep(ctx, duration)
 }
 
+func (l *loop) finalizeWait(ctx context.Context, result WaitResult) (WaitResult, error) {
+	if result.Finalize == nil {
+		return result, nil
+	}
+	additional, err := result.Finalize(ctx)
+	result.Finalize = nil
+	result.ManualRequests += additional.ManualRequests
+	result.Interrupted = result.Interrupted || additional.Interrupted
+	return result, err
+}
+
+func (l *loop) handleWaitError(err error) (ExitReason, bool) {
+	if err == nil {
+		return 0, false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return ReasonInterrupted, true
+	}
+	l.emit(Event{Type: EventManualInputUnsafe, Reason: err.Error()})
+	l.logf("Manual input could not be handled safely: %v", err)
+	return ReasonError, true
+}
+
 func (l *loop) receiveManualRequests(count int) {
 	if count <= 0 {
 		return
@@ -224,6 +248,7 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 
 	pollErrors := 0
 	for {
+		waitResult := WaitResult{}
 		now := clock.Now()
 		if !now.Before(deadline) {
 			l.rejectManualRequests(ReasonMaxDuration.String())
@@ -235,29 +260,38 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 			if remaining := deadline.Sub(now); remaining < sleep {
 				sleep = remaining
 			}
-			waitResult, err := l.wait(ctx, sleep)
+			var err error
+			waitResult, err = l.wait(ctx, sleep)
 			if err != nil {
-				if ctx.Err() != nil {
-					return ReasonInterrupted
+				if reason, done := l.handleWaitError(err); done {
+					return reason
 				}
-				l.emit(Event{Type: EventManualInputUnsafe, Reason: err.Error()})
-				l.logf("Manual input could not be handled safely: %v", err)
-				return ReasonError
 			}
 			if waitResult.Interrupted {
 				return ReasonInterrupted
 			}
-			l.receiveManualRequests(waitResult.ManualRequests)
 		}
 		if !clock.Now().Before(deadline) {
+			var err error
+			waitResult, err = l.finalizeWait(ctx, waitResult)
+			if reason, done := l.handleWaitError(err); done {
+				return reason
+			}
+			l.receiveManualRequests(waitResult.ManualRequests)
 			l.rejectManualRequests(ReasonMaxDuration.String())
 			l.logf("Reached maximum duration (%s) without a terminal LGTM; stopping.", cfg.MaxDuration)
 			return ReasonMaxDuration
 		}
 
-		manualTrigger := l.manualRequests > 0
-
 		st, err := deps.State(ctx)
+		waitResult, waitErr := l.finalizeWait(ctx, waitResult)
+		if reason, done := l.handleWaitError(waitErr); done {
+			return reason
+		}
+		if waitResult.Interrupted {
+			return ReasonInterrupted
+		}
+		l.receiveManualRequests(waitResult.ManualRequests)
 		if err != nil {
 			if ctx.Err() != nil {
 				return ReasonInterrupted
@@ -270,6 +304,8 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 			continue
 		}
 		pollErrors = 0
+
+		manualTrigger := l.manualRequests > 0
 
 		if reason, done := l.checkOpen(st); done {
 			if manualTrigger {

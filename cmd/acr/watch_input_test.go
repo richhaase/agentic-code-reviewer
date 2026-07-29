@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/muesli/cancelreader"
+
+	"github.com/richhaase/agentic-code-reviewer/internal/watch"
 )
 
 func TestWatchInputAdapterReadsAndCoalescesManualRequests(t *testing.T) {
@@ -34,13 +36,13 @@ func TestWatchInputAdapterReadsAndCoalescesManualRequests(t *testing.T) {
 		},
 	}
 	type waitOutcome struct {
-		result int
+		result watch.WaitResult
 		err    error
 	}
 	outcome := make(chan waitOutcome, 1)
 	go func() {
 		result, err := adapter.Wait(context.Background(), time.Hour)
-		outcome <- waitOutcome{result: result.ManualRequests, err: err}
+		outcome <- waitOutcome{result: result, err: err}
 	}()
 
 	<-activated
@@ -51,8 +53,23 @@ func TestWatchInputAdapterReadsAndCoalescesManualRequests(t *testing.T) {
 	if got.err != nil {
 		t.Fatal(got.err)
 	}
-	if got.result != 3 {
-		t.Fatalf("manual requests = %d, want 3", got.result)
+	if got.result.ManualRequests != 3 {
+		t.Fatalf("manual requests = %d, want 3", got.result.ManualRequests)
+	}
+	select {
+	case <-released:
+		t.Fatal("manual input released before the pre-review handoff")
+	default:
+	}
+	if _, err := writer.Write([]byte("r")); err != nil {
+		t.Fatal(err)
+	}
+	additional, err := got.result.Finalize(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if additional.ManualRequests != 1 {
+		t.Fatalf("additional manual requests = %d, want 1", additional.ManualRequests)
 	}
 	<-released
 
@@ -220,13 +237,13 @@ func TestWatchInputAdapterSuspendsDuringCoalescing(t *testing.T) {
 		},
 	}
 	type waitOutcome struct {
-		result int
+		result watch.WaitResult
 		err    error
 	}
 	outcome := make(chan waitOutcome, 1)
 	go func() {
 		result, err := adapter.Wait(context.Background(), time.Hour)
-		outcome <- waitOutcome{result: result.ManualRequests, err: err}
+		outcome <- waitOutcome{result: result, err: err}
 	}()
 
 	<-activated
@@ -239,8 +256,11 @@ func TestWatchInputAdapterSuspendsDuringCoalescing(t *testing.T) {
 	if got.err != nil {
 		t.Fatal(got.err)
 	}
-	if got.result != 1 {
-		t.Fatalf("manual requests = %d, want 1", got.result)
+	if got.result.ManualRequests != 1 {
+		t.Fatalf("manual requests = %d, want 1", got.result.ManualRequests)
+	}
+	if _, err := got.result.Finalize(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 	<-released
 }
@@ -343,6 +363,42 @@ func TestWatchInputAdapterReportsTerminalRestoreFailure(t *testing.T) {
 
 	_, err = adapter.Wait(context.Background(), time.Millisecond)
 	if err == nil || !strings.Contains(err.Error(), "restore terminal input: restore failed") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestWatchInputAdapterReportsHandoffRestoreFailure(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		reader.Close()
+		writer.Close()
+	})
+	activated := make(chan struct{})
+	adapter := &watchInputAdapter{
+		input: reader,
+		activate: func() (func() error, error) {
+			close(activated)
+			return func() error { return errors.New("restore failed") }, nil
+		},
+	}
+	outcome := make(chan watch.WaitResult, 1)
+	go func() {
+		result, _ := adapter.Wait(context.Background(), time.Hour)
+		outcome <- result
+	}()
+
+	<-activated
+	if _, err := writer.Write([]byte("r")); err != nil {
+		t.Fatal(err)
+	}
+	result := <-outcome
+	if result.Finalize == nil {
+		t.Fatal("manual input handoff is missing")
+	}
+	if _, err := result.Finalize(context.Background()); err == nil || !strings.Contains(err.Error(), "restore terminal input: restore failed") {
 		t.Fatalf("error = %v", err)
 	}
 }

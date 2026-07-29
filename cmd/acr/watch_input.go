@@ -54,19 +54,18 @@ func (a *watchInputAdapter) Wait(ctx context.Context, duration time.Duration) (r
 		}
 		return watch.WaitResult{}, fmt.Errorf("enable manual input: %w", err)
 	}
-	defer func() {
-		if err := restore(); err != nil && resultErr == nil {
-			resultErr = fmt.Errorf("restore terminal input: %w", err)
-		}
-	}()
 
 	session, err := a.startSession()
 	if err != nil {
 		return watch.WaitResult{}, fmt.Errorf("prepare manual input: %w", err)
 	}
+	handedOff := false
 	defer func() {
-		if session != nil {
-			session.close()
+		if handedOff {
+			return
+		}
+		if err := releaseWatchInput(session, restore); err != nil && resultErr == nil {
+			resultErr = fmt.Errorf("restore terminal input: %w", err)
 		}
 	}()
 
@@ -94,7 +93,13 @@ func (a *watchInputAdapter) Wait(ctx context.Context, duration time.Duration) (r
 					return watch.WaitResult{}, err
 				}
 			case 'r', 'R':
-				return a.coalesce(ctx, &session, &restore)
+				result, err := a.coalesce(ctx, &session, &restore, 1)
+				if err != nil {
+					return watch.WaitResult{}, err
+				}
+				result.Finalize = a.handoff(&session, &restore)
+				handedOff = true
+				return result, nil
 			}
 		}
 	}
@@ -122,6 +127,16 @@ func (s *watchInputSession) close() {
 		<-s.done
 	}
 	s.reader.Close()
+}
+
+func releaseWatchInput(session *watchInputSession, restore func() error) error {
+	if session != nil {
+		session.close()
+	}
+	if restore == nil {
+		return nil
+	}
+	return restore()
 }
 
 func sessionReads(session *watchInputSession) <-chan watchInputRead {
@@ -179,8 +194,8 @@ func (a *watchInputAdapter) coalesce(
 	ctx context.Context,
 	session **watchInputSession,
 	restore *func() error,
+	count int,
 ) (watch.WaitResult, error) {
-	count := 1
 	timer := time.NewTimer(manualRequestCoalesceWindow)
 	defer timer.Stop()
 
@@ -214,6 +229,33 @@ func (a *watchInputAdapter) coalesce(
 				timer.Reset(manualRequestCoalesceWindow)
 			}
 		}
+	}
+}
+
+func (a *watchInputAdapter) handoff(
+	session **watchInputSession,
+	restore *func() error,
+) func(context.Context) (watch.WaitResult, error) {
+	finalized := false
+	return func(ctx context.Context) (watch.WaitResult, error) {
+		if finalized {
+			return watch.WaitResult{}, nil
+		}
+		finalized = true
+		result, collectErr := a.coalesce(ctx, session, restore, 0)
+		releaseErr := releaseWatchInput(*session, *restore)
+		*session = nil
+		*restore = nil
+		if collectErr != nil {
+			if releaseErr != nil {
+				return result, fmt.Errorf("%v; restore terminal input: %w", collectErr, releaseErr)
+			}
+			return result, collectErr
+		}
+		if releaseErr != nil {
+			return result, fmt.Errorf("restore terminal input: %w", releaseErr)
+		}
+		return result, nil
 	}
 }
 

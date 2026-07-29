@@ -34,7 +34,10 @@ func activateWatchInput(input *os.File) (func() error, error) {
 		return nil, err
 	}
 	return func() error {
-		return term.Restore(fd, rawState)
+		if err := term.Restore(fd, rawState); err != nil {
+			return err
+		}
+		return unix.IoctlSetTermios(fd, unix.TIOCSETAF, state)
 	}, nil
 }
 

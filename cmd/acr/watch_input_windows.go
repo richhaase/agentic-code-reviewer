@@ -21,7 +21,10 @@ func activateWatchInput(input *os.File) (func() error, error) {
 		return nil, err
 	}
 	return func() error {
-		return term.Restore(fd, state)
+		if err := term.Restore(fd, state); err != nil {
+			return err
+		}
+		return windows.FlushConsoleInputBuffer(windows.Handle(input.Fd()))
 	}, nil
 }
 
