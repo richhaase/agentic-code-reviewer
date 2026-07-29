@@ -9,6 +9,10 @@ import (
 	"golang.org/x/term"
 )
 
+func watchInputSupported() bool {
+	return true
+}
+
 func activateWatchInput(input *os.File) (func() error, error) {
 	fd := int(input.Fd())
 	foregroundGroup, err := unix.IoctlGetInt(fd, unix.TIOCGPGRP)
@@ -35,5 +39,5 @@ func activateWatchInput(input *os.File) (func() error, error) {
 }
 
 func suspendWatchInput() error {
-	return syscall.Kill(os.Getpid(), syscall.SIGTSTP)
+	return syscall.Kill(-unix.Getpgrp(), syscall.SIGTSTP)
 }

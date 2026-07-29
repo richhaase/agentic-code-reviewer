@@ -7,6 +7,10 @@ import (
 	"golang.org/x/term"
 )
 
+func watchInputSupported() bool {
+	return true
+}
+
 func activateWatchInput(input *os.File) (func() error, error) {
 	fd := int(input.Fd())
 	if err := windows.FlushConsoleInputBuffer(windows.Handle(input.Fd())); err != nil {

@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/muesli/cancelreader"
 )
 
 func TestWatchInputAdapterReadsAndCoalescesManualRequests(t *testing.T) {
@@ -189,6 +192,97 @@ func TestWatchInputAdapterRestoresAroundSuspend(t *testing.T) {
 	<-released
 }
 
+func TestWatchInputAdapterSuspendsDuringCoalescing(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		reader.Close()
+		writer.Close()
+	})
+	activated := make(chan struct{}, 2)
+	released := make(chan struct{}, 2)
+	suspended := make(chan struct{}, 1)
+	adapter := &watchInputAdapter{
+		input: reader,
+		activate: func() (func() error, error) {
+			activated <- struct{}{}
+			return func() error {
+				released <- struct{}{}
+				return nil
+			}, nil
+		},
+		suspend: func() error {
+			<-released
+			suspended <- struct{}{}
+			return nil
+		},
+	}
+	type waitOutcome struct {
+		result int
+		err    error
+	}
+	outcome := make(chan waitOutcome, 1)
+	go func() {
+		result, err := adapter.Wait(context.Background(), time.Hour)
+		outcome <- waitOutcome{result: result.ManualRequests, err: err}
+	}()
+
+	<-activated
+	if _, err := writer.Write([]byte{'r', 26}); err != nil {
+		t.Fatal(err)
+	}
+	<-suspended
+	<-activated
+	got := <-outcome
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	if got.result != 1 {
+		t.Fatalf("manual requests = %d, want 1", got.result)
+	}
+	<-released
+}
+
+func TestWatchInputAdapterFallsBackWhenResumedInBackground(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		reader.Close()
+		writer.Close()
+	})
+	activated := make(chan struct{})
+	activation := 0
+	adapter := &watchInputAdapter{
+		input: reader,
+		activate: func() (func() error, error) {
+			activation++
+			if activation > 1 {
+				return nil, errWatchInputNotForeground
+			}
+			close(activated)
+			return func() error { return nil }, nil
+		},
+		suspend: func() error { return nil },
+	}
+	outcome := make(chan error, 1)
+	go func() {
+		_, err := adapter.Wait(context.Background(), 10*time.Millisecond)
+		outcome <- err
+	}()
+
+	<-activated
+	if _, err := writer.Write([]byte{26}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-outcome; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestWatchInputAdapterFallsBackWhenBackgrounded(t *testing.T) {
 	adapter := &watchInputAdapter{
 		activate: func() (func() error, error) {
@@ -205,6 +299,29 @@ func TestWatchInputAdapterFallsBackWhenBackgrounded(t *testing.T) {
 	}
 	if time.Since(start) < time.Millisecond {
 		t.Fatal("background fallback did not wait")
+	}
+}
+
+func TestWatchInputAdapterDoesNotWaitWhenCancellationFails(t *testing.T) {
+	reader := &failedCancellationReader{closed: make(chan struct{})}
+	adapter := &watchInputAdapter{
+		input: io.Reader(reader),
+		activate: func() (func() error, error) {
+			return func() error { return nil }, nil
+		},
+		newReader: func(io.Reader) (cancelreader.CancelReader, error) {
+			return reader, nil
+		},
+	}
+
+	_, err := adapter.Wait(context.Background(), time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-reader.closed:
+	case <-time.After(time.Second):
+		t.Fatal("uncancelable reader was not closed")
 	}
 }
 
@@ -228,4 +345,22 @@ func TestWatchInputAdapterReportsTerminalRestoreFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "restore terminal input: restore failed") {
 		t.Fatalf("error = %v", err)
 	}
+}
+
+type failedCancellationReader struct {
+	closed chan struct{}
+}
+
+func (r *failedCancellationReader) Read([]byte) (int, error) {
+	<-r.closed
+	return 0, io.EOF
+}
+
+func (r *failedCancellationReader) Cancel() bool {
+	return false
+}
+
+func (r *failedCancellationReader) Close() error {
+	close(r.closed)
+	return nil
 }

@@ -204,7 +204,7 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 			return runWatchCycle(ctx, cmd, watchPR, mode, logger)
 		},
 	}
-	if terminal.IsStdinTTY() {
+	if terminal.IsStdinTTY() && watchInputSupported() {
 		deps.Wait = newWatchInputAdapter(os.Stdin).Wait
 		logger.Log("Press r while waiting to request an immediate review.", terminal.StyleDim)
 	}
