@@ -2,22 +2,25 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"time"
 
 	"github.com/muesli/cancelreader"
-	"golang.org/x/term"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/watch"
 )
 
 const manualRequestCoalesceWindow = 30 * time.Millisecond
 
+var errWatchInputNotForeground = errors.New("watcher does not own the foreground terminal")
+
 type watchInputAdapter struct {
 	input    io.Reader
 	activate func() (func() error, error)
+	suspend  func() error
 }
 
 type watchInputRead struct {
@@ -29,21 +32,18 @@ func newWatchInputAdapter(input *os.File) *watchInputAdapter {
 	return &watchInputAdapter{
 		input: input,
 		activate: func() (func() error, error) {
-			fd := int(input.Fd())
-			state, err := term.MakeRaw(fd)
-			if err != nil {
-				return nil, err
-			}
-			return func() error {
-				return term.Restore(fd, state)
-			}, nil
+			return activateWatchInput(input)
 		},
+		suspend: suspendWatchInput,
 	}
 }
 
 func (a *watchInputAdapter) Wait(ctx context.Context, duration time.Duration) (result watch.WaitResult, resultErr error) {
 	restore, err := a.activate()
 	if err != nil {
+		if errors.Is(err, errWatchInputNotForeground) {
+			return waitWithoutWatchInput(ctx, duration)
+		}
 		return watch.WaitResult{}, fmt.Errorf("enable manual input: %w", err)
 	}
 	defer func() {
@@ -84,10 +84,36 @@ func (a *watchInputAdapter) Wait(ctx context.Context, duration time.Duration) (r
 			switch read.key {
 			case 3:
 				return watch.WaitResult{Interrupted: true}, nil
+			case 26:
+				if a.suspend == nil {
+					continue
+				}
+				if err := restore(); err != nil {
+					return watch.WaitResult{}, fmt.Errorf("restore terminal input before suspend: %w", err)
+				}
+				restore = func() error { return nil }
+				if err := a.suspend(); err != nil {
+					return watch.WaitResult{}, fmt.Errorf("suspend watcher: %w", err)
+				}
+				restore, err = a.activate()
+				if err != nil {
+					return watch.WaitResult{}, fmt.Errorf("restore manual input after resume: %w", err)
+				}
 			case 'r', 'R':
 				return a.coalesce(ctx, reads)
 			}
 		}
+	}
+}
+
+func waitWithoutWatchInput(ctx context.Context, duration time.Duration) (watch.WaitResult, error) {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return watch.WaitResult{}, ctx.Err()
+	case <-timer.C:
+		return watch.WaitResult{}, nil
 	}
 }
 

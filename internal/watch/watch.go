@@ -230,7 +230,7 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 			l.logf("Reached maximum duration (%s) without a terminal LGTM; stopping.", cfg.MaxDuration)
 			return ReasonMaxDuration
 		}
-		if l.manualRequests == 0 {
+		if l.manualRequests == 0 || pollErrors > 0 {
 			sleep := cfg.PollInterval
 			if remaining := deadline.Sub(now); remaining < sleep {
 				sleep = remaining
@@ -290,6 +290,9 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		trigger := ""
 		if manualTrigger {
 			trigger = "manual request"
+			if st.ReviewRequested && l.requestArmed {
+				l.requestArmed = false
+			}
 		} else if st.ReviewRequested && l.requestArmed {
 			trigger = "re-review requested"
 			l.requestArmed = false

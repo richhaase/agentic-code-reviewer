@@ -283,7 +283,7 @@ func TestManualInputSafetyFailureStopsWatcher(t *testing.T) {
 	}
 }
 
-func TestManualRequestSurvivesTransientStateFailureWithoutAnotherWait(t *testing.T) {
+func TestManualRequestSurvivesTransientStateFailureWithRetryDelay(t *testing.T) {
 	h := newHarness(t)
 	h.cycles = []Cycle{
 		{Result: CycleFindings},
@@ -301,16 +301,53 @@ func TestManualRequestSurvivesTransientStateFailureWithoutAnotherWait(t *testing
 	}
 	deps.Wait = func(context.Context, time.Duration) (WaitResult, error) {
 		waitCalls++
-		return WaitResult{ManualRequests: 1}, nil
+		if waitCalls == 1 {
+			return WaitResult{ManualRequests: 1}, nil
+		}
+		return WaitResult{}, nil
 	}
 
 	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
 		t.Fatalf("reason = %v, want ReasonLGTM", reason)
 	}
-	if waitCalls != 1 {
-		t.Fatalf("wait calls = %d, want 1", waitCalls)
+	if waitCalls != 2 {
+		t.Fatalf("wait calls = %d, want 2", waitCalls)
 	}
 	if len(h.triggers) != 2 || h.triggers[1] != "manual request" {
+		t.Fatalf("triggers = %v", h.triggers)
+	}
+}
+
+func TestManualRequestConsumesConcurrentReReviewRequest(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{
+		open("aaa"),
+		requested("aaa"),
+	}
+	h.cycles = []Cycle{
+		{Result: CycleFindings},
+		{Result: CycleFindings},
+	}
+	cfg := defaultConfig(PostModeComment)
+	cfg.MaxDuration = 30 * time.Minute
+	waitCalls := 0
+	deps := h.deps()
+	deps.Wait = func(ctx context.Context, duration time.Duration) (WaitResult, error) {
+		waitCalls++
+		if waitCalls == 1 {
+			return WaitResult{ManualRequests: 1}, nil
+		}
+		h.clock.now = h.clock.now.Add(duration)
+		return WaitResult{}, nil
+	}
+
+	if reason := Run(context.Background(), cfg, deps); reason != ReasonMaxDuration {
+		t.Fatalf("reason = %v, want ReasonMaxDuration", reason)
+	}
+	if len(h.triggers) != 2 {
+		t.Fatalf("triggers = %v, want initial plus one manual review", h.triggers)
+	}
+	if h.triggers[1] != "manual request" {
 		t.Fatalf("triggers = %v", h.triggers)
 	}
 }

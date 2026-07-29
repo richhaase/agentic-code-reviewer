@@ -137,6 +137,77 @@ func TestWatchInputAdapterTreatsControlCAsInterrupt(t *testing.T) {
 	}
 }
 
+func TestWatchInputAdapterRestoresAroundSuspend(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		reader.Close()
+		writer.Close()
+	})
+	activated := make(chan struct{}, 2)
+	released := make(chan struct{}, 2)
+	suspended := make(chan struct{}, 1)
+	adapter := &watchInputAdapter{
+		input: reader,
+		activate: func() (func() error, error) {
+			activated <- struct{}{}
+			return func() error {
+				released <- struct{}{}
+				return nil
+			}, nil
+		},
+		suspend: func() error {
+			select {
+			case <-released:
+			default:
+				t.Fatal("terminal input was not restored before suspension")
+			}
+			suspended <- struct{}{}
+			return nil
+		},
+	}
+	outcome := make(chan bool, 1)
+	go func() {
+		result, _ := adapter.Wait(context.Background(), time.Hour)
+		outcome <- result.Interrupted
+	}()
+
+	<-activated
+	if _, err := writer.Write([]byte{26}); err != nil {
+		t.Fatal(err)
+	}
+	<-suspended
+	<-activated
+	if _, err := writer.Write([]byte{3}); err != nil {
+		t.Fatal(err)
+	}
+	if !<-outcome {
+		t.Fatal("control-C did not interrupt the resumed wait")
+	}
+	<-released
+}
+
+func TestWatchInputAdapterFallsBackWhenBackgrounded(t *testing.T) {
+	adapter := &watchInputAdapter{
+		activate: func() (func() error, error) {
+			return nil, errWatchInputNotForeground
+		},
+	}
+	start := time.Now()
+	result, err := adapter.Wait(context.Background(), time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ManualRequests != 0 || result.Interrupted {
+		t.Fatalf("result = %#v", result)
+	}
+	if time.Since(start) < time.Millisecond {
+		t.Fatal("background fallback did not wait")
+	}
+}
+
 func TestWatchInputAdapterReportsTerminalRestoreFailure(t *testing.T) {
 	reader, writer, err := os.Pipe()
 	if err != nil {
