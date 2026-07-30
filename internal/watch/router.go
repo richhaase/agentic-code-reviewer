@@ -21,13 +21,14 @@ Return no_review when the discussion is acknowledgement, agreement, social conve
 
 Return uncertain when the distinction cannot be made safely.
 
-Output exactly one token:
-review_required
-no_review
-uncertain`
+Output exactly one JSON object with no other text:
+{"decision":"review_required"}
+{"decision":"no_review"}
+{"decision":"uncertain"}`
 
 type Router struct {
 	agent   agent.Agent
+	parser  agent.SummaryParser
 	workDir string
 }
 
@@ -36,7 +37,11 @@ func NewRouter(agentName, model, workDir string) (*Router, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Router{agent: routingAgent, workDir: workDir}, nil
+	parser, err := agent.NewSummaryParser(agentName)
+	if err != nil {
+		return nil, err
+	}
+	return &Router{agent: routingAgent, parser: parser, workDir: workDir}, nil
 }
 
 func (r *Router) Route(ctx context.Context, discussion []Discussion) (RoutingDecision, error) {
@@ -57,7 +62,11 @@ func (r *Router) Route(ctx context.Context, discussion []Discussion) (RoutingDec
 	if readErr != nil || closeErr != nil {
 		return RoutingUncertain, errors.Join(readErr, closeErr)
 	}
-	decision, err := ParseRoutingDecision(string(output))
+	response, err := r.parser.ExtractText(output)
+	if err != nil {
+		return RoutingUncertain, err
+	}
+	decision, err := ParseRoutingDecision(response)
 	if err != nil {
 		return RoutingUncertain, err
 	}
@@ -65,11 +74,21 @@ func (r *Router) Route(ctx context.Context, discussion []Discussion) (RoutingDec
 }
 
 func ParseRoutingDecision(output string) (RoutingDecision, error) {
-	normalized := strings.TrimSpace(agent.StripMarkdownCodeFence(output))
-	switch RoutingDecision(normalized) {
+	var response struct {
+		Decision RoutingDecision `json:"decision"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(agent.StripMarkdownCodeFence(output)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&response); err != nil {
+		return RoutingUncertain, fmt.Errorf("invalid discussion routing response: %w", err)
+	}
+	if decoder.Decode(&struct{}{}) != io.EOF {
+		return RoutingUncertain, fmt.Errorf("invalid discussion routing response: trailing content")
+	}
+	switch response.Decision {
 	case RoutingNoReview, RoutingReviewRequired, RoutingUncertain:
-		return RoutingDecision(normalized), nil
+		return response.Decision, nil
 	default:
-		return RoutingUncertain, fmt.Errorf("invalid discussion routing decision %q", normalized)
+		return RoutingUncertain, fmt.Errorf("invalid discussion routing decision %q", response.Decision)
 	}
 }
