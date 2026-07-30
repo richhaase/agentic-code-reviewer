@@ -84,6 +84,7 @@ type WatchConfig struct {
 	SettleTime   *Duration `yaml:"settle_time"`
 	MaxReviews   *int      `yaml:"max_reviews"`
 	MaxDuration  *Duration `yaml:"max_duration"`
+	Uncertain    *string   `yaml:"uncertain_discussion"`
 }
 
 type FPFilterConfig struct {
@@ -186,7 +187,7 @@ var knownFPFilterKeys = []string{"enabled", "threshold"}
 
 var knownPRFeedbackKeys = []string{"enabled", "agent"}
 
-var knownWatchKeys = []string{"poll_interval", "settle_time", "max_reviews", "max_duration"}
+var knownWatchKeys = []string{"poll_interval", "settle_time", "max_reviews", "max_duration", "uncertain_discussion"}
 
 var knownFilterKeys = []string{"exclude_patterns"}
 
@@ -409,6 +410,9 @@ func (r *ResolvedConfig) ValidateAll() []string {
 	if r.WatchMaxDuration <= 0 {
 		errs = append(errs, fmt.Sprintf("watch.max_duration must be > 0, got %s", r.WatchMaxDuration))
 	}
+	if r.WatchUncertain != "wait" && r.WatchUncertain != "review" {
+		errs = append(errs, fmt.Sprintf("watch.uncertain_discussion must be wait or review, got %q", r.WatchUncertain))
+	}
 	if r.AdjudicationMaxIterations < 0 {
 		errs = append(errs, fmt.Sprintf("adjudication.max_iterations must be >= 0, got %d", r.AdjudicationMaxIterations))
 	}
@@ -445,6 +449,7 @@ var Defaults = ResolvedConfig{
 	WatchSettleTime:   10 * time.Minute,
 	WatchMaxReviews:   10,
 	WatchMaxDuration:  24 * time.Hour,
+	WatchUncertain:    "wait",
 }
 
 type ResolvedConfig struct {
@@ -470,6 +475,7 @@ type ResolvedConfig struct {
 	WatchSettleTime   time.Duration
 	WatchMaxReviews   int
 	WatchMaxDuration  time.Duration
+	WatchUncertain    string
 
 	AdjudicationMaxIterations int
 	AdjudicationMaxCostUSD    float64
@@ -499,6 +505,7 @@ type FlagState struct {
 	WatchSettleTimeSet   bool
 	WatchMaxReviewsSet   bool
 	WatchMaxDurationSet  bool
+	WatchUncertainSet    bool
 }
 
 type EnvState struct {
@@ -540,6 +547,8 @@ type EnvState struct {
 	PRFeedbackAgentSet   bool
 	WatchPollInterval    time.Duration
 	WatchPollIntervalSet bool
+	WatchUncertain       string
+	WatchUncertainSet    bool
 }
 
 func LoadEnvState() (EnvState, []string) {
@@ -698,6 +707,15 @@ func LoadEnvState() (EnvState, []string) {
 			warnings = append(warnings, fmt.Sprintf("ACR_WATCH_POLL_INTERVAL=%q is not a valid duration or integer, ignoring", v))
 		}
 	}
+	if v := os.Getenv("ACR_WATCH_UNCERTAIN_DISCUSSION"); v != "" {
+		switch strings.ToLower(v) {
+		case "wait", "review":
+			state.WatchUncertain = strings.ToLower(v)
+			state.WatchUncertainSet = true
+		default:
+			warnings = append(warnings, fmt.Sprintf("ACR_WATCH_UNCERTAIN_DISCUSSION=%q must be wait or review, ignoring", v))
+		}
+	}
 
 	return state, warnings
 }
@@ -769,6 +787,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 		if cfg.Watch.MaxDuration != nil {
 			result.WatchMaxDuration = cfg.Watch.MaxDuration.AsDuration()
 		}
+		if cfg.Watch.Uncertain != nil {
+			result.WatchUncertain = strings.ToLower(*cfg.Watch.Uncertain)
+		}
 		if cfg.Adjudication.MaxIterations != nil {
 			result.AdjudicationMaxIterations = *cfg.Adjudication.MaxIterations
 		}
@@ -827,6 +848,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	}
 	if envState.WatchPollIntervalSet {
 		result.WatchPollInterval = envState.WatchPollInterval
+	}
+	if envState.WatchUncertainSet {
+		result.WatchUncertain = envState.WatchUncertain
 	}
 
 	if flagState.ReviewersSet {
@@ -888,6 +912,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 	}
 	if flagState.WatchMaxDurationSet {
 		result.WatchMaxDuration = flagValues.WatchMaxDuration
+	}
+	if flagState.WatchUncertainSet {
+		result.WatchUncertain = flagValues.WatchUncertain
 	}
 
 	return result

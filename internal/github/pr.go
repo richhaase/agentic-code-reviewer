@@ -312,6 +312,45 @@ func SubmitPRReview(ctx context.Context, repositoryRoot, prNumber, body string, 
 	return nil
 }
 
+func SubmitPRReviewWithID(ctx context.Context, repositoryRoot, prNumber, body string, requestChanges bool) (DiscussionID, error) {
+	event := "COMMENT"
+	if requestChanges {
+		event = "REQUEST_CHANGES"
+	}
+
+	payload, err := json.Marshal(map[string]string{"body": body, "event": event})
+	if err != nil {
+		return DiscussionID{}, fmt.Errorf("failed to encode PR review: %w", err)
+	}
+	endpoint := fmt.Sprintf("repos/{owner}/{repo}/pulls/%s/reviews", prNumber)
+	cmd := exec.CommandContext(ctx, "gh", "api", "--method", "POST", endpoint, "--input", "-")
+	cmd.Dir = repositoryRoot
+	cmd.Stdin = bytes.NewReader(payload)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		errMsg := strings.TrimSpace(stderr.String())
+		if errMsg != "" {
+			return DiscussionID{}, fmt.Errorf("failed to submit PR review (%s): %w", errMsg, err)
+		}
+		return DiscussionID{}, fmt.Errorf("failed to submit PR review: %w", err)
+	}
+	var response struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		return DiscussionID{}, fmt.Errorf("failed to parse submitted PR review: %w", err)
+	}
+	if response.ID == 0 {
+		return DiscussionID{}, errors.New("submitted PR review response did not include an ID")
+	}
+	return DiscussionID{Kind: "review", ID: response.ID}, nil
+}
+
 func CheckCIStatus(ctx context.Context, repositoryRoot, prNumber string) CIStatus {
 	cmd := exec.CommandContext(ctx, "gh", "pr", "checks", prNumber, "--json", "name,bucket")
 	cmd.Dir = repositoryRoot

@@ -63,6 +63,7 @@ func newConfigShowCmd() *cobra.Command {
 			} else {
 				fmt.Printf("  %-22s %s\n", "pr_feedback.agent:", "(same as summarizer_agent)")
 			}
+			fmt.Printf("  %-22s %s\n", "watch.uncertain_discussion:", resolved.WatchUncertain)
 
 			return nil
 		},
@@ -113,6 +114,7 @@ watch:
   settle_time: 10m
   max_reviews: 10
   max_duration: 24h
+  uncertain_discussion: wait
 `
 			if err := os.WriteFile(configPath, []byte(starter), 0644); err != nil {
 				return fmt.Errorf("failed to write %s: %w", configPath, err)

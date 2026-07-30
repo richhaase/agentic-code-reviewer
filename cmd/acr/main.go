@@ -53,6 +53,7 @@ var (
 	watchSettleTime   time.Duration
 	watchMaxReviews   int
 	watchMaxDuration  time.Duration
+	watchUncertain    string
 )
 
 func main() {
@@ -362,6 +363,7 @@ func loadAndResolveConfig(ctx context.Context, cmd *cobra.Command, wt worktreeRe
 		WatchSettleTimeSet:   cmd.Flags().Changed("settle-time"),
 		WatchMaxReviewsSet:   cmd.Flags().Changed("max-reviews"),
 		WatchMaxDurationSet:  cmd.Flags().Changed("max-duration"),
+		WatchUncertainSet:    cmd.Flags().Changed("uncertain-discussion"),
 	}
 
 	envState, envWarnings := config.LoadEnvState()
@@ -399,6 +401,7 @@ func loadAndResolveConfig(ctx context.Context, cmd *cobra.Command, wt worktreeRe
 		WatchSettleTime:   watchSettleTime,
 		WatchMaxReviews:   watchMaxReviews,
 		WatchMaxDuration:  watchMaxDuration,
+		WatchUncertain:    watchUncertain,
 	}
 
 	resolved := config.Resolve(cfg, envState, flagState, flagValues)

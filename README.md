@@ -228,6 +228,12 @@ A new review cycle starts when:
 - **New commits are pushed** — a changed head starts the `--settle-time` quiet
   period (default 10m); each additional commit restarts it. The review runs
   once the head stops moving.
+- **New or edited PR discussion settles** — a lightweight agent decides whether
+  the discussion can affect the prior conclusion. Relevant discussion enters
+  the existing full-review path; acknowledgement and other non-review context
+  is consumed without spending a review slot. Uncertain discussion waits
+  visibly by default and can be escalated with
+  `--uncertain-discussion review`.
 
 Every cycle fetches the PR head into a fresh temporary worktree, so local
 branch state never goes stale mid-watch. Review configuration is independently
@@ -266,6 +272,7 @@ watch:
   settle_time: 10m
   max_reviews: 10
   max_duration: 24h
+  uncertain_discussion: wait
 ```
 
 The post mode is deliberately flag-only.

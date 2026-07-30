@@ -1255,6 +1255,7 @@ func clearACREnv(t *testing.T) {
 		"ACR_SUMMARIZER_TIMEOUT", "ACR_FP_FILTER_TIMEOUT",
 		"ACR_GUIDANCE", "ACR_GUIDANCE_FILE", "ACR_FP_FILTER", "ACR_FP_THRESHOLD",
 		"ACR_PR_FEEDBACK", "ACR_PR_FEEDBACK_AGENT", "ACR_WATCH_POLL_INTERVAL",
+		"ACR_WATCH_UNCERTAIN_DISCUSSION",
 	} {
 		t.Setenv(key, os.Getenv(key))
 		os.Unsetenv(key)
@@ -1669,15 +1670,34 @@ func TestResolve_WatchDefaults(t *testing.T) {
 	if resolved.WatchMaxDuration != 24*time.Hour {
 		t.Errorf("WatchMaxDuration = %s, want 24h", resolved.WatchMaxDuration)
 	}
+	if resolved.WatchUncertain != "wait" {
+		t.Errorf("WatchUncertain = %q, want wait", resolved.WatchUncertain)
+	}
+}
+
+func TestLoadEnvState_WatchUncertain(t *testing.T) {
+	clearACREnv(t)
+	t.Setenv("ACR_WATCH_UNCERTAIN_DISCUSSION", "REVIEW")
+
+	state, warnings := LoadEnvState()
+
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v", warnings)
+	}
+	if !state.WatchUncertainSet || state.WatchUncertain != "review" {
+		t.Fatalf("state = %#v", state)
+	}
 }
 
 func TestResolve_WatchConfigAndFlagPrecedence(t *testing.T) {
 	pollInterval := Duration(30 * time.Second)
 	maxReviews := 3
+	uncertain := "review"
 	cfg := &Config{
 		Watch: WatchConfig{
 			PollInterval: &pollInterval,
 			MaxReviews:   &maxReviews,
+			Uncertain:    &uncertain,
 		},
 	}
 
@@ -1687,6 +1707,18 @@ func TestResolve_WatchConfigAndFlagPrecedence(t *testing.T) {
 	}
 	if resolved.WatchMaxReviews != 3 {
 		t.Errorf("WatchMaxReviews = %d, want 3 from config", resolved.WatchMaxReviews)
+	}
+	if resolved.WatchUncertain != "review" {
+		t.Errorf("WatchUncertain = %q, want review from config", resolved.WatchUncertain)
+	}
+	resolved = Resolve(cfg, EnvState{WatchUncertain: "wait", WatchUncertainSet: true}, FlagState{}, ResolvedConfig{})
+	if resolved.WatchUncertain != "wait" {
+		t.Errorf("WatchUncertain = %q, want wait from environment", resolved.WatchUncertain)
+	}
+	resolved = Resolve(cfg, EnvState{WatchUncertain: "wait", WatchUncertainSet: true},
+		FlagState{WatchUncertainSet: true}, ResolvedConfig{WatchUncertain: "review"})
+	if resolved.WatchUncertain != "review" {
+		t.Errorf("WatchUncertain = %q, want review from flag", resolved.WatchUncertain)
 	}
 
 	resolved = Resolve(cfg, EnvState{WatchPollInterval: time.Minute, WatchPollIntervalSet: true}, FlagState{}, ResolvedConfig{})
@@ -1711,9 +1743,10 @@ func TestValidate_WatchBounds(t *testing.T) {
 	resolved.WatchMaxReviews = 0
 	resolved.WatchSettleTime = -time.Second
 	resolved.WatchMaxDuration = 0
+	resolved.WatchUncertain = "ignore"
 
 	errs := resolved.ValidateAll()
-	for _, want := range []string{"watch.poll_interval", "watch.settle_time", "watch.max_reviews", "watch.max_duration"} {
+	for _, want := range []string{"watch.poll_interval", "watch.settle_time", "watch.max_reviews", "watch.max_duration", "watch.uncertain_discussion"} {
 		found := false
 		for _, e := range errs {
 			if strings.Contains(e, want) {
