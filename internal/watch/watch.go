@@ -30,6 +30,45 @@ type PRState struct {
 	Closed          bool
 	Merged          bool
 	ReviewRequested bool
+	Discussion      []Discussion
+}
+
+type DiscussionID struct {
+	Kind string
+	ID   int64
+}
+
+type Discussion struct {
+	ID       DiscussionID
+	Author   string
+	Body     string
+	Path     string
+	Line     int
+	DiffHunk string
+	Revision string
+}
+
+type RoutingDecision string
+
+const (
+	RoutingNoReview       RoutingDecision = "no_review"
+	RoutingReviewRequired RoutingDecision = "review_required"
+	RoutingUncertain      RoutingDecision = "uncertain"
+)
+
+type UncertainPolicy string
+
+const (
+	UncertainWait   UncertainPolicy = "wait"
+	UncertainReview UncertainPolicy = "review"
+)
+
+func ParseUncertainPolicy(value string) (UncertainPolicy, error) {
+	switch UncertainPolicy(value) {
+	case UncertainWait, UncertainReview:
+		return UncertainPolicy(value), nil
+	}
+	return "", fmt.Errorf("invalid uncertain discussion policy %q: must be wait or review", value)
 }
 
 type CycleResult int
@@ -47,20 +86,22 @@ const (
 )
 
 type Cycle struct {
-	Result   CycleResult
-	LGTMBody string
-	HeadSHA  string
+	Result           CycleResult
+	LGTMBody         string
+	HeadSHA          string
+	OwnDiscussionIDs []DiscussionID
 }
 
 type Deps struct {
-	State    func(ctx context.Context) (PRState, error)
-	RunCycle func(ctx context.Context, reviewNum int, trigger string) (Cycle, error)
-	CIGreen  func(ctx context.Context) (bool, error)
-	Approve  func(ctx context.Context, body string) error
-	Wait     func(ctx context.Context, duration time.Duration) (WaitResult, error)
-	Emit     func(event Event)
-	Clock    Clock
-	Logf     func(format string, args ...any)
+	State           func(ctx context.Context) (PRState, error)
+	RunCycle        func(ctx context.Context, reviewNum int, trigger string, discussion []Discussion, discussionRevision string) (Cycle, error)
+	RouteDiscussion func(ctx context.Context, discussion []Discussion) (RoutingDecision, error)
+	CIGreen         func(ctx context.Context) (bool, error)
+	Approve         func(ctx context.Context, body string) error
+	Wait            func(ctx context.Context, duration time.Duration) (WaitResult, error)
+	Emit            func(event Event)
+	Clock           Clock
+	Logf            func(format string, args ...any)
 }
 
 type WaitResult struct {
@@ -77,21 +118,27 @@ const (
 	EventManualReviewStarted    EventType = "manual_review_started"
 	EventManualRequestRejected  EventType = "manual_request_rejected"
 	EventManualInputUnsafe      EventType = "manual_input_unsafe"
+	EventDiscussionDetected     EventType = "discussion_detected"
+	EventDiscussionRouted       EventType = "discussion_routed"
+	EventDiscussionWaiting      EventType = "discussion_waiting"
 )
 
 type Event struct {
-	Type         EventType
-	RequestCount int
-	ReviewNumber int
-	Reason       string
+	Type            EventType
+	RequestCount    int
+	DiscussionCount int
+	ReviewNumber    int
+	Reason          string
+	Decision        RoutingDecision
 }
 
 type Config struct {
-	Mode         PostMode
-	PollInterval time.Duration
-	SettleTime   time.Duration
-	MaxReviews   int
-	MaxDuration  time.Duration
+	Mode            PostMode
+	PollInterval    time.Duration
+	SettleTime      time.Duration
+	MaxReviews      int
+	MaxDuration     time.Duration
+	UncertainPolicy UncertainPolicy
 }
 
 type ExitReason int
@@ -134,18 +181,23 @@ type loop struct {
 	cfg  Config
 	deps Deps
 
-	deadline        time.Time
-	reviews         int
-	lastHead        string
-	pendingHead     string
-	settleDeadline  time.Time
-	requestArmed    bool
-	pendingApproval string
-	ciErrors        int
-	cycleErrors     int
-	retryPending    bool
-	retryHead       string
-	manualRequests  int
+	deadline           time.Time
+	reviews            int
+	lastHead           string
+	pendingHead        string
+	settleDeadline     time.Time
+	requestArmed       bool
+	pendingApproval    string
+	ciErrors           int
+	cycleErrors        int
+	retryPending       bool
+	retryHead          string
+	manualRequests     int
+	discussionCursor   map[DiscussionID]string
+	ownDiscussion      map[DiscussionID]struct{}
+	pendingDiscussion  []Discussion
+	discussionDeadline time.Time
+	waitingDiscussion  string
 }
 
 func (l *loop) logf(format string, args ...any) {
@@ -253,6 +305,63 @@ func shortSHA(sha string) string {
 	return sha
 }
 
+func DiscussionRevision(items []Discussion) string {
+	var signature string
+	for _, item := range items {
+		signature += fmt.Sprintf("%s:%d:%s\n", item.ID.Kind, item.ID.ID, item.Revision)
+	}
+	return signature
+}
+
+func (l *loop) initializeDiscussion(items []Discussion) {
+	l.discussionCursor = make(map[DiscussionID]string, len(items))
+	l.ownDiscussion = make(map[DiscussionID]struct{})
+	l.consumeDiscussion(items)
+}
+
+func (l *loop) consumeDiscussion(items []Discussion) {
+	for _, item := range items {
+		l.discussionCursor[item.ID] = item.Revision
+	}
+}
+
+func (l *loop) unprocessedDiscussion(items []Discussion) []Discussion {
+	pending := make([]Discussion, 0, len(items))
+	for _, item := range items {
+		if _, own := l.ownDiscussion[item.ID]; own {
+			continue
+		}
+		if l.discussionCursor[item.ID] == item.Revision {
+			continue
+		}
+		pending = append(pending, item)
+	}
+	return pending
+}
+
+func (l *loop) updatePendingDiscussion(items []Discussion) {
+	signature := DiscussionRevision(items)
+	if signature == DiscussionRevision(l.pendingDiscussion) {
+		return
+	}
+	l.pendingDiscussion = append(l.pendingDiscussion[:0], items...)
+	l.waitingDiscussion = ""
+	if len(items) == 0 {
+		l.discussionDeadline = time.Time{}
+		return
+	}
+	l.discussionDeadline = l.deps.Clock.Now().Add(l.cfg.SettleTime)
+	l.emit(Event{Type: EventDiscussionDetected, DiscussionCount: len(items)})
+	l.logf("New PR discussion detected; waiting %s for discussion to settle.", l.cfg.SettleTime)
+}
+
+func (l *loop) routeDiscussion(ctx context.Context, items []Discussion) (RoutingDecision, error) {
+	if l.deps.RouteDiscussion == nil {
+		return RoutingUncertain, errors.New("discussion router is unavailable")
+	}
+	return l.deps.RouteDiscussion(ctx, items)
+}
+
 func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 	l := &loop{cfg: cfg, deps: deps, requestArmed: true}
 	clock := deps.Clock
@@ -270,10 +379,11 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 	if reason, done := l.checkOpen(st); done {
 		return reason
 	}
+	l.initializeDiscussion(st.Discussion)
 
 	l.requestArmed = !st.ReviewRequested
 
-	if reason, done := l.cycle(ctx, st.HeadSHA, "initial review"); done {
+	if reason, done := l.cycle(ctx, st.HeadSHA, "initial review", nil, DiscussionRevision(st.Discussion)); done {
 		return reason
 	}
 	if reason, done := l.checkMaxReviews(); done {
@@ -362,31 +472,40 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		}
 
 		trigger := ""
+		var cycleDiscussion []Discussion
+		unprocessed := l.unprocessedDiscussion(st.Discussion)
+		l.updatePendingDiscussion(unprocessed)
 		if manualTrigger {
 			trigger = "manual request"
+			cycleDiscussion = unprocessed
 			if st.ReviewRequested && l.requestArmed {
 				l.requestArmed = false
 			}
 		} else if st.ReviewRequested && l.requestArmed {
 			trigger = "re-review requested"
+			cycleDiscussion = unprocessed
 			l.requestArmed = false
 		}
 
 		if trigger == "" && l.retryPending {
 			trigger = "retry after transient preparation failure"
+			cycleDiscussion = unprocessed
 		}
 
 		if trigger == "" && l.pendingApproval != "" {
 			if st.HeadSHA == l.lastHead {
-				if reason, done := l.tryApprove(ctx); done {
+				if len(unprocessed) == 0 {
+					if reason, done := l.tryApprove(ctx); done {
+						return reason
+					}
+					continue
+				}
+			} else {
+				l.logf("New commit %s invalidates the pending approval.", shortSHA(st.HeadSHA))
+				l.pendingApproval = ""
+				if reason, done := l.checkMaxReviews(); done {
 					return reason
 				}
-				continue
-			}
-			l.logf("New commit %s invalidates the pending approval.", shortSHA(st.HeadSHA))
-			l.pendingApproval = ""
-			if reason, done := l.checkMaxReviews(); done {
-				return reason
 			}
 		}
 
@@ -399,7 +518,61 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 				l.settleDeadline = clock.Now().Add(cfg.SettleTime)
 				l.logf("New head %s; waiting %s for commits to settle.", shortSHA(st.HeadSHA), cfg.SettleTime)
 			case !clock.Now().Before(l.settleDeadline):
-				trigger = "commits settled"
+				if len(l.pendingDiscussion) == 0 || !clock.Now().Before(l.discussionDeadline) {
+					trigger = "commits settled"
+					cycleDiscussion = unprocessed
+				}
+			}
+		}
+
+		if trigger == "" && l.pendingHead == "" && len(l.pendingDiscussion) > 0 &&
+			!clock.Now().Before(l.discussionDeadline) {
+			signature := DiscussionRevision(l.pendingDiscussion)
+			if signature != l.waitingDiscussion {
+				routeCtx, cancelRoute := context.WithTimeout(ctx, l.deadline.Sub(clock.Now()))
+				decision, routeErr := l.routeDiscussion(routeCtx, l.pendingDiscussion)
+				cancelRoute()
+				if ctx.Err() != nil {
+					return ReasonInterrupted
+				}
+				if !clock.Now().Before(deadline) {
+					l.logf("Reached maximum duration (%s) while routing PR discussion; stopping.", cfg.MaxDuration)
+					return ReasonMaxDuration
+				}
+				if routeErr != nil {
+					decision = RoutingUncertain
+					l.logf("Discussion routing failed; treating the discussion as uncertain: %v", routeErr)
+				}
+				l.emit(Event{
+					Type:            EventDiscussionRouted,
+					DiscussionCount: len(l.pendingDiscussion),
+					Decision:        decision,
+				})
+				switch decision {
+				case RoutingNoReview:
+					l.consumeDiscussion(l.pendingDiscussion)
+					l.pendingDiscussion = nil
+					l.logf("PR discussion does not require another review.")
+				case RoutingReviewRequired:
+					trigger = "discussion requires reconsideration"
+					cycleDiscussion = append(cycleDiscussion, l.pendingDiscussion...)
+				case RoutingUncertain:
+					if cfg.UncertainPolicy == UncertainReview {
+						trigger = "uncertain discussion requires reconsideration"
+						cycleDiscussion = append(cycleDiscussion, l.pendingDiscussion...)
+					} else {
+						l.waitingDiscussion = signature
+						l.emit(Event{
+							Type:            EventDiscussionWaiting,
+							DiscussionCount: len(l.pendingDiscussion),
+							Decision:        decision,
+						})
+						l.logf("PR discussion routing is uncertain; waiting for new discussion or an explicit review request.")
+					}
+				default:
+					l.waitingDiscussion = signature
+					l.logf("Discussion router returned %q; waiting for new discussion or an explicit review request.", decision)
+				}
 			}
 		}
 
@@ -412,13 +585,21 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 				l.rejectManualRequests(ReasonMaxReviews.String())
 			}
 			if l.pendingApproval != "" {
-				l.logf("Review budget exhausted; ignoring trigger (%s) and continuing to wait for CI.", trigger)
+				if len(cycleDiscussion) > 0 {
+					l.waitingDiscussion = DiscussionRevision(cycleDiscussion)
+					l.emit(Event{
+						Type:            EventDiscussionWaiting,
+						DiscussionCount: len(cycleDiscussion),
+						Reason:          ReasonMaxReviews.String(),
+					})
+				}
+				l.logf("Review budget exhausted; cannot process trigger (%s), so automatic approval remains blocked.", trigger)
 				continue
 			}
 			l.logf("Reached maximum of %d reviews without a terminal LGTM; stopping.", cfg.MaxReviews)
 			return ReasonMaxReviews
 		}
-		if reason, done := l.cycle(ctx, st.HeadSHA, trigger); done {
+		if reason, done := l.cycle(ctx, st.HeadSHA, trigger, cycleDiscussion, DiscussionRevision(st.Discussion)); done {
 			return reason
 		}
 		if reason, done := l.checkMaxReviews(); done {
@@ -492,6 +673,12 @@ func (l *loop) tryApprove(ctx context.Context) (ExitReason, bool) {
 		l.logf("New commit %s arrived before the approval could post; deferring.", shortSHA(st.HeadSHA))
 		return 0, false
 	}
+	unprocessed := l.unprocessedDiscussion(st.Discussion)
+	if len(unprocessed) > 0 {
+		l.updatePendingDiscussion(unprocessed)
+		l.logf("New PR discussion arrived before approval; deferring.")
+		return 0, false
+	}
 	if err := l.deps.Approve(ctx, l.pendingApproval); err != nil {
 		if ctx.Err() != nil {
 			return ReasonInterrupted, true
@@ -503,7 +690,13 @@ func (l *loop) tryApprove(ctx context.Context) (ExitReason, bool) {
 	return ReasonLGTM, true
 }
 
-func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, bool) {
+func (l *loop) cycle(
+	ctx context.Context,
+	head,
+	trigger string,
+	discussion []Discussion,
+	discussionRevision string,
+) (ExitReason, bool) {
 	l.retryPending = false
 	l.retryHead = ""
 	l.pendingApproval = ""
@@ -517,7 +710,7 @@ func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, boo
 	cycleCtx, cancel := context.WithTimeout(ctx, l.deadline.Sub(l.deps.Clock.Now()))
 	defer cancel()
 
-	c, err := l.deps.RunCycle(cycleCtx, l.reviews, trigger)
+	c, err := l.deps.RunCycle(cycleCtx, l.reviews, trigger, discussion, discussionRevision)
 	if ctx.Err() != nil {
 		return ReasonInterrupted, true
 	}
@@ -542,6 +735,9 @@ func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, boo
 		return ReasonError, true
 	}
 	l.cycleErrors = 0
+	for _, id := range c.OwnDiscussionIDs {
+		l.ownDiscussion[id] = struct{}{}
+	}
 
 	if c.Result != CycleStaleHead {
 		l.lastHead = head
@@ -551,6 +747,11 @@ func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, boo
 	}
 	l.pendingHead = ""
 	l.pendingApproval = ""
+	if c.Result != CycleStaleHead {
+		l.consumeDiscussion(discussion)
+		l.pendingDiscussion = nil
+		l.waitingDiscussion = ""
+	}
 
 	switch c.Result {
 	case CycleLGTMApproved:
@@ -574,7 +775,7 @@ func (l *loop) cycle(ctx context.Context, head, trigger string) (ExitReason, boo
 		l.logf("Review #%d produced an LGTM that could not be posted; stopping.", l.reviews)
 		return ReasonError, true
 	case CycleStaleHead:
-		l.logf("Review #%d discarded: PR head moved during the review; resuming watch.", l.reviews)
+		l.logf("Review #%d discarded: PR changed during the review; resuming watch.", l.reviews)
 		return 0, false
 	case CycleNoChanges:
 		l.logf("Review #%d: no changes to review; resuming watch.", l.reviews)

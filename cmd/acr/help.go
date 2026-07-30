@@ -36,7 +36,7 @@ var flagGroups = []flagGroup{
 	},
 	{
 		title: "Watch",
-		flags: []string{"post-mode", "poll-interval", "settle-time", "max-reviews", "max-duration"},
+		flags: []string{"post-mode", "poll-interval", "settle-time", "max-reviews", "max-duration", "uncertain-discussion"},
 	},
 	{
 		title: "Advanced",

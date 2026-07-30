@@ -278,7 +278,11 @@ func confirmAndSubmitReview(ctx context.Context, body string, pr prContext, opts
 		if headMovedSinceReview(ctx, opts, pr.number, logger) {
 			return errRevisionMovedSinceReview
 		}
-		return github.SubmitPRReview(ctx, opts.RepositoryRoot, pr.number, body, requestChanges)
+		id, err := submitPRReview(ctx, opts.RepositoryRoot, pr.number, body, requestChanges, opts.Outcome != nil)
+		if err == nil {
+			opts.recordDiscussion(id)
+		}
+		return err
 	}, opts.AllowSubmissionRetry, logger); err != nil {
 		if errors.Is(err, errRevisionMovedSinceReview) {
 			opts.record(OutcomeStaleHead)
@@ -366,6 +370,7 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 		}
 	}
 
+	var discussionID github.DiscussionID
 	if err := retrySubmission(ctx, func() error {
 		if opts.PreSubmitCheck != nil {
 			if checkErr := opts.PreSubmitCheck(); checkErr != nil {
@@ -375,7 +380,9 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 		if headMovedSinceReview(ctx, opts, pr.number, logger) {
 			return errRevisionMovedSinceReview
 		}
-		return executeLGTMAction(ctx, opts.RepositoryRoot, action, pr.number, body, logger)
+		var actionErr error
+		discussionID, actionErr = executeLGTMAction(ctx, opts.RepositoryRoot, action, pr.number, body, opts.Outcome != nil, logger)
+		return actionErr
 	}, opts.AllowSubmissionRetry, logger); err != nil {
 		if errors.Is(err, errRevisionMovedSinceReview) {
 			opts.record(OutcomeStaleHead)
@@ -384,6 +391,7 @@ func confirmAndSubmitLGTM(ctx context.Context, body string, pr prContext, opts R
 		logger.Logf(terminal.StyleError, "Failed: %v", err)
 		return err
 	}
+	opts.recordDiscussion(discussionID)
 	if action == actionApprove {
 		opts.record(OutcomeLGTMApproved)
 	} else {
@@ -560,20 +568,29 @@ func checkCIAndMaybeDowngrade(ctx context.Context, prNum string, action lgtmActi
 	}
 }
 
-func executeLGTMAction(ctx context.Context, repositoryRoot string, action lgtmAction, prNumber, body string, logger *terminal.Logger) error {
+func submitPRReview(ctx context.Context, repositoryRoot, prNumber, body string, requestChanges, recordID bool) (github.DiscussionID, error) {
+	if !recordID {
+		return github.DiscussionID{}, github.SubmitPRReview(ctx, repositoryRoot, prNumber, body, requestChanges)
+	}
+	return github.SubmitPRReviewWithID(ctx, repositoryRoot, prNumber, body, requestChanges)
+}
+
+func executeLGTMAction(ctx context.Context, repositoryRoot string, action lgtmAction, prNumber, body string, recordID bool, logger *terminal.Logger) (github.DiscussionID, error) {
 	switch action {
 	case actionApprove:
 		if err := github.ApprovePR(ctx, repositoryRoot, prNumber, body); err != nil {
 			logger.Logf(terminal.StyleError, "Failed: %v", err)
-			return err
+			return github.DiscussionID{}, err
 		}
 		logger.Logf(terminal.StyleSuccess, "Approved PR #%s.", prNumber)
 	case actionComment:
-		if err := github.SubmitPRReview(ctx, repositoryRoot, prNumber, body, false); err != nil {
+		id, err := submitPRReview(ctx, repositoryRoot, prNumber, body, false, recordID)
+		if err != nil {
 			logger.Logf(terminal.StyleError, "Failed: %v", err)
-			return err
+			return github.DiscussionID{}, err
 		}
 		logger.Logf(terminal.StyleSuccess, "Posted LGTM review to PR #%s.", prNumber)
+		return id, nil
 	}
-	return nil
+	return github.DiscussionID{}, nil
 }
