@@ -11,6 +11,7 @@ import (
 
 	"github.com/richhaase/agentic-code-reviewer/internal/config"
 	"github.com/richhaase/agentic-code-reviewer/internal/domain"
+	"github.com/richhaase/agentic-code-reviewer/internal/github"
 	"github.com/richhaase/agentic-code-reviewer/internal/terminal"
 	"github.com/richhaase/agentic-code-reviewer/internal/watch"
 )
@@ -389,6 +390,30 @@ func TestAppendDiscussionGuidancePreservesGuidanceAndLabelsUntrustedContext(t *t
 		if !strings.Contains(got, want) {
 			t.Fatalf("guidance = %q, missing %q", got, want)
 		}
+	}
+}
+
+func TestCheckWatchDiscussionRevisionRejectsNewDiscussionBeforeSubmission(t *testing.T) {
+	original := []github.Discussion{{
+		ID:       github.DiscussionID{Kind: "issue_comment", ID: 1},
+		Revision: "v1",
+	}}
+	captured := watch.DiscussionRevision(mapWatchDiscussion(original))
+
+	err := checkWatchDiscussionRevision(context.Background(), captured, func(context.Context) ([]github.Discussion, error) {
+		return original, nil
+	})
+	if err != nil {
+		t.Fatalf("unchanged discussion error = %v", err)
+	}
+
+	edited := append([]github.Discussion(nil), original...)
+	edited[0].Revision = "v2"
+	err = checkWatchDiscussionRevision(context.Background(), captured, func(context.Context) ([]github.Discussion, error) {
+		return edited, nil
+	})
+	if !errors.Is(err, errRevisionMovedSinceReview) {
+		t.Fatalf("changed discussion error = %v", err)
 	}
 }
 

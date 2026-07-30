@@ -65,7 +65,7 @@ func (h *harness) deps() Deps {
 			}
 			return h.states[len(h.states)-1], nil
 		},
-		RunCycle: func(ctx context.Context, reviewNum int, trigger string, discussion []Discussion) (Cycle, error) {
+		RunCycle: func(ctx context.Context, reviewNum int, trigger string, discussion []Discussion, _ string) (Cycle, error) {
 			if h.cycleI >= len(h.cycles) {
 				h.t.Fatalf("unexpected review cycle #%d (trigger %q)", reviewNum, trigger)
 			}
@@ -300,6 +300,45 @@ func TestHeadAndDiscussionChangesCoalesceIntoOneReview(t *testing.T) {
 	}
 }
 
+func TestHeadWaitsForLaterDiscussionSettleDeadline(t *testing.T) {
+	item := discussion("issue_comment", 1, "v1", "reviewer", "Please reconsider.")
+	h := newHarness(t)
+	started := h.clock.Now()
+	h.states = []PRState{
+		open("aaa"),
+		open("bbb"),
+		discussed("bbb", item),
+	}
+	h.cycles = []Cycle{{Result: CycleFindings}, {Result: CycleLGTMApproved, HeadSHA: "bbb"}}
+	deps := h.deps()
+	runCycle := deps.RunCycle
+	var secondReviewStarted time.Time
+	deps.RunCycle = func(
+		ctx context.Context,
+		reviewNum int,
+		trigger string,
+		items []Discussion,
+		revision string,
+	) (Cycle, error) {
+		if reviewNum == 2 {
+			secondReviewStarted = h.clock.Now()
+		}
+		return runCycle(ctx, reviewNum, trigger, items, revision)
+	}
+	cfg := defaultConfig(PostModeApprove)
+	cfg.SettleTime = 2 * time.Minute
+
+	if reason := Run(context.Background(), cfg, deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if elapsed := secondReviewStarted.Sub(started); elapsed < 4*time.Minute {
+		t.Fatalf("review started after %s, before discussion settled", elapsed)
+	}
+	if len(h.cycleDiscussion[1]) != 1 {
+		t.Fatalf("cycle discussion = %#v", h.cycleDiscussion)
+	}
+}
+
 func TestDiscussionArrivingDuringReviewIsNotLost(t *testing.T) {
 	first := discussion("issue_comment", 1, "v1", "reviewer", "First correction")
 	second := discussion("review_comment", 2, "v1", "author", "Second correction")
@@ -313,8 +352,8 @@ func TestDiscussionArrivingDuringReviewIsNotLost(t *testing.T) {
 	h.routes = []RoutingDecision{RoutingReviewRequired, RoutingReviewRequired}
 	deps := h.deps()
 	runCycle := deps.RunCycle
-	deps.RunCycle = func(ctx context.Context, reviewNum int, trigger string, items []Discussion) (Cycle, error) {
-		cycle, err := runCycle(ctx, reviewNum, trigger, items)
+	deps.RunCycle = func(ctx context.Context, reviewNum int, trigger string, items []Discussion, revision string) (Cycle, error) {
+		cycle, err := runCycle(ctx, reviewNum, trigger, items, revision)
 		if reviewNum == 2 {
 			h.states = append(h.states, discussed("aaa", first, second))
 		}
@@ -473,11 +512,11 @@ func TestManualRequestsCoalesceThroughPreReviewHandoff(t *testing.T) {
 			},
 		}, nil
 	}
-	deps.RunCycle = func(ctx context.Context, reviewNum int, trigger string, discussion []Discussion) (Cycle, error) {
+	deps.RunCycle = func(ctx context.Context, reviewNum int, trigger string, discussion []Discussion, revision string) (Cycle, error) {
 		if trigger == "manual request" {
 			order = append(order, "cycle")
 		}
-		return runCycle(ctx, reviewNum, trigger, discussion)
+		return runCycle(ctx, reviewNum, trigger, discussion, revision)
 	}
 
 	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
@@ -1001,7 +1040,7 @@ func TestRetryableCycleFailureDoesNotConsumeReviewBudget(t *testing.T) {
 	h.states = []PRState{open("aaa")}
 	deps := h.deps()
 	var reviewNumbers []int
-	deps.RunCycle = func(_ context.Context, reviewNum int, trigger string, discussion []Discussion) (Cycle, error) {
+	deps.RunCycle = func(_ context.Context, reviewNum int, trigger string, discussion []Discussion, _ string) (Cycle, error) {
 		reviewNumbers = append(reviewNumbers, reviewNum)
 		h.triggers = append(h.triggers, trigger)
 		if len(reviewNumbers) == 1 {
@@ -1026,7 +1065,7 @@ func TestRetryableCycleFailuresBecomeFatalAfterLimit(t *testing.T) {
 	h.states = []PRState{open("aaa")}
 	deps := h.deps()
 	attempts := 0
-	deps.RunCycle = func(_ context.Context, _ int, _ string, _ []Discussion) (Cycle, error) {
+	deps.RunCycle = func(_ context.Context, _ int, _ string, _ []Discussion, _ string) (Cycle, error) {
 		attempts++
 		return Cycle{Result: CycleError}, fmt.Errorf("%w: network unavailable", ErrRetryableCycle)
 	}
@@ -1063,7 +1102,7 @@ func TestRetryableRequestedReviewCannotPostPriorPendingApproval(t *testing.T) {
 	h.ci = []bool{true}
 	deps := h.deps()
 	attempts := 0
-	deps.RunCycle = func(_ context.Context, _ int, trigger string, discussion []Discussion) (Cycle, error) {
+	deps.RunCycle = func(_ context.Context, _ int, trigger string, discussion []Discussion, _ string) (Cycle, error) {
 		attempts++
 		h.triggers = append(h.triggers, trigger)
 		switch attempts {
@@ -1092,7 +1131,7 @@ func TestRetryablePreparationFailureSettlesChangedHead(t *testing.T) {
 	h.states = []PRState{open("aaa"), open("bbb")}
 	deps := h.deps()
 	attempts := 0
-	deps.RunCycle = func(_ context.Context, _ int, trigger string, discussion []Discussion) (Cycle, error) {
+	deps.RunCycle = func(_ context.Context, _ int, trigger string, discussion []Discussion, _ string) (Cycle, error) {
 		attempts++
 		h.triggers = append(h.triggers, trigger)
 		if attempts == 1 {
@@ -1118,7 +1157,7 @@ func TestRetryablePreparationFailuresResetWhenHeadChanges(t *testing.T) {
 	h.states = []PRState{open("aaa"), open("bbb")}
 	deps := h.deps()
 	attempts := 0
-	deps.RunCycle = func(_ context.Context, _ int, trigger string, discussion []Discussion) (Cycle, error) {
+	deps.RunCycle = func(_ context.Context, _ int, trigger string, discussion []Discussion, _ string) (Cycle, error) {
 		attempts++
 		h.triggers = append(h.triggers, trigger)
 		if attempts <= maxConsecutivePollErrors {
@@ -1149,7 +1188,7 @@ func TestRetryablePreparationFailuresResetForRequestedNewHead(t *testing.T) {
 	}
 	deps := h.deps()
 	attempts := 0
-	deps.RunCycle = func(_ context.Context, _ int, trigger string, discussion []Discussion) (Cycle, error) {
+	deps.RunCycle = func(_ context.Context, _ int, trigger string, discussion []Discussion, _ string) (Cycle, error) {
 		attempts++
 		h.triggers = append(h.triggers, trigger)
 		if attempts <= 2*(maxConsecutivePollErrors-1) {
@@ -1206,6 +1245,29 @@ func TestExhaustedBudgetTriggerDoesNotAbandonPendingApproval(t *testing.T) {
 	}
 }
 
+func TestExhaustedBudgetDoesNotRerouteUnchangedDiscussion(t *testing.T) {
+	item := discussion("issue_comment", 1, "v1", "reviewer", "Please reconsider.")
+	h := newHarness(t)
+	h.states = []PRState{open("aaa"), discussed("aaa", item)}
+	h.cycles = []Cycle{{Result: CycleLGTMCommentCIPending, LGTMBody: "promised"}}
+	h.routes = []RoutingDecision{RoutingReviewRequired}
+	h.ci = []bool{false}
+	cfg := defaultConfig(PostModeApprove)
+	cfg.MaxReviews = 1
+	cfg.SettleTime = time.Minute
+	cfg.MaxDuration = 5 * time.Minute
+
+	if reason := Run(context.Background(), cfg, h.deps()); reason != ReasonMaxDuration {
+		t.Fatalf("reason = %v, want ReasonMaxDuration", reason)
+	}
+	if len(h.routed) != 1 {
+		t.Fatalf("routing calls = %d, want one for unchanged discussion", len(h.routed))
+	}
+	if len(h.approvedWith) != 0 {
+		t.Fatalf("approvals = %v, want none", h.approvedWith)
+	}
+}
+
 func TestCycleContextCarriesMaxDurationBound(t *testing.T) {
 	h := newHarness(t)
 	h.states = []PRState{open("aaa")}
@@ -1215,9 +1277,9 @@ func TestCycleContextCarriesMaxDurationBound(t *testing.T) {
 	deps := h.deps()
 	inner := deps.RunCycle
 	var sawDeadline bool
-	deps.RunCycle = func(ctx context.Context, n int, trigger string, discussion []Discussion) (Cycle, error) {
+	deps.RunCycle = func(ctx context.Context, n int, trigger string, discussion []Discussion, revision string) (Cycle, error) {
 		_, sawDeadline = ctx.Deadline()
-		return inner(ctx, n, trigger, discussion)
+		return inner(ctx, n, trigger, discussion, revision)
 	}
 
 	if reason := Run(context.Background(), cfg, deps); reason != ReasonLGTM {
@@ -1305,9 +1367,9 @@ func TestTerminalResultWinsOverExpiredDeadline(t *testing.T) {
 
 	deps := h.deps()
 	inner := deps.RunCycle
-	deps.RunCycle = func(ctx context.Context, n int, trigger string, discussion []Discussion) (Cycle, error) {
+	deps.RunCycle = func(ctx context.Context, n int, trigger string, discussion []Discussion, revision string) (Cycle, error) {
 		h.clock.now = h.clock.now.Add(time.Hour)
-		return inner(ctx, n, trigger, discussion)
+		return inner(ctx, n, trigger, discussion, revision)
 	}
 
 	if reason := Run(context.Background(), cfg, deps); reason != ReasonLGTM {

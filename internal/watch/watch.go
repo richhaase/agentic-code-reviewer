@@ -91,7 +91,7 @@ type Cycle struct {
 
 type Deps struct {
 	State           func(ctx context.Context) (PRState, error)
-	RunCycle        func(ctx context.Context, reviewNum int, trigger string, discussion []Discussion) (Cycle, error)
+	RunCycle        func(ctx context.Context, reviewNum int, trigger string, discussion []Discussion, discussionRevision string) (Cycle, error)
 	RouteDiscussion func(ctx context.Context, discussion []Discussion) (RoutingDecision, error)
 	CIGreen         func(ctx context.Context) (bool, error)
 	Approve         func(ctx context.Context, body string) error
@@ -302,7 +302,7 @@ func shortSHA(sha string) string {
 	return sha
 }
 
-func discussionSignature(items []Discussion) string {
+func DiscussionRevision(items []Discussion) string {
 	var signature string
 	for _, item := range items {
 		signature += fmt.Sprintf("%s:%d:%s\n", item.ID.Kind, item.ID.ID, item.Revision)
@@ -337,8 +337,8 @@ func (l *loop) unprocessedDiscussion(items []Discussion) []Discussion {
 }
 
 func (l *loop) updatePendingDiscussion(items []Discussion) {
-	signature := discussionSignature(items)
-	if signature == discussionSignature(l.pendingDiscussion) {
+	signature := DiscussionRevision(items)
+	if signature == DiscussionRevision(l.pendingDiscussion) {
 		return
 	}
 	l.pendingDiscussion = append(l.pendingDiscussion[:0], items...)
@@ -380,7 +380,7 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 
 	l.requestArmed = !st.ReviewRequested
 
-	if reason, done := l.cycle(ctx, st.HeadSHA, "initial review", nil); done {
+	if reason, done := l.cycle(ctx, st.HeadSHA, "initial review", nil, DiscussionRevision(st.Discussion)); done {
 		return reason
 	}
 	if reason, done := l.checkMaxReviews(); done {
@@ -515,14 +515,16 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 				l.settleDeadline = clock.Now().Add(cfg.SettleTime)
 				l.logf("New head %s; waiting %s for commits to settle.", shortSHA(st.HeadSHA), cfg.SettleTime)
 			case !clock.Now().Before(l.settleDeadline):
-				trigger = "commits settled"
-				cycleDiscussion = unprocessed
+				if len(l.pendingDiscussion) == 0 || !clock.Now().Before(l.discussionDeadline) {
+					trigger = "commits settled"
+					cycleDiscussion = unprocessed
+				}
 			}
 		}
 
 		if trigger == "" && l.pendingHead == "" && len(l.pendingDiscussion) > 0 &&
 			!clock.Now().Before(l.discussionDeadline) {
-			signature := discussionSignature(l.pendingDiscussion)
+			signature := DiscussionRevision(l.pendingDiscussion)
 			if signature != l.waitingDiscussion {
 				routeCtx, cancelRoute := context.WithTimeout(ctx, l.deadline.Sub(clock.Now()))
 				decision, routeErr := l.routeDiscussion(routeCtx, l.pendingDiscussion)
@@ -580,13 +582,21 @@ func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 				l.rejectManualRequests(ReasonMaxReviews.String())
 			}
 			if l.pendingApproval != "" {
+				if len(cycleDiscussion) > 0 {
+					l.waitingDiscussion = DiscussionRevision(cycleDiscussion)
+					l.emit(Event{
+						Type:            EventDiscussionWaiting,
+						DiscussionCount: len(cycleDiscussion),
+						Reason:          ReasonMaxReviews.String(),
+					})
+				}
 				l.logf("Review budget exhausted; cannot process trigger (%s), so automatic approval remains blocked.", trigger)
 				continue
 			}
 			l.logf("Reached maximum of %d reviews without a terminal LGTM; stopping.", cfg.MaxReviews)
 			return ReasonMaxReviews
 		}
-		if reason, done := l.cycle(ctx, st.HeadSHA, trigger, cycleDiscussion); done {
+		if reason, done := l.cycle(ctx, st.HeadSHA, trigger, cycleDiscussion, DiscussionRevision(st.Discussion)); done {
 			return reason
 		}
 		if reason, done := l.checkMaxReviews(); done {
@@ -677,7 +687,13 @@ func (l *loop) tryApprove(ctx context.Context) (ExitReason, bool) {
 	return ReasonLGTM, true
 }
 
-func (l *loop) cycle(ctx context.Context, head, trigger string, discussion []Discussion) (ExitReason, bool) {
+func (l *loop) cycle(
+	ctx context.Context,
+	head,
+	trigger string,
+	discussion []Discussion,
+	discussionRevision string,
+) (ExitReason, bool) {
 	l.retryPending = false
 	l.retryHead = ""
 	l.pendingApproval = ""
@@ -691,7 +707,7 @@ func (l *loop) cycle(ctx context.Context, head, trigger string, discussion []Dis
 	cycleCtx, cancel := context.WithTimeout(ctx, l.deadline.Sub(l.deps.Clock.Now()))
 	defer cancel()
 
-	c, err := l.deps.RunCycle(cycleCtx, l.reviews, trigger, discussion)
+	c, err := l.deps.RunCycle(cycleCtx, l.reviews, trigger, discussion, discussionRevision)
 	if ctx.Err() != nil {
 		return ReasonInterrupted, true
 	}
@@ -756,7 +772,7 @@ func (l *loop) cycle(ctx context.Context, head, trigger string, discussion []Dis
 		l.logf("Review #%d produced an LGTM that could not be posted; stopping.", l.reviews)
 		return ReasonError, true
 	case CycleStaleHead:
-		l.logf("Review #%d discarded: PR head moved during the review; resuming watch.", l.reviews)
+		l.logf("Review #%d discarded: PR changed during the review; resuming watch.", l.reviews)
 		return 0, false
 	case CycleNoChanges:
 		l.logf("Review #%d: no changes to review; resuming watch.", l.reviews)

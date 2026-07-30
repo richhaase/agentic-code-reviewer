@@ -214,8 +214,14 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 		Approve: func(ctx context.Context, body string) error {
 			return github.ApprovePR(ctx, repoRoot, watchPR, body)
 		},
-		RunCycle: func(ctx context.Context, _ int, _ string, discussion []watch.Discussion) (watch.Cycle, error) {
-			return runWatchCycle(ctx, cmd, watchPR, mode, discussion, logger)
+		RunCycle: func(
+			ctx context.Context,
+			_ int,
+			_ string,
+			discussion []watch.Discussion,
+			discussionRevision string,
+		) (watch.Cycle, error) {
+			return runWatchCycle(ctx, cmd, watchPR, mode, discussion, discussionRevision, logger)
 		},
 	}
 	routerAgent := cfgResult.resolved.PRFeedbackAgent
@@ -305,7 +311,15 @@ func buildWatchReviewOpts(cfgResult configResult, wt worktreeResult, watchPR str
 	}
 }
 
-func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode watch.PostMode, discussion []watch.Discussion, logger *terminal.Logger) (watch.Cycle, error) {
+func runWatchCycle(
+	ctx context.Context,
+	cmd *cobra.Command,
+	watchPR string,
+	mode watch.PostMode,
+	discussion []watch.Discussion,
+	discussionRevision string,
+	logger *terminal.Logger,
+) (watch.Cycle, error) {
 	configSource, err := resolveTrustedReviewConfigSource(ctx, noConfig)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -344,6 +358,11 @@ func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode
 
 	outcome := &CycleOutcome{}
 	opts := buildWatchReviewOpts(cfgResult, wt, watchPR, mode, reviewedHead, outcome)
+	opts.PreSubmitCheck = func() error {
+		return checkWatchDiscussionRevision(ctx, discussionRevision, func(ctx context.Context) ([]github.Discussion, error) {
+			return github.GetPRDiscussion(ctx, wt.repositoryRoot, watchPR)
+		})
+	}
 
 	run, code := executeReview(ctx, opts, logger)
 	if code == domain.ExitInterrupted {
@@ -359,6 +378,21 @@ func runWatchCycle(ctx context.Context, cmd *cobra.Command, watchPR string, mode
 		HeadSHA:          reviewedHead,
 		OwnDiscussionIDs: append([]watch.DiscussionID(nil), outcome.OwnDiscussionIDs...),
 	}, nil
+}
+
+func checkWatchDiscussionRevision(
+	ctx context.Context,
+	captured string,
+	fetch func(context.Context) ([]github.Discussion, error),
+) error {
+	current, err := fetch(ctx)
+	if err != nil {
+		return err
+	}
+	if watch.DiscussionRevision(mapWatchDiscussion(current)) != captured {
+		return errRevisionMovedSinceReview
+	}
+	return nil
 }
 
 func mapWatchDiscussion(items []github.Discussion) []watch.Discussion {
