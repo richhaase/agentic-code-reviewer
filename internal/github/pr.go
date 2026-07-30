@@ -323,7 +323,12 @@ func SubmitPRReviewWithID(ctx context.Context, repositoryRoot, prNumber, body st
 		return DiscussionID{}, fmt.Errorf("failed to encode PR review: %w", err)
 	}
 	endpoint := fmt.Sprintf("repos/{owner}/{repo}/pulls/%s/reviews", prNumber)
-	cmd := exec.CommandContext(ctx, "gh", "api", "--method", "POST", endpoint, "--input", "-")
+	args := []string{"api"}
+	if host := GetRepositoryHost(ctx, repositoryRoot); host != "" {
+		args = append(args, "--hostname", host)
+	}
+	args = append(args, "--method", "POST", endpoint, "--input", "-")
+	cmd := exec.CommandContext(ctx, "gh", args...)
 	cmd.Dir = repositoryRoot
 	cmd.Stdin = bytes.NewReader(payload)
 

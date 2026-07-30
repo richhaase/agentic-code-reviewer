@@ -42,6 +42,9 @@ type Discussion struct {
 	ID       DiscussionID
 	Author   string
 	Body     string
+	Path     string
+	Line     int
+	DiffHunk string
 	Revision string
 }
 

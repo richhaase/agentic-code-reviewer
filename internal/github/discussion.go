@@ -21,6 +21,9 @@ type Discussion struct {
 	ID       DiscussionID
 	Author   string
 	Body     string
+	Path     string
+	Line     int
+	DiffHunk string
 	Revision string
 }
 
@@ -30,12 +33,16 @@ type discussionResponse struct {
 	User struct {
 		Login string `json:"login"`
 	} `json:"user"`
-	UpdatedAt   string `json:"updated_at"`
-	SubmittedAt string `json:"submitted_at"`
-	State       string `json:"state"`
+	UpdatedAt    string `json:"updated_at"`
+	SubmittedAt  string `json:"submitted_at"`
+	State        string `json:"state"`
+	Path         string `json:"path"`
+	Line         int    `json:"line"`
+	OriginalLine int    `json:"original_line"`
+	DiffHunk     string `json:"diff_hunk"`
 }
 
-func GetPRDiscussion(ctx context.Context, repositoryRoot, prNumber string) ([]Discussion, error) {
+func GetPRDiscussion(ctx context.Context, repositoryRoot, repositoryHost, prNumber string) ([]Discussion, error) {
 	sources := []struct {
 		kind     string
 		endpoint string
@@ -46,7 +53,12 @@ func GetPRDiscussion(ctx context.Context, repositoryRoot, prNumber string) ([]Di
 	}
 	var discussion []Discussion
 	for _, source := range sources {
-		cmd := exec.CommandContext(ctx, "gh", "api", "--paginate", "--jq", ".[]", source.endpoint)
+		args := []string{"api"}
+		if repositoryHost != "" {
+			args = append(args, "--hostname", repositoryHost)
+		}
+		args = append(args, "--paginate", "--jq", ".[]", source.endpoint)
+		cmd := exec.CommandContext(ctx, "gh", args...)
 		cmd.Dir = repositoryRoot
 		out, err := cmd.Output()
 		if err != nil {
@@ -82,15 +94,23 @@ func parseDiscussion(data []byte, kind string) ([]Discussion, error) {
 		if raw.ID == 0 || body == "" || kind == "review" && strings.EqualFold(raw.State, "PENDING") {
 			continue
 		}
-		digest := sha256.Sum256([]byte(body))
 		timestamp := raw.UpdatedAt
 		if timestamp == "" {
 			timestamp = raw.SubmittedAt
 		}
+		line := raw.Line
+		if line == 0 {
+			line = raw.OriginalLine
+		}
+		revisionContent := strings.Join([]string{body, raw.Path, fmt.Sprint(line), raw.DiffHunk}, "\x00")
+		digest := sha256.Sum256([]byte(revisionContent))
 		items = append(items, Discussion{
 			ID:       DiscussionID{Kind: kind, ID: raw.ID},
 			Author:   raw.User.Login,
 			Body:     body,
+			Path:     raw.Path,
+			Line:     line,
+			DiffHunk: raw.DiffHunk,
 			Revision: timestamp + ":" + hex.EncodeToString(digest[:]),
 		})
 	}

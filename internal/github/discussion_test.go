@@ -23,6 +23,19 @@ func TestParseDiscussionIncludesTextAndDetectsBodyEdits(t *testing.T) {
 	}
 }
 
+func TestParseDiscussionPreservesInlineLocation(t *testing.T) {
+	items, err := parseDiscussion([]byte(`{"id":7,"body":"this can panic","user":{"login":"octocat"},"path":"internal/watch/watch.go","line":42,"diff_hunk":"@@ -40,3 +40,3 @@"}`), "review_comment")
+	if err != nil {
+		t.Fatalf("parseDiscussion() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("discussion = %#v", items)
+	}
+	if items[0].Path != "internal/watch/watch.go" || items[0].Line != 42 || items[0].DiffHunk != "@@ -40,3 +40,3 @@" {
+		t.Fatalf("discussion = %#v", items[0])
+	}
+}
+
 func TestParseDiscussionSkipsEmptyText(t *testing.T) {
 	items, err := parseDiscussion([]byte(`{"id":7,"body":"  ","user":{"login":"octocat"}}`), "review")
 	if err != nil {
@@ -47,7 +60,7 @@ func TestGetPRDiscussionScopesAllSourcesToRepositoryRoot(t *testing.T) {
 	repoRoot := t.TempDir()
 	scriptDir := setupMockGH(t, `{"id":7,"body":"text","user":{"login":"octocat"},"updated_at":"2026-01-01T00:00:00Z"}`)
 
-	items, err := GetPRDiscussion(context.Background(), repoRoot, "9")
+	items, err := GetPRDiscussion(context.Background(), repoRoot, "ghe.example.com", "9")
 	if err != nil {
 		t.Fatalf("GetPRDiscussion() error = %v", err)
 	}
@@ -63,11 +76,20 @@ func TestGetPRDiscussionScopesAllSourcesToRepositoryRoot(t *testing.T) {
 			t.Fatalf("gh cwd = %q, want %q", cwd, resolvedDir(t, repoRoot))
 		}
 	}
+	args := readCapturedArgs(t, scriptDir)
+	for _, invocation := range args {
+		if !strings.Contains(invocation, "api --hostname ghe.example.com --paginate") {
+			t.Fatalf("gh args = %v", args)
+		}
+	}
 }
 
 func TestSubmitPRReviewWithIDReturnsRecordedObject(t *testing.T) {
 	repoRoot := t.TempDir()
-	scriptDir := setupMockGH(t, `{"id":123}`)
+	scriptDir := setupMockGHRoutedByArgs(t, map[string]string{
+		"repo view":      `https://ghe.example.com/octocat/example`,
+		"api --hostname": `{"id":123}`,
+	})
 
 	id, err := SubmitPRReviewWithID(context.Background(), repoRoot, "9", "body", false)
 	if err != nil {
@@ -77,11 +99,11 @@ func TestSubmitPRReviewWithIDReturnsRecordedObject(t *testing.T) {
 		t.Fatalf("id = %#v", id)
 	}
 	cwds := readCapturedCwd(t, scriptDir)
-	if len(cwds) != 1 || cwds[0] != resolvedDir(t, repoRoot) {
+	if len(cwds) != 2 || cwds[0] != resolvedDir(t, repoRoot) || cwds[1] != resolvedDir(t, repoRoot) {
 		t.Fatalf("gh cwd = %v", cwds)
 	}
 	args := readCapturedArgs(t, scriptDir)
-	if len(args) != 1 || !strings.Contains(args[0], "api --method POST repos/{owner}/{repo}/pulls/9/reviews --input -") {
+	if len(args) != 2 || !strings.Contains(args[1], "api --hostname ghe.example.com --method POST repos/{owner}/{repo}/pulls/9/reviews --input -") {
 		t.Fatalf("gh args = %v", args)
 	}
 }
