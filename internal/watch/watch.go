@@ -776,6 +776,19 @@ func run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 			l.logf("Reached maximum of %d reviews without a terminal LGTM; stopping.", cfg.MaxReviews)
 			return ReasonMaxReviews
 		}
+		control, reason, done = l.controlDecision(ctx, st)
+		if done {
+			if manualTrigger {
+				l.rejectManualRequests(reason.String())
+			}
+			return reason
+		}
+		if control.State == ControlSnoozed {
+			if manualTrigger {
+				l.rejectManualRequests("lifecycle is snoozed")
+			}
+			continue
+		}
 		if reason, done := l.cycle(ctx, st.HeadSHA, trigger, cycleDiscussion, DiscussionRevision(st.Discussion)); done {
 			return reason
 		}

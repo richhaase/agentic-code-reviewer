@@ -469,3 +469,62 @@ func TestLifecycleControlPreventsDeferredApproval(t *testing.T) {
 		})
 	}
 }
+
+func TestLifecycleControlPreventsRoutedReview(t *testing.T) {
+	tests := []struct {
+		name       string
+		control    ControlState
+		wantReason ExitReason
+	}{
+		{name: "snoozed", control: ControlSnoozed, wantReason: ReasonMerged},
+		{name: "released", control: ControlReleased, wantReason: ReasonReleased},
+		{name: "opted out", control: ControlOptedOut, wantReason: ReasonOptedOut},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			item := discussion("issue_comment", 1, "v1", "reviewer", "Please reconsider.")
+			h := newHarness(t)
+			h.states = []PRState{
+				open("aaa"),
+				discussed("aaa", item),
+				{HeadSHA: "aaa", Merged: true},
+			}
+			h.cycles = []Cycle{{Result: CycleFindings}}
+			h.routes = []RoutingDecision{RoutingReviewRequired}
+			deps := h.deps()
+			controlCalls := 0
+			control := func(context.Context, PRState) (ControlDecision, error) {
+				controlCalls++
+				if controlCalls < 3 {
+					return ControlDecision{State: ControlActive}, nil
+				}
+				return ControlDecision{State: test.control}, nil
+			}
+			cfg := defaultConfig(PostModeComment)
+			cfg.SettleTime = 0
+			lifecycle := NewLifecycle(
+				cfg,
+				Polling{State: deps.State, Wait: deps.Wait, Clock: deps.Clock},
+				ReviewExecution{RunCycle: deps.RunCycle},
+				ActionPolicies{
+					RouteDiscussion: deps.RouteDiscussion,
+					CIGreen:         deps.CIGreen,
+					Approve:         deps.Approve,
+					Control:         control,
+				},
+				Presentation{Emit: deps.Emit, Logf: deps.Logf},
+			)
+
+			if reason := lifecycle.Run(context.Background()); reason != test.wantReason {
+				t.Fatalf("reason = %v, want %v", reason, test.wantReason)
+			}
+			if len(h.triggers) != 1 {
+				t.Fatalf("triggers = %v, want only initial review", h.triggers)
+			}
+			if len(h.routed) != 1 || controlCalls != 3 {
+				t.Fatalf("routing calls = %d, control calls = %d", len(h.routed), controlCalls)
+			}
+		})
+	}
+}
