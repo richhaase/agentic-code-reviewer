@@ -363,6 +363,10 @@ func (l *loop) routeDiscussion(ctx context.Context, items []Discussion) (Routing
 }
 
 func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
+	return newLifecycleFromDeps(cfg, deps).Run(ctx)
+}
+
+func run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 	l := &loop{cfg: cfg, deps: deps, requestArmed: true}
 	clock := deps.Clock
 	l.deadline = clock.Now().Add(cfg.MaxDuration)
