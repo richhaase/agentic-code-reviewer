@@ -3,12 +3,14 @@ package watch
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 type lifecycleFixture struct {
 	name         string
 	states       []PRState
 	cycles       []Cycle
+	controls     []ControlDecision
 	wantReason   ExitReason
 	wantTriggers []string
 }
@@ -56,6 +58,62 @@ func TestReusableLifecycleTransitionFixtures(t *testing.T) {
 			wantReason:   ReasonMerged,
 			wantTriggers: nil,
 		},
+		{
+			name:         "released pull request is not admitted",
+			states:       []PRState{open("aaa")},
+			controls:     []ControlDecision{{State: ControlReleased}},
+			wantReason:   ReasonReleased,
+			wantTriggers: nil,
+		},
+		{
+			name:         "opted out pull request is not admitted",
+			states:       []PRState{open("aaa")},
+			controls:     []ControlDecision{{State: ControlOptedOut}},
+			wantReason:   ReasonOptedOut,
+			wantTriggers: nil,
+		},
+		{
+			name: "explicit resume admits snoozed pull request",
+			states: []PRState{
+				open("aaa"),
+				open("aaa"),
+			},
+			cycles: []Cycle{{Result: CycleLGTMApproved}},
+			controls: []ControlDecision{
+				{State: ControlSnoozed},
+				{State: ControlActive},
+			},
+			wantReason:   ReasonLGTM,
+			wantTriggers: []string{"initial review"},
+		},
+		{
+			name: "snooze expiry resumes eligibility",
+			states: []PRState{
+				open("aaa"),
+				open("aaa"),
+				open("aaa"),
+			},
+			cycles: []Cycle{{Result: CycleLGTMApproved}},
+			controls: []ControlDecision{
+				{State: ControlSnoozed, ResumeAt: time.Unix(1_700_000_000, 0).Add(2 * time.Minute)},
+			},
+			wantReason:   ReasonLGTM,
+			wantTriggers: []string{"initial review"},
+		},
+		{
+			name: "release stops an active lifecycle",
+			states: []PRState{
+				open("aaa"),
+				open("aaa"),
+			},
+			cycles: []Cycle{{Result: CycleFindings}},
+			controls: []ControlDecision{
+				{State: ControlActive},
+				{State: ControlReleased},
+			},
+			wantReason:   ReasonReleased,
+			wantTriggers: []string{"initial review"},
+		},
 	}
 
 	for _, fixture := range fixtures {
@@ -64,6 +122,17 @@ func TestReusableLifecycleTransitionFixtures(t *testing.T) {
 			h.states = fixture.states
 			h.cycles = fixture.cycles
 			deps := h.deps()
+			controlI := 0
+			control := func(context.Context, PRState) (ControlDecision, error) {
+				if controlI < len(fixture.controls)-1 {
+					controlI++
+					return fixture.controls[controlI-1], nil
+				}
+				return fixture.controls[len(fixture.controls)-1], nil
+			}
+			if len(fixture.controls) == 0 {
+				control = nil
+			}
 			lifecycle := NewLifecycle(
 				defaultConfig(PostModeApprove),
 				Polling{State: deps.State, Wait: deps.Wait, Clock: deps.Clock},
@@ -72,6 +141,7 @@ func TestReusableLifecycleTransitionFixtures(t *testing.T) {
 					RouteDiscussion: deps.RouteDiscussion,
 					CIGreen:         deps.CIGreen,
 					Approve:         deps.Approve,
+					Control:         control,
 				},
 				Presentation{Emit: deps.Emit, Logf: deps.Logf},
 			)

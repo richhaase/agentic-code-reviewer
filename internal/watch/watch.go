@@ -98,6 +98,7 @@ type Deps struct {
 	RouteDiscussion func(ctx context.Context, discussion []Discussion) (RoutingDecision, error)
 	CIGreen         func(ctx context.Context) (bool, error)
 	Approve         func(ctx context.Context, body string) error
+	Control         func(ctx context.Context, state PRState) (ControlDecision, error)
 	Wait            func(ctx context.Context, duration time.Duration) (WaitResult, error)
 	Emit            func(event Event)
 	Clock           Clock
@@ -121,6 +122,7 @@ const (
 	EventDiscussionDetected     EventType = "discussion_detected"
 	EventDiscussionRouted       EventType = "discussion_routed"
 	EventDiscussionWaiting      EventType = "discussion_waiting"
+	EventControlChanged         EventType = "control_changed"
 )
 
 type Event struct {
@@ -130,6 +132,22 @@ type Event struct {
 	ReviewNumber    int
 	Reason          string
 	Decision        RoutingDecision
+	Control         ControlState
+	ResumeAt        time.Time
+}
+
+type ControlState string
+
+const (
+	ControlActive   ControlState = "active"
+	ControlSnoozed  ControlState = "snoozed"
+	ControlReleased ControlState = "released"
+	ControlOptedOut ControlState = "opted_out"
+)
+
+type ControlDecision struct {
+	State    ControlState
+	ResumeAt time.Time
 }
 
 type Config struct {
@@ -151,6 +169,8 @@ const (
 	ReasonMaxReviews
 	ReasonMaxDuration
 	ReasonInterrupted
+	ReasonReleased
+	ReasonOptedOut
 	ReasonError
 )
 
@@ -170,6 +190,10 @@ func (r ExitReason) String() string {
 		return "maximum duration reached"
 	case ReasonInterrupted:
 		return "interrupted"
+	case ReasonReleased:
+		return "released"
+	case ReasonOptedOut:
+		return "opted out"
 	default:
 		return "error"
 	}
@@ -198,6 +222,7 @@ type loop struct {
 	pendingDiscussion  []Discussion
 	discussionDeadline time.Time
 	waitingDiscussion  string
+	control            ControlDecision
 }
 
 func (l *loop) logf(format string, args ...any) {
@@ -362,6 +387,105 @@ func (l *loop) routeDiscussion(ctx context.Context, items []Discussion) (Routing
 	return l.deps.RouteDiscussion(ctx, items)
 }
 
+func (l *loop) controlDecision(ctx context.Context, state PRState) (ControlDecision, ExitReason, bool) {
+	decision := ControlDecision{State: ControlActive}
+	if l.deps.Control != nil {
+		var err error
+		decision, err = l.deps.Control(ctx, state)
+		if err != nil {
+			if ctx.Err() != nil {
+				return ControlDecision{}, ReasonInterrupted, true
+			}
+			l.logf("Failed to determine lifecycle control state: %v", err)
+			return ControlDecision{}, ReasonError, true
+		}
+	}
+	if decision.State == "" {
+		decision.State = ControlActive
+	}
+	if decision.State == ControlSnoozed && !decision.ResumeAt.IsZero() &&
+		!l.deps.Clock.Now().Before(decision.ResumeAt) {
+		decision = ControlDecision{State: ControlActive}
+	}
+	if decision != l.control {
+		l.control = decision
+		l.emit(Event{Type: EventControlChanged, Control: decision.State, ResumeAt: decision.ResumeAt})
+	}
+	switch decision.State {
+	case ControlActive, ControlSnoozed:
+		return decision, 0, false
+	case ControlReleased:
+		l.logf("PR lifecycle released; stopping watch.")
+		return decision, ReasonReleased, true
+	case ControlOptedOut:
+		l.logf("PR lifecycle opted out; stopping watch.")
+		return decision, ReasonOptedOut, true
+	default:
+		l.logf("Invalid lifecycle control state %q.", decision.State)
+		return decision, ReasonError, true
+	}
+}
+
+func (l *loop) awaitAdmission(ctx context.Context, state PRState) (PRState, ExitReason, bool) {
+	pollErrors := 0
+	for {
+		decision, reason, done := l.controlDecision(ctx, state)
+		if done {
+			return PRState{}, reason, true
+		}
+		if decision.State == ControlActive {
+			return state, 0, false
+		}
+		now := l.deps.Clock.Now()
+		if !now.Before(l.deadline) {
+			l.logf("Reached maximum duration (%s) while lifecycle was snoozed; stopping.", l.cfg.MaxDuration)
+			return PRState{}, ReasonMaxDuration, true
+		}
+		sleep := l.cfg.PollInterval
+		if !decision.ResumeAt.IsZero() {
+			if untilResume := decision.ResumeAt.Sub(now); untilResume < sleep {
+				sleep = untilResume
+			}
+		}
+		if remaining := l.deadline.Sub(now); remaining < sleep {
+			sleep = remaining
+		}
+		waitResult, err := l.wait(ctx, sleep)
+		if reason, done := l.handleWaitError(err); done {
+			return PRState{}, reason, true
+		}
+		if waitResult.Interrupted {
+			return PRState{}, ReasonInterrupted, true
+		}
+		state, err, waitResult, waitErr := l.stateAfterWait(ctx, waitResult)
+		if reason, done := l.handleWaitError(waitErr); done {
+			return PRState{}, reason, true
+		}
+		if waitResult.Interrupted {
+			return PRState{}, ReasonInterrupted, true
+		}
+		if waitResult.ManualRequests > 0 {
+			l.receiveManualRequests(waitResult.ManualRequests)
+			l.rejectManualRequests("lifecycle is snoozed")
+		}
+		if err != nil {
+			if ctx.Err() != nil {
+				return PRState{}, ReasonInterrupted, true
+			}
+			pollErrors++
+			l.logf("Failed to fetch PR state while lifecycle was snoozed (%d/%d): %v", pollErrors, maxConsecutivePollErrors, err)
+			if pollErrors >= maxConsecutivePollErrors {
+				return PRState{}, ReasonError, true
+			}
+			continue
+		}
+		pollErrors = 0
+		if reason, done := l.checkOpen(state); done {
+			return PRState{}, reason, true
+		}
+	}
+}
+
 func Run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 	return newLifecycleFromDeps(cfg, deps).Run(ctx)
 }
@@ -381,6 +505,10 @@ func run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		return ReasonError
 	}
 	if reason, done := l.checkOpen(st); done {
+		return reason
+	}
+	st, reason, done := l.awaitAdmission(ctx, st)
+	if done {
 		return reason
 	}
 	l.initializeDiscussion(st.Discussion)
@@ -405,6 +533,11 @@ func run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		}
 		if l.manualRequests == 0 || pollErrors > 0 {
 			sleep := cfg.PollInterval
+			if l.control.State == ControlSnoozed && !l.control.ResumeAt.IsZero() {
+				if untilResume := l.control.ResumeAt.Sub(now); untilResume < sleep {
+					sleep = untilResume
+				}
+			}
 			if remaining := deadline.Sub(now); remaining < sleep {
 				sleep = remaining
 			}
@@ -464,6 +597,19 @@ func run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 				l.rejectManualRequests(reason.String())
 			}
 			return reason
+		}
+		control, reason, done := l.controlDecision(ctx, st)
+		if done {
+			if manualTrigger {
+				l.rejectManualRequests(reason.String())
+			}
+			return reason
+		}
+		if control.State == ControlSnoozed {
+			if manualTrigger {
+				l.rejectManualRequests("lifecycle is snoozed")
+			}
+			continue
 		}
 		if l.retryPending && st.HeadSHA != l.retryHead {
 			l.retryPending = false

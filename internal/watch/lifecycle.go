@@ -19,6 +19,7 @@ type ActionPolicies struct {
 	RouteDiscussion func(ctx context.Context, discussion []Discussion) (RoutingDecision, error)
 	CIGreen         func(ctx context.Context) (bool, error)
 	Approve         func(ctx context.Context, body string) error
+	Control         func(ctx context.Context, state PRState) (ControlDecision, error)
 }
 
 type Presentation struct {
@@ -46,6 +47,7 @@ func NewLifecycle(
 		RouteDiscussion: actions.RouteDiscussion,
 		CIGreen:         actions.CIGreen,
 		Approve:         actions.Approve,
+		Control:         actions.Control,
 		Emit:            presentation.Emit,
 		Logf:            presentation.Logf,
 	})
