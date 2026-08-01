@@ -106,6 +106,7 @@ type LoopDecisionV1 struct {
 	AuthorizationKind         string              `json:"authorization_kind,omitempty"`
 	AuthorizedBy              string              `json:"authorized_by,omitempty"`
 	PolicySource              *PolicySourceV1     `json:"policy_source,omitempty"`
+	ReviewTarget              *ReviewTargetV1     `json:"review_target,omitempty"`
 	Scope                     LoopDecisionScopeV1 `json:"scope,omitempty"`
 	Decision                  LoopDecisionKindV1  `json:"decision"`
 	Reason                    string              `json:"reason"`

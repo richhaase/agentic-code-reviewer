@@ -67,13 +67,18 @@ func testUserAuthorization(t *testing.T) Authorization {
 	return authorization
 }
 
+func testAuthorize(t *testing.T, controller *Controller, key store.PullRequestKeyV1, runID string) (Decision, error) {
+	t.Helper()
+	return controller.AuthorizeReview(key, testTarget(), testPolicy(t, 1, time.Hour, 0), runID)
+}
+
 func TestControllerRequiresTrustedCommissionAndRecordsAdmission(t *testing.T) {
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
 	dir := t.TempDir()
 	controller := testController(t, dir, &now)
 	key := testKey()
 
-	if _, err := controller.AuthorizeReview(key, "run-before-commission"); err == nil {
+	if _, err := testAuthorize(t, controller, key, "run-before-commission"); err == nil {
 		t.Fatal("expected uncommissioned automatic review to be rejected")
 	}
 
@@ -108,7 +113,7 @@ func TestControllerReviewBoundPersistsAcrossRunsAndRequiresResume(t *testing.T) 
 	}
 
 	for _, runID := range []string{"run-head-one", "run-head-two"} {
-		decision, err := controller.AuthorizeReview(key, runID)
+		decision, err := testAuthorize(t, controller, key, runID)
 		if err != nil {
 			t.Fatalf("AuthorizeReview(%s): %v", runID, err)
 		}
@@ -116,7 +121,7 @@ func TestControllerReviewBoundPersistsAcrossRunsAndRequiresResume(t *testing.T) 
 			t.Fatalf("expected %s to be admitted, got %+v", runID, decision)
 		}
 	}
-	stopped, err := controller.AuthorizeReview(key, "run-head-three")
+	stopped, err := testAuthorize(t, controller, key, "run-head-three")
 	if err != nil {
 		t.Fatalf("AuthorizeReview(stop): %v", err)
 	}
@@ -125,7 +130,7 @@ func TestControllerReviewBoundPersistsAcrossRunsAndRequiresResume(t *testing.T) 
 	}
 
 	restarted := testController(t, dir, &now)
-	stillStopped, err := restarted.AuthorizeReview(key, "run-after-restart")
+	stillStopped, err := testAuthorize(t, restarted, key, "run-after-restart")
 	if err != nil {
 		t.Fatalf("AuthorizeReview after restart: %v", err)
 	}
@@ -140,7 +145,7 @@ func TestControllerReviewBoundPersistsAcrossRunsAndRequiresResume(t *testing.T) 
 	if _, err := restarted.Resume(key, testTarget(), policy, workspace); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	resumed, err := restarted.AuthorizeReview(key, "run-after-resume")
+	resumed, err := testAuthorize(t, restarted, key, "run-after-resume")
 	if err != nil {
 		t.Fatalf("AuthorizeReview after resume: %v", err)
 	}
@@ -159,7 +164,7 @@ func TestControllerDurationBoundAndDeadlineSpanLifecycle(t *testing.T) {
 	}
 
 	now = started.Add(10 * time.Minute)
-	allowed, err := controller.AuthorizeReview(key, "run-one")
+	allowed, err := testAuthorize(t, controller, key, "run-one")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +173,7 @@ func TestControllerDurationBoundAndDeadlineSpanLifecycle(t *testing.T) {
 	}
 
 	now = started.Add(31 * time.Minute)
-	stopped, err := controller.AuthorizeReview(key, "run-two")
+	stopped, err := testAuthorize(t, controller, key, "run-two")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +210,7 @@ func TestControllerDurationStartsAtAdmissionDespiteFutureHistory(t *testing.T) {
 		t.Fatalf("duration started at %s, want actual admission time %s", admission.Budget.StartedAt, started)
 	}
 	now = started.Add(31 * time.Minute)
-	stopped, err := controller.AuthorizeReview(key, "run-after-duration")
+	stopped, err := testAuthorize(t, controller, key, "run-after-duration")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,12 +228,12 @@ func TestControllerElapsedDurationDoesNotRegressWithClock(t *testing.T) {
 		t.Fatal(err)
 	}
 	now = started.Add(20 * time.Minute)
-	first, err := controller.AuthorizeReview(key, "run-before-regression")
+	first, err := testAuthorize(t, controller, key, "run-before-regression")
 	if err != nil {
 		t.Fatal(err)
 	}
 	now = started.Add(10 * time.Minute)
-	second, err := controller.AuthorizeReview(key, "run-after-regression")
+	second, err := testAuthorize(t, controller, key, "run-after-regression")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +250,7 @@ func TestControllerDoesNotCountSemanticConvergenceDecisionsAsReviewAdmissions(t 
 	if _, err := controller.Commission(key, testTarget(), testPolicy(t, 2, time.Hour, 0), testUserAuthorization(t)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := controller.AuthorizeReview(key, "automatic-run-one"); err != nil {
+	if _, err := testAuthorize(t, controller, key, "automatic-run-one"); err != nil {
 		t.Fatal(err)
 	}
 	semantic := store.LoopDecisionV1{
@@ -263,7 +268,7 @@ func TestControllerDoesNotCountSemanticConvergenceDecisionsAsReviewAdmissions(t 
 		t.Fatalf("SaveLoopDecision: %v", err)
 	}
 
-	second, err := controller.AuthorizeReview(key, "automatic-run-two")
+	second, err := testAuthorize(t, controller, key, "automatic-run-two")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +284,7 @@ func TestControllerEnforcesMeasuredProviderCost(t *testing.T) {
 	if _, err := controller.Commission(key, testTarget(), testPolicy(t, 10, time.Hour, 1), testUserAuthorization(t)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := controller.AuthorizeReview(key, "run-one"); err != nil {
+	if _, err := testAuthorize(t, controller, key, "run-one"); err != nil {
 		t.Fatal(err)
 	}
 	economics := store.ReviewEconomicsV1{
@@ -293,7 +298,7 @@ func TestControllerEnforcesMeasuredProviderCost(t *testing.T) {
 		t.Fatalf("RecordEconomics: %v", err)
 	}
 
-	stopped, err := controller.AuthorizeReview(key, "run-two")
+	stopped, err := testAuthorize(t, controller, key, "run-two")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +314,7 @@ func TestControllerEscalatesWhenConfiguredProviderUsageIsUnavailable(t *testing.
 	if _, err := controller.Commission(key, testTarget(), testPolicy(t, 10, time.Hour, 5), testUserAuthorization(t)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := controller.AuthorizeReview(key, "run-one"); err != nil {
+	if _, err := testAuthorize(t, controller, key, "run-one"); err != nil {
 		t.Fatal(err)
 	}
 	economics := store.ReviewEconomicsV1{
@@ -323,14 +328,14 @@ func TestControllerEscalatesWhenConfiguredProviderUsageIsUnavailable(t *testing.
 		t.Fatal(err)
 	}
 
-	escalated, err := controller.AuthorizeReview(key, "run-two")
+	escalated, err := testAuthorize(t, controller, key, "run-two")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if escalated.Kind != store.LoopDecisionEscalate || escalated.Allowed || !strings.Contains(escalated.Reason, "could not be measured") {
 		t.Fatalf("expected unavailable provider usage to escalate, got %+v", escalated)
 	}
-	again, err := controller.AuthorizeReview(key, "run-three")
+	again, err := testAuthorize(t, controller, key, "run-three")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,6 +414,81 @@ func TestTrustedPolicyCopiesTargetIdentity(t *testing.T) {
 	}
 }
 
+func TestControllerRevalidatesTrustedTargetForEachRun(t *testing.T) {
+	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	controller := testController(t, dir, &now)
+	key := testKey()
+	targetA := testTarget()
+	targetA.Revision.HeadObjectID = "head-a"
+	policyRecord := store.AdjudicationPolicyV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		Source:        store.PolicySourceV1{Kind: config.SourceKindDefaults},
+		Budget:        store.BudgetPolicyV1{MaxIterations: 2},
+	}
+	policyA, err := NewTrustedPolicy(policyRecord, targetA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.Commission(key, targetA, policyA, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	targetB := testTarget()
+	targetB.Revision.HeadObjectID = "head-b"
+	if _, err := controller.AuthorizeReview(key, targetB, policyA, "run-head-b"); err == nil {
+		t.Fatal("expected policy validated for old head to be rejected")
+	}
+	policyB, err := NewTrustedPolicy(policyRecord, targetB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.AuthorizeReview(key, targetB, policyB, "run-head-b"); err != nil {
+		t.Fatalf("AuthorizeReview with current target: %v", err)
+	}
+	records, corrupt, err := store.NewFilesystemLoopDecisionStore(dir).ListLoopDecisions(key)
+	if err != nil || len(corrupt) != 0 {
+		t.Fatalf("ListLoopDecisions: corrupt=%v err=%v", corrupt, err)
+	}
+	if records[0].ReviewTarget == nil || records[0].ReviewTarget.Revision.HeadObjectID != "head-a" {
+		t.Fatalf("admission did not preserve trusted target revision: %+v", records[0].ReviewTarget)
+	}
+}
+
+func TestControllerRejectsRunIDAcrossDecisionScopesAndEconomics(t *testing.T) {
+	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	controller := testController(t, dir, &now)
+	key := testKey()
+	policy := testPolicy(t, 3, time.Hour, 0)
+	if _, err := controller.Commission(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	semantic := store.LoopDecisionV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		ID:            "semantic-collision",
+		PullRequest:   key,
+		RunID:         "semantic-run",
+		Scope:         store.LoopDecisionScopeSemanticConvergence,
+		Decision:      store.LoopDecisionContinue,
+		Reason:        "semantic routing",
+		Budget:        store.BudgetStateV1{Known: true},
+		DecidedAt:     now.Add(time.Minute),
+	}
+	if _, err := store.NewFilesystemLoopDecisionStore(dir).SaveLoopDecision(semantic); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.AuthorizeReview(key, testTarget(), policy, "semantic-run"); err == nil {
+		t.Fatal("expected cross-scope run id collision to be rejected")
+	}
+	economics := store.ReviewEconomicsV1{SchemaVersion: store.CurrentSchemaVersion, RunID: "economics-run"}
+	if _, err := store.NewFilesystemEconomicsStore(dir).SaveEconomics(key, now.Add(2*time.Minute), economics); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.AuthorizeReview(key, testTarget(), policy, "economics-run"); err == nil {
+		t.Fatal("expected economics run id collision to be rejected")
+	}
+}
+
 func TestControllerSerializesReviewAdmissionAcrossInstances(t *testing.T) {
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
 	dir := t.TempDir()
@@ -432,7 +512,7 @@ func TestControllerSerializesReviewAdmissionAcrossInstances(t *testing.T) {
 		go func(index int, controller *Controller) {
 			defer group.Done()
 			<-start
-			decision, err := controller.AuthorizeReview(key, fmt.Sprintf("concurrent-run-%d", index))
+			decision, err := testAuthorize(t, controller, key, fmt.Sprintf("concurrent-run-%d", index))
 			results <- result{decision: decision, err: err}
 		}(index, controller)
 	}
@@ -460,16 +540,16 @@ func TestControllerRejectsRunIDReusedAcrossSessions(t *testing.T) {
 	if _, err := controller.Commission(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := controller.AuthorizeReview(key, "reused-run"); err != nil {
+	if _, err := testAuthorize(t, controller, key, "reused-run"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := controller.AuthorizeReview(key, "stop-run"); err != nil {
+	if _, err := testAuthorize(t, controller, key, "stop-run"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := controller.Resume(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := controller.AuthorizeReview(key, "reused-run"); err == nil {
+	if _, err := testAuthorize(t, controller, key, "reused-run"); err == nil {
 		t.Fatal("expected run id reused across sessions to be rejected")
 	}
 }
@@ -486,7 +566,7 @@ func TestControllerRecordsUnknownBudgetForCorruptHistory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(decisionDir, "20260731T120001.000000000Z-corrupt.json"), []byte("not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	escalated, err := controller.AuthorizeReview(key, "run-after-corruption")
+	escalated, err := testAuthorize(t, controller, key, "run-after-corruption")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,7 +584,7 @@ func TestControllerRecordsExplicitEscalationAndTrustedResume(t *testing.T) {
 	if _, err := controller.Commission(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := controller.AuthorizeReview(key, "run-one"); err != nil {
+	if _, err := testAuthorize(t, controller, key, "run-one"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := controller.Escalate(key, "operator decision required"); err != nil {

@@ -152,7 +152,7 @@ func (c *Controller) Resume(key store.PullRequestKeyV1, target store.ReviewTarge
 	return c.admit(key, policy, authorization, "automatic review resumed by trusted decision")
 }
 
-func (c *Controller) AuthorizeReview(key store.PullRequestKeyV1, runID string) (Decision, error) {
+func (c *Controller) AuthorizeReview(key store.PullRequestKeyV1, target store.ReviewTargetV1, policy TrustedPolicy, runID string) (Decision, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	release, err := c.decisions.AcquireDecisionWriteLock()
@@ -160,16 +160,19 @@ func (c *Controller) AuthorizeReview(key store.PullRequestKeyV1, runID string) (
 		return Decision{}, fmt.Errorf("lock automatic review decisions: %w", err)
 	}
 	defer func() { _ = release() }()
+	if err := validateTrustedTarget(key, target, policy); err != nil {
+		return Decision{}, err
+	}
 
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return Decision{}, fmt.Errorf("automatic review run id is required")
 	}
-	decisions, corrupt, err := c.decisions.ListLoopDecisions(key)
+	allDecisions, corrupt, err := c.decisions.ListLoopDecisions(key)
 	if err != nil {
 		return Decision{}, fmt.Errorf("load automatic review decisions: %w", err)
 	}
-	decisions = automaticDecisions(decisions)
+	decisions := automaticDecisions(allDecisions)
 	if len(decisions) == 0 {
 		return Decision{}, fmt.Errorf("automatic review has not been commissioned")
 	}
@@ -184,9 +187,21 @@ func (c *Controller) AuthorizeReview(key store.PullRequestKeyV1, runID string) (
 	if len(corrupt) != 0 {
 		return c.recordDecision(key, session, store.LoopDecisionEscalate, "automatic review history is incomplete because durable decision records are corrupt", "", store.BudgetStateV1{}, false)
 	}
-	for _, decision := range decisions {
+	for _, decision := range allDecisions {
 		if decision.RunID == runID {
 			return Decision{}, fmt.Errorf("automatic review run %q already has a durable decision", runID)
+		}
+	}
+	economics, corruptEconomics, err := c.economics.ListEconomics(key)
+	if err != nil {
+		return Decision{}, fmt.Errorf("load automatic review economics: %w", err)
+	}
+	if len(corruptEconomics) != 0 {
+		return Decision{}, fmt.Errorf("automatic review economics contain %d corrupt record(s)", len(corruptEconomics))
+	}
+	for _, record := range economics {
+		if record.Economics.RunID == runID {
+			return Decision{}, fmt.Errorf("automatic review run %q already has durable economics", runID)
 		}
 	}
 
@@ -303,6 +318,7 @@ func (c *Controller) admit(key store.PullRequestKeyV1, policy TrustedPolicy, aut
 		return Decision{}, fmt.Errorf("create automatic review decision id: %w", err)
 	}
 	source := policy.policy.Source
+	target := policy.target
 	record := store.LoopDecisionV1{
 		SchemaVersion:     store.CurrentSchemaVersion,
 		ID:                id,
@@ -311,6 +327,7 @@ func (c *Controller) admit(key store.PullRequestKeyV1, policy TrustedPolicy, aut
 		AuthorizationKind: string(authorization.kind),
 		AuthorizedBy:      authorization.actor,
 		PolicySource:      &source,
+		ReviewTarget:      &target,
 		Scope:             store.LoopDecisionScopeAutomaticExecution,
 		Decision:          store.LoopDecisionAdmit,
 		Reason:            fmt.Sprintf("%s by %s %q", reason, authorization.kind, authorization.actor),
