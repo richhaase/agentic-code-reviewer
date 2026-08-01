@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -704,7 +705,7 @@ func TestControllerRecordsUnknownBudgetForCorruptHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	decisionDir := filepath.Join(dir, "prs", key.Host, key.Owner, key.Repository, fmt.Sprintf("%d", key.Number), "loop_decisions")
-	if err := os.WriteFile(filepath.Join(decisionDir, "20260731T120001.000000000Z-corrupt.json"), []byte("not json"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(decisionDir, "malformed.json"), []byte("not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	escalated, err := testAuthorize(t, controller, key, "run-after-corruption")
@@ -723,6 +724,88 @@ func TestControllerRecordsUnknownBudgetForCorruptHistory(t *testing.T) {
 	}
 	if !resumed.Allowed {
 		t.Fatalf("trusted resume did not isolate corrupt prior session: %+v", resumed)
+	}
+	if err := controller.RecordEconomics(key, now, store.ReviewEconomicsV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		RunID:         "run-after-resume",
+	}); err != nil {
+		t.Fatalf("record economics after trusted resume: %v", err)
+	}
+	if _, err := controller.Escalate(key, "operator decision required"); err != nil {
+		t.Fatalf("explicit escalation after trusted resume: %v", err)
+	}
+	records, corrupt, err := store.NewFilesystemLoopDecisionStore(dir).ListLoopDecisions(key)
+	if err != nil || len(corrupt) != 1 {
+		t.Fatalf("ListLoopDecisions: corrupt=%v err=%v", corrupt, err)
+	}
+	var resumedAdmission store.LoopDecisionV1
+	for _, record := range records {
+		if record.Decision == store.LoopDecisionAdmit {
+			resumedAdmission = record
+		}
+	}
+	if !reflect.DeepEqual(resumedAdmission.AcknowledgedCorruptFiles, []string{"malformed.json"}) {
+		t.Fatalf("trusted resume did not durably acknowledge corrupt history: %+v", resumedAdmission)
+	}
+}
+
+func TestControllerEscalatesForCorruptionCreatedAfterTrustedResume(t *testing.T) {
+	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	controller := testController(t, dir, &now)
+	key := testKey()
+	policy := testPolicy(t, 2, time.Hour, 0)
+	if _, err := controller.Commission(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	decisionDir := filepath.Join(dir, "prs", key.Host, key.Owner, key.Repository, fmt.Sprintf("%d", key.Number), "loop_decisions")
+	if err := os.WriteFile(filepath.Join(decisionDir, "old-corrupt.json"), []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := testAuthorize(t, controller, key, "run-before-resume"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.Resume(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(decisionDir, "new-corrupt.json"), []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	decision, err := testAuthorize(t, controller, key, "run-after-new-corruption")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Kind != store.LoopDecisionEscalate || decision.Budget.Known {
+		t.Fatalf("expected new corruption to fail closed, got %+v", decision)
+	}
+}
+
+func TestControllerResumeRejectsDecisionFromAnotherSession(t *testing.T) {
+	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	controller := testController(t, dir, &now)
+	key := testKey()
+	policy := testPolicy(t, 2, time.Hour, 0)
+	if _, err := controller.Commission(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Second)
+	foreign := store.LoopDecisionV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		ID:            "foreign-stop",
+		PullRequest:   key,
+		SessionID:     "foreign-session",
+		Scope:         store.LoopDecisionScopeAutomaticExecution,
+		Decision:      store.LoopDecisionStop,
+		Reason:        "foreign stop",
+		Budget:        store.BudgetStateV1{Known: true, IterationsLimit: 2},
+		DecidedAt:     now,
+	}
+	if _, err := store.NewFilesystemLoopDecisionStore(dir).SaveLoopDecision(foreign); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.Resume(key, testTarget(), policy, testUserAuthorization(t)); err == nil {
+		t.Fatal("expected resume to reject a terminal decision from another session")
 	}
 }
 

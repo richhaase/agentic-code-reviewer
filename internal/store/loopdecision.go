@@ -107,6 +107,7 @@ type LoopDecisionV1 struct {
 	AuthorizedBy              string              `json:"authorized_by,omitempty"`
 	PolicySource              *PolicySourceV1     `json:"policy_source,omitempty"`
 	ReviewTarget              *ReviewTargetV1     `json:"review_target,omitempty"`
+	AcknowledgedCorruptFiles  []string            `json:"acknowledged_corrupt_files,omitempty"`
 	Scope                     LoopDecisionScopeV1 `json:"scope,omitempty"`
 	Decision                  LoopDecisionKindV1  `json:"decision"`
 	Reason                    string              `json:"reason"`
@@ -173,6 +174,13 @@ func (d LoopDecisionV1) Validate() error {
 		if !d.Budget.Known || (d.Budget.IterationsLimit == 0 && d.Budget.DurationLimit == 0) {
 			return fmt.Errorf("loop decision admission requires a known review or duration bound")
 		}
+		for _, name := range d.AcknowledgedCorruptFiles {
+			if err := validateRecordID("acknowledged corrupt decision file", name); err != nil {
+				return err
+			}
+		}
+	} else if len(d.AcknowledgedCorruptFiles) != 0 {
+		return fmt.Errorf("acknowledged corrupt decision files require an admission decision")
 	}
 	if err := d.Decision.Validate(); err != nil {
 		return err

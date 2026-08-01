@@ -9,9 +9,8 @@ import (
 )
 
 type CorruptRecord struct {
-	Path       string
-	RecordedAt time.Time
-	Err        error
+	Path string
+	Err  error
 }
 
 type timestampedRecord[T any] struct {
@@ -38,14 +37,12 @@ func listRecords[T any](dir string, decode func([]byte) (T, error)) ([]T, []Corr
 		path := filepath.Join(dir, name)
 		data, err := os.ReadFile(path)
 		if err != nil {
-			recordedAt, _ := parseRecordTimestamp(name)
-			corrupt = append(corrupt, CorruptRecord{Path: path, RecordedAt: recordedAt, Err: fmt.Errorf("read %s: %w", path, err)})
+			corrupt = append(corrupt, CorruptRecord{Path: path, Err: fmt.Errorf("read %s: %w", path, err)})
 			continue
 		}
 		record, err := decode(data)
 		if err != nil {
-			recordedAt, _ := parseRecordTimestamp(name)
-			corrupt = append(corrupt, CorruptRecord{Path: path, RecordedAt: recordedAt, Err: fmt.Errorf("decode %s: %w", path, err)})
+			corrupt = append(corrupt, CorruptRecord{Path: path, Err: fmt.Errorf("decode %s: %w", path, err)})
 			continue
 		}
 		records = append(records, record)
@@ -77,12 +74,12 @@ func listTimestampedRecords[T any](dir string, decode func([]byte) (T, error)) (
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
-			corrupt = append(corrupt, CorruptRecord{Path: path, RecordedAt: recordedAt, Err: fmt.Errorf("read %s: %w", path, err)})
+			corrupt = append(corrupt, CorruptRecord{Path: path, Err: fmt.Errorf("read %s: %w", path, err)})
 			continue
 		}
 		record, err := decode(data)
 		if err != nil {
-			corrupt = append(corrupt, CorruptRecord{Path: path, RecordedAt: recordedAt, Err: fmt.Errorf("decode %s: %w", path, err)})
+			corrupt = append(corrupt, CorruptRecord{Path: path, Err: fmt.Errorf("decode %s: %w", path, err)})
 			continue
 		}
 		records = append(records, timestampedRecord[T]{recordedAt: recordedAt, record: record})

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -120,7 +121,7 @@ func (c *Controller) Commission(key store.PullRequestKeyV1, target store.ReviewT
 			return Decision{}, fmt.Errorf("automatic review is already commissioned; use a trusted resume after it stops")
 		}
 	}
-	return c.admit(key, policy, authorization, "automatic review explicitly commissioned")
+	return c.admit(key, policy, authorization, "automatic review explicitly commissioned", nil)
 }
 
 func (c *Controller) Resume(key store.PullRequestKeyV1, target store.ReviewTargetV1, policy TrustedPolicy, authorization Authorization) (_ Decision, err error) {
@@ -135,19 +136,19 @@ func (c *Controller) Resume(key store.PullRequestKeyV1, target store.ReviewTarge
 		return Decision{}, err
 	}
 
-	decisions, _, err := c.decisions.ListLoopDecisions(key)
+	decisions, corrupt, err := c.decisions.ListLoopDecisions(key)
 	if err != nil {
 		return Decision{}, fmt.Errorf("load automatic review decisions: %w", err)
 	}
-	decisions = automaticDecisions(decisions)
-	if len(decisions) == 0 {
-		return Decision{}, fmt.Errorf("automatic review has not been commissioned")
+	_, sessionDecisions, err := activeSession(automaticDecisions(decisions))
+	if err != nil {
+		return Decision{}, err
 	}
-	latest := decisions[len(decisions)-1]
+	latest := sessionDecisions[len(sessionDecisions)-1]
 	if latest.Decision != store.LoopDecisionStop && latest.Decision != store.LoopDecisionEscalate {
 		return Decision{}, fmt.Errorf("automatic review can only resume after a stop or escalation decision")
 	}
-	return c.admit(key, policy, authorization, "automatic review resumed by trusted decision")
+	return c.admit(key, policy, authorization, "automatic review resumed by trusted decision", corrupt)
 }
 
 func (c *Controller) AuthorizeReview(key store.PullRequestKeyV1, target store.ReviewTargetV1, policy TrustedPolicy, runID string) (_ Decision, err error) {
@@ -182,7 +183,7 @@ func (c *Controller) AuthorizeReview(key store.PullRequestKeyV1, target store.Re
 	if latest.Decision == store.LoopDecisionStop || latest.Decision == store.LoopDecisionEscalate {
 		return decisionFromRecord(latest, false), nil
 	}
-	if hasCorruptDecisionAtOrAfter(corrupt, session.DecidedAt) {
+	if hasUnacknowledgedCorruptDecisions(corrupt, session) {
 		return c.recordDecision(key, session, store.LoopDecisionEscalate, "automatic review history is incomplete because durable decision records are corrupt", "", store.BudgetStateV1{}, false)
 	}
 	for _, decision := range allDecisions {
@@ -234,11 +235,15 @@ func (c *Controller) RecordEconomics(key store.PullRequestKeyV1, recordedAt time
 	if err != nil {
 		return fmt.Errorf("load automatic review decisions: %w", err)
 	}
-	if len(corrupt) != 0 {
-		return fmt.Errorf("automatic review history contains %d corrupt record(s)", len(corrupt))
+	_, sessionDecisions, err := activeSession(automaticDecisions(decisions))
+	if err != nil {
+		return err
+	}
+	if hasUnacknowledgedCorruptDecisions(corrupt, sessionDecisions[0]) {
+		return fmt.Errorf("automatic review active session contains corrupt decision records")
 	}
 	found := false
-	for _, decision := range automaticDecisions(decisions) {
+	for _, decision := range sessionDecisions {
 		if decision.Decision == store.LoopDecisionContinue && decision.RunID == economics.RunID {
 			found = true
 			break
@@ -270,12 +275,12 @@ func (c *Controller) Escalate(key store.PullRequestKeyV1, reason string) (_ Deci
 	if err != nil {
 		return Decision{}, fmt.Errorf("load automatic review decisions: %w", err)
 	}
-	if len(corrupt) != 0 {
-		return Decision{}, fmt.Errorf("automatic review history contains %d corrupt record(s)", len(corrupt))
-	}
 	session, sessionDecisions, err := activeSession(automaticDecisions(decisions))
 	if err != nil {
 		return Decision{}, err
+	}
+	if hasUnacknowledgedCorruptDecisions(corrupt, session) {
+		return c.recordDecision(key, session, store.LoopDecisionEscalate, reason, "", store.BudgetStateV1{}, false)
 	}
 	budget, _, err := c.currentBudget(key, session, sessionDecisions)
 	if err != nil {
@@ -284,7 +289,7 @@ func (c *Controller) Escalate(key store.PullRequestKeyV1, reason string) (_ Deci
 	return c.recordDecision(key, session, store.LoopDecisionEscalate, reason, "", budget, false)
 }
 
-func (c *Controller) admit(key store.PullRequestKeyV1, policy TrustedPolicy, authorization Authorization, reason string) (Decision, error) {
+func (c *Controller) admit(key store.PullRequestKeyV1, policy TrustedPolicy, authorization Authorization, reason string, corrupt []store.CorruptRecord) (Decision, error) {
 	if authorization.kind != AuthorizationUser && authorization.kind != AuthorizationWorkspace {
 		return Decision{}, fmt.Errorf("automatic review requires explicit user or trusted workspace authorization")
 	}
@@ -314,20 +319,25 @@ func (c *Controller) admit(key store.PullRequestKeyV1, policy TrustedPolicy, aut
 	}
 	source := policy.policy.Source
 	target := policy.target
+	acknowledgedCorruptFiles := make([]string, 0, len(corrupt))
+	for _, record := range corrupt {
+		acknowledgedCorruptFiles = append(acknowledgedCorruptFiles, filepath.Base(record.Path))
+	}
 	record := store.LoopDecisionV1{
-		SchemaVersion:     store.CurrentSchemaVersion,
-		ID:                id,
-		PullRequest:       key,
-		SessionID:         sessionID,
-		AuthorizationKind: string(authorization.kind),
-		AuthorizedBy:      authorization.actor,
-		PolicySource:      &source,
-		ReviewTarget:      &target,
-		Scope:             store.LoopDecisionScopeAutomaticExecution,
-		Decision:          store.LoopDecisionAdmit,
-		Reason:            fmt.Sprintf("%s by %s %q", reason, authorization.kind, authorization.actor),
-		Budget:            budget,
-		DecidedAt:         decidedAt,
+		SchemaVersion:            store.CurrentSchemaVersion,
+		ID:                       id,
+		PullRequest:              key,
+		SessionID:                sessionID,
+		AuthorizationKind:        string(authorization.kind),
+		AuthorizedBy:             authorization.actor,
+		PolicySource:             &source,
+		ReviewTarget:             &target,
+		AcknowledgedCorruptFiles: acknowledgedCorruptFiles,
+		Scope:                    store.LoopDecisionScopeAutomaticExecution,
+		Decision:                 store.LoopDecisionAdmit,
+		Reason:                   fmt.Sprintf("%s by %s %q", reason, authorization.kind, authorization.actor),
+		Budget:                   budget,
+		DecidedAt:                decidedAt,
 	}
 	if _, err := c.decisions.SaveLoopDecision(record); err != nil {
 		return Decision{}, fmt.Errorf("record automatic review admission: %w", err)
@@ -449,18 +459,13 @@ func (c *Controller) recordDecision(key store.PullRequestKeyV1, admission store.
 
 func (c *Controller) nextDecisionTime(key store.PullRequestKeyV1) (time.Time, error) {
 	now := c.now().UTC()
-	decisions, corrupt, err := c.decisions.ListLoopDecisions(key)
+	decisions, _, err := c.decisions.ListLoopDecisions(key)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("load automatic review decisions: %w", err)
 	}
 	for _, decision := range decisions {
 		if !now.After(decision.DecidedAt) {
 			now = decision.DecidedAt.Add(time.Nanosecond)
-		}
-	}
-	for _, record := range corrupt {
-		if !record.RecordedAt.IsZero() && !now.After(record.RecordedAt) {
-			now = record.RecordedAt.Add(time.Nanosecond)
 		}
 	}
 	return now, nil
@@ -503,9 +508,13 @@ func releaseDecisionLock(release func() error, err *error) {
 	}
 }
 
-func hasCorruptDecisionAtOrAfter(records []store.CorruptRecord, startedAt time.Time) bool {
+func hasUnacknowledgedCorruptDecisions(records []store.CorruptRecord, admission store.LoopDecisionV1) bool {
+	acknowledged := make(map[string]struct{}, len(admission.AcknowledgedCorruptFiles))
+	for _, name := range admission.AcknowledgedCorruptFiles {
+		acknowledged[name] = struct{}{}
+	}
 	for _, record := range records {
-		if record.RecordedAt.IsZero() || !record.RecordedAt.Before(startedAt) {
+		if _, ok := acknowledged[filepath.Base(record.Path)]; !ok {
 			return true
 		}
 	}

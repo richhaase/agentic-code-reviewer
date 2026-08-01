@@ -106,6 +106,43 @@ func TestLoopDecisionV1_AdmissionRequiresBoundedBudget(t *testing.T) {
 	}
 }
 
+func TestLoopDecisionV1_AcknowledgedCorruptFilesRequireSafeAdmissionNames(t *testing.T) {
+	key := testPullRequestKey()
+	decision := LoopDecisionV1{
+		SchemaVersion:            CurrentSchemaVersion,
+		ID:                       "admission-corrupt-history",
+		PullRequest:              key,
+		SessionID:                "session-corrupt-history",
+		AuthorizationKind:        "user",
+		AuthorizedBy:             "alice",
+		PolicySource:             &PolicySourceV1{Kind: config.SourceKindDefaults},
+		ReviewTarget:             &ReviewTargetV1{PullRequest: &key},
+		AcknowledgedCorruptFiles: []string{"malformed.json"},
+		Scope:                    LoopDecisionScopeAutomaticExecution,
+		Decision:                 LoopDecisionAdmit,
+		Reason:                   "trusted recovery",
+		Budget:                   BudgetStateV1{Known: true, IterationsLimit: 1},
+		DecidedAt:                time.Date(2026, 7, 31, 9, 0, 0, 0, time.UTC),
+	}
+	if err := decision.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	unsafe := decision
+	unsafe.AcknowledgedCorruptFiles = []string{"../malformed.json"}
+	if err := unsafe.Validate(); err == nil {
+		t.Fatal("expected unsafe acknowledged filename to fail validation")
+	}
+	nonAdmission := decision
+	nonAdmission.Decision = LoopDecisionStop
+	nonAdmission.AuthorizationKind = ""
+	nonAdmission.AuthorizedBy = ""
+	nonAdmission.PolicySource = nil
+	nonAdmission.ReviewTarget = nil
+	if err := nonAdmission.Validate(); err == nil {
+		t.Fatal("expected non-admission acknowledgment to fail validation")
+	}
+}
+
 func TestLoopDecisionV1_AdmissionRequiresTrustedTargetSourceBinding(t *testing.T) {
 	key := testPullRequestKey()
 	target := ReviewTargetV1{
