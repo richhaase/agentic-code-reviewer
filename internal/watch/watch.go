@@ -457,6 +457,21 @@ func (l *loop) awaitAdmission(ctx context.Context, state PRState) (PRState, Exit
 		if waitResult.Interrupted {
 			return PRState{}, ReasonInterrupted, true
 		}
+		if !l.deps.Clock.Now().Before(l.deadline) {
+			stateReady := make(chan struct{})
+			close(stateReady)
+			waitResult, err = l.finalizeWait(ctx, waitResult, stateReady)
+			if reason, done := l.handleWaitError(err); done {
+				return PRState{}, reason, true
+			}
+			if waitResult.Interrupted {
+				return PRState{}, ReasonInterrupted, true
+			}
+			l.receiveManualRequests(waitResult.ManualRequests)
+			l.rejectManualRequests(ReasonMaxDuration.String())
+			l.logf("Reached maximum duration (%s) while lifecycle was snoozed; stopping.", l.cfg.MaxDuration)
+			return PRState{}, ReasonMaxDuration, true
+		}
 		refreshedState, err, waitResult, waitErr := l.stateAfterWait(ctx, waitResult)
 		if reason, done := l.handleWaitError(waitErr); done {
 			return PRState{}, reason, true

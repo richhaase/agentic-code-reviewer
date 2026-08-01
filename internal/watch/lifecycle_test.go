@@ -338,4 +338,7 @@ func TestLifecycleResumeAtDeadlineDoesNotAdmitReview(t *testing.T) {
 	if len(h.triggers) != 0 {
 		t.Fatalf("triggers = %v, want none", h.triggers)
 	}
+	if h.stateCalls != 1 {
+		t.Fatalf("state calls = %d, want only the initial state fetch", h.stateCalls)
+	}
 }
