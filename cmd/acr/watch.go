@@ -184,11 +184,8 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 	logger.Logf(terminal.StyleInfo, "Watching PR %s (mode=%s, poll=%s, settle=%s, max-reviews=%d, max-duration=%s)",
 		formatPRRef(watchPR), mode, wcfg.PollInterval, wcfg.SettleTime, wcfg.MaxReviews, wcfg.MaxDuration)
 
-	deps := watch.Deps{
+	polling := watch.Polling{
 		Clock: watch.RealClock{},
-		Logf: func(format string, args ...any) {
-			logger.Logf(terminal.StyleInfo, format, args...)
-		},
 		State: func(ctx context.Context) (watch.PRState, error) {
 			st, err := github.GetPRWatchState(ctx, repoRoot, watchPR)
 			if err != nil {
@@ -206,6 +203,19 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 				Discussion:      mapWatchDiscussion(discussion),
 			}, nil
 		},
+	}
+	reviewExecution := watch.ReviewExecution{
+		RunCycle: func(
+			ctx context.Context,
+			_ int,
+			_ string,
+			discussion []watch.Discussion,
+			discussionRevision string,
+		) (watch.Cycle, error) {
+			return runWatchCycle(ctx, cmd, watchPR, repositoryHost, mode, discussion, discussionRevision, logger)
+		},
+	}
+	actions := watch.ActionPolicies{
 		CIGreen: func(ctx context.Context) (bool, error) {
 			status := github.CheckCIStatus(ctx, repoRoot, watchPR)
 			if status.Error != "" {
@@ -216,14 +226,10 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 		Approve: func(ctx context.Context, body string) error {
 			return github.ApprovePR(ctx, repoRoot, watchPR, body)
 		},
-		RunCycle: func(
-			ctx context.Context,
-			_ int,
-			_ string,
-			discussion []watch.Discussion,
-			discussionRevision string,
-		) (watch.Cycle, error) {
-			return runWatchCycle(ctx, cmd, watchPR, repositoryHost, mode, discussion, discussionRevision, logger)
+	}
+	presentation := watch.Presentation{
+		Logf: func(format string, args ...any) {
+			logger.Logf(terminal.StyleInfo, format, args...)
 		},
 	}
 	routerAgent := cfgResult.resolved.PRFeedbackAgent
@@ -241,17 +247,24 @@ func runWatch(cmd *cobra.Command, _ []string) error {
 		logger.Logf(terminal.StyleError, "Failed to initialize discussion router: %v", err)
 		return exitCode(domain.ExitError)
 	}
-	deps.RouteDiscussion = func(ctx context.Context, discussion []watch.Discussion) (watch.RoutingDecision, error) {
+	actions.RouteDiscussion = func(ctx context.Context, discussion []watch.Discussion) (watch.RoutingDecision, error) {
 		routeCtx, cancel := context.WithTimeout(ctx, cfgResult.resolved.SummarizerTimeout)
 		defer cancel()
 		return router.Route(routeCtx, discussion)
 	}
 	if terminal.IsStdinTTY() && watchInputSupported() {
-		deps.Wait = newWatchInputAdapter(os.Stdin).Wait
+		polling.Wait = newWatchInputAdapter(os.Stdin).Wait
 		logger.Log("Press r while waiting to request an immediate review.", terminal.StyleDim)
 	}
 
-	reason := watch.Run(ctx, wcfg, deps)
+	lifecycle := watch.NewLifecycle(
+		wcfg,
+		polling,
+		reviewExecution,
+		actions,
+		presentation,
+	)
+	reason := lifecycle.Run(ctx)
 	logger.Logf(terminal.StyleInfo, "Watch finished: %s", reason)
 
 	switch reason {
