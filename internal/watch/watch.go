@@ -538,6 +538,7 @@ func run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		return reason
 	}
 
+	lastState := st
 	pollErrors := 0
 	for {
 		waitResult := WaitResult{}
@@ -599,6 +600,16 @@ func run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 			}
 			pollErrors++
 			l.logf("Failed to fetch PR state (%d/%d): %v", pollErrors, maxConsecutivePollErrors, err)
+			control, reason, done := l.controlDecision(ctx, lastState)
+			if done {
+				if l.manualRequests > 0 {
+					l.rejectManualRequests(reason.String())
+				}
+				return reason
+			}
+			if control.State == ControlSnoozed && l.manualRequests > 0 {
+				l.rejectManualRequests("lifecycle is snoozed")
+			}
 			if pollErrors >= maxConsecutivePollErrors {
 				return ReasonError
 			}
@@ -614,6 +625,7 @@ func run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 			}
 			return reason
 		}
+		lastState = st
 		control, reason, done := l.controlDecision(ctx, st)
 		if done {
 			if manualTrigger {

@@ -342,3 +342,57 @@ func TestLifecycleResumeAtDeadlineDoesNotAdmitReview(t *testing.T) {
 		t.Fatalf("state calls = %d, want only the initial state fetch", h.stateCalls)
 	}
 }
+
+func TestLifecycleControlStopsDuringStatePollingFailures(t *testing.T) {
+	tests := []struct {
+		name       string
+		control    ControlState
+		wantReason ExitReason
+	}{
+		{name: "released", control: ControlReleased, wantReason: ReasonReleased},
+		{name: "opted out", control: ControlOptedOut, wantReason: ReasonOptedOut},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.cycles = []Cycle{{Result: CycleFindings}}
+			deps := h.deps()
+			stateCalls := 0
+			deps.State = func(context.Context) (PRState, error) {
+				stateCalls++
+				if stateCalls == 1 {
+					return open("aaa"), nil
+				}
+				return PRState{}, errors.New("transient gh failure")
+			}
+			controlCalls := 0
+			var controlledStates []PRState
+			control := func(_ context.Context, state PRState) (ControlDecision, error) {
+				controlledStates = append(controlledStates, state)
+				controlCalls++
+				if controlCalls == 1 {
+					return ControlDecision{State: ControlActive}, nil
+				}
+				return ControlDecision{State: test.control}, nil
+			}
+			lifecycle := NewLifecycle(
+				defaultConfig(PostModeComment),
+				Polling{State: deps.State, Wait: deps.Wait, Clock: deps.Clock},
+				ReviewExecution{RunCycle: deps.RunCycle},
+				ActionPolicies{CIGreen: deps.CIGreen, Approve: deps.Approve, Control: control},
+				Presentation{Emit: deps.Emit, Logf: deps.Logf},
+			)
+
+			if reason := lifecycle.Run(context.Background()); reason != test.wantReason {
+				t.Fatalf("reason = %v, want %v", reason, test.wantReason)
+			}
+			if stateCalls != 2 {
+				t.Fatalf("state calls = %d, want initial success and one failure", stateCalls)
+			}
+			if len(controlledStates) != 2 || controlledStates[1].HeadSHA != "aaa" {
+				t.Fatalf("controlled states = %#v, want last successful state", controlledStates)
+			}
+		})
+	}
+}
