@@ -633,6 +633,9 @@ func run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 			}
 			return reason
 		}
+		if !st.ReviewRequested {
+			l.requestArmed = true
+		}
 		if control.State == ControlSnoozed {
 			if manualTrigger {
 				l.rejectManualRequests("lifecycle is snoozed")
@@ -643,10 +646,6 @@ func run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 			l.retryPending = false
 			l.retryHead = ""
 			l.cycleErrors = 0
-		}
-
-		if !st.ReviewRequested {
-			l.requestArmed = true
 		}
 
 		trigger := ""

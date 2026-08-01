@@ -115,6 +115,27 @@ func TestReusableLifecycleTransitionFixtures(t *testing.T) {
 			wantReason:   ReasonReleased,
 			wantTriggers: []string{"initial review"},
 		},
+		{
+			name: "review request rearmed during snooze",
+			states: []PRState{
+				requested("aaa"),
+				open("aaa"),
+				requested("aaa"),
+				requested("aaa"),
+			},
+			cycles: []Cycle{
+				{Result: CycleFindings},
+				{Result: CycleLGTMApproved},
+			},
+			controls: []ControlDecision{
+				{State: ControlActive},
+				{State: ControlSnoozed},
+				{State: ControlSnoozed},
+				{State: ControlActive},
+			},
+			wantReason:   ReasonLGTM,
+			wantTriggers: []string{"initial review", "re-review requested"},
+		},
 	}
 
 	for _, fixture := range fixtures {
