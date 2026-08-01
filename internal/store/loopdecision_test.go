@@ -147,6 +147,16 @@ func TestLoopDecisionV1_AdmissionRequiresTrustedTargetSourceBinding(t *testing.T
 	if err := reviewedSource.Validate(); err == nil {
 		t.Fatal("expected admission sourced from reviewed head to fail")
 	}
+	duration := valid()
+	duration.Budget.IterationsLimit = 0
+	duration.Budget.DurationLimit = time.Hour
+	if err := duration.Validate(); err == nil {
+		t.Fatal("expected duration admission without start time to fail")
+	}
+	duration.Budget.StartedAt = duration.DecidedAt.Add(time.Minute)
+	if err := duration.Validate(); err == nil {
+		t.Fatal("expected duration admission starting after its decision to fail")
+	}
 }
 
 func TestBudgetStateV1_KnownZeroDistinguishableFromUnknown(t *testing.T) {

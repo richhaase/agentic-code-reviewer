@@ -399,6 +399,52 @@ func TestControllerClassifiesCorruptEconomicsByConfiguredBudget(t *testing.T) {
 	}
 }
 
+func TestControllerIgnoresCorruptEconomicsOutsideActiveSession(t *testing.T) {
+	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	controller := testController(t, dir, &now)
+	key := testKey()
+	policy := testPolicy(t, 3, time.Hour, 5)
+	if _, err := controller.Commission(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.AuthorizeReview(key, testTarget(), policy, "old-session-run"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.Escalate(key, "trusted restart requested"); err != nil {
+		t.Fatal(err)
+	}
+	economicsDir := filepath.Join(dir, "prs", key.Host, key.Owner, key.Repository, fmt.Sprintf("%d", key.Number), "economics")
+	if err := os.MkdirAll(economicsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(economicsDir, "20260731T120001.000000000Z-old-corrupt.json"), []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.Resume(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.AuthorizeReview(key, testTarget(), policy, "active-session-run"); err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.RecordEconomics(key, now, store.ReviewEconomicsV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		RunID:         "active-session-run",
+		ProviderUsage: []store.ProviderUsageRecordV1{
+			{Provider: "codex", Usage: store.ProviderUsageV1{Known: true, CostUSD: 1}},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	decision, err := controller.AuthorizeReview(key, testTarget(), policy, "next-active-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.Allowed || decision.Budget.CostUSDUsed != 1 || !decision.Budget.CostKnown {
+		t.Fatalf("unrelated corrupt economics poisoned active session: %+v", decision)
+	}
+}
+
 func TestControllerSkipsBudgetEconomicsReadWithoutCostLimit(t *testing.T) {
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
 	dir := t.TempDir()

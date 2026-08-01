@@ -184,5 +184,13 @@ func (d LoopDecisionV1) Validate() error {
 	if d.DecidedAt.IsZero() {
 		return fmt.Errorf("loop decision decided_at is required")
 	}
+	if d.Decision == LoopDecisionAdmit && d.Budget.DurationLimit > 0 {
+		if d.Budget.StartedAt.IsZero() {
+			return fmt.Errorf("duration-bounded loop decision admission requires a start time")
+		}
+		if d.Budget.StartedAt.After(d.DecidedAt) {
+			return fmt.Errorf("loop decision admission budget cannot start after the decision")
+		}
+	}
 	return nil
 }

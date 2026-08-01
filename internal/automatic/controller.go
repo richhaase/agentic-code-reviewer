@@ -356,13 +356,9 @@ func (c *Controller) currentBudget(key store.PullRequestKeyV1, admission store.L
 		budget.CostKnown = true
 		return budget, true, nil
 	}
-	records, corrupt, err := c.economics.ListEconomics(key)
+	records, _, err := c.economics.ListEconomics(key)
 	if err != nil {
 		return store.BudgetStateV1{}, false, fmt.Errorf("load automatic review economics: %w", err)
-	}
-	if len(corrupt) != 0 {
-		budget.CostKnown = false
-		return budget, false, nil
 	}
 	byRun := make(map[string]store.ReviewEconomicsV1, len(records))
 	for _, record := range records {
