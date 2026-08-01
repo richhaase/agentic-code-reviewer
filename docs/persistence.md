@@ -69,10 +69,15 @@ one.
   genuinely unavailable usage/cost data from a measured zero; validation
   rejects a record that claims `Known: false` while also carrying nonzero
   measurements, so "unknown" can never be silently reinterpreted as "zero."
-- **`LoopDecisionV1`** (issue #223) — one continue/stop/escalate decision from
-  the review convergence loop, with its reason, iteration counters, budget
-  state (`BudgetStateV1`, with the same known/unknown distinction as provider
-  usage), and the adjudication records that informed it.
+- **`LoopDecisionV1`** (issues #223 and #224) — one admission, continue, stop,
+  or escalation decision from an automatic review lifecycle, with its reason,
+  trusted authorization and policy source for admissions, lifecycle session,
+  review and duration counters, measured provider cost, and the adjudication
+  records that informed it. An explicit scope keeps automatic-execution
+  admissions separate from later semantic-convergence decisions. The
+  append-only decisions preserve exhausted
+  budgets across process restarts; only a new trusted admission starts a new
+  bounded session.
 - **`AdjudicationPolicyV1`** (issue #223) — the budget policy, stop policy,
   and evaluation guidance used by the convergence loop. `Source` is a
   `PolicySourceV1`, which mirrors `config.SourceIdentity` — the exact trust

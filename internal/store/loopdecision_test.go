@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/richhaase/agentic-code-reviewer/internal/config"
 )
 
 func TestLoopDecisionV1_RoundTripAllKinds(t *testing.T) {
@@ -48,6 +50,30 @@ func TestLoopDecisionV1_RoundTripAllKinds(t *testing.T) {
 				t.Fatalf("round trip mismatch: got %+v, want %+v", decoded, decision)
 			}
 		})
+	}
+}
+
+func TestLoopDecisionV1_AdmissionRequiresAuthorizationAndPolicy(t *testing.T) {
+	decision := LoopDecisionV1{
+		SchemaVersion:     CurrentSchemaVersion,
+		ID:                "admission-1",
+		PullRequest:       testPullRequestKey(),
+		SessionID:         "session-1",
+		AuthorizationKind: "user",
+		AuthorizedBy:      "alice",
+		PolicySource:      &PolicySourceV1{Kind: config.SourceKindDefaults},
+		Scope:             LoopDecisionScopeAutomaticExecution,
+		Decision:          LoopDecisionAdmit,
+		Reason:            "commissioned",
+		Budget:            BudgetStateV1{Known: true},
+		DecidedAt:         time.Date(2026, 7, 31, 9, 0, 0, 0, time.UTC),
+	}
+	if err := decision.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	decision.AuthorizedBy = ""
+	if err := decision.Validate(); err == nil {
+		t.Fatal("expected admission without a trusted actor to fail validation")
 	}
 }
 

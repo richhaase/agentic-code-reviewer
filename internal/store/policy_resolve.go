@@ -27,6 +27,9 @@ func ResolveAdjudicationPolicy(ctx context.Context, source config.Source, target
 		if adjudication.MaxIterations != nil {
 			policy.Budget.MaxIterations = *adjudication.MaxIterations
 		}
+		if adjudication.MaxDuration != nil {
+			policy.Budget.MaxDuration = adjudication.MaxDuration.AsDuration()
+		}
 		if adjudication.MaxCostUSD != nil {
 			policy.Budget.MaxCostUSD = *adjudication.MaxCostUSD
 		}

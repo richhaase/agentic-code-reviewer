@@ -653,6 +653,7 @@ func TestLoadFromPathWithWarnings_AdjudicationSection(t *testing.T) {
 
 	content := `adjudication:
   max_iterations: 5
+  max_duration: 2h
   max_cost_usd: 2.5
   stop_on_clean_run: true
   stop_on_no_new_findings: false
@@ -673,6 +674,9 @@ func TestLoadFromPathWithWarnings_AdjudicationSection(t *testing.T) {
 	adjudication := result.Config.Adjudication
 	if adjudication.MaxIterations == nil || *adjudication.MaxIterations != 5 {
 		t.Errorf("expected max_iterations=5, got %v", adjudication.MaxIterations)
+	}
+	if adjudication.MaxDuration == nil || adjudication.MaxDuration.AsDuration() != 2*time.Hour {
+		t.Errorf("expected max_duration=2h, got %v", adjudication.MaxDuration)
 	}
 	if adjudication.MaxCostUSD == nil || *adjudication.MaxCostUSD != 2.5 {
 		t.Errorf("expected max_cost_usd=2.5, got %v", adjudication.MaxCostUSD)
@@ -1763,10 +1767,11 @@ func TestValidate_WatchBounds(t *testing.T) {
 func TestValidate_AdjudicationBounds(t *testing.T) {
 	resolved := Defaults
 	resolved.AdjudicationMaxIterations = -1
+	resolved.AdjudicationMaxDuration = -time.Second
 	resolved.AdjudicationMaxCostUSD = -0.01
 
 	errs := resolved.ValidateAll()
-	for _, want := range []string{"adjudication.max_iterations", "adjudication.max_cost_usd"} {
+	for _, want := range []string{"adjudication.max_iterations", "adjudication.max_duration", "adjudication.max_cost_usd"} {
 		found := false
 		for _, e := range errs {
 			if strings.Contains(e, want) {
@@ -1810,12 +1815,16 @@ func TestValidate_AdjudicationMaxCostUSDRejectsNonFiniteValues(t *testing.T) {
 
 func TestResolve_AdjudicationBudget(t *testing.T) {
 	maxIterations := -1
+	maxDuration := Duration(-time.Second)
 	maxCostUSD := -0.01
-	cfg := &Config{Adjudication: AdjudicationConfig{MaxIterations: &maxIterations, MaxCostUSD: &maxCostUSD}}
+	cfg := &Config{Adjudication: AdjudicationConfig{MaxIterations: &maxIterations, MaxDuration: &maxDuration, MaxCostUSD: &maxCostUSD}}
 
 	resolved := Resolve(cfg, EnvState{}, FlagState{}, ResolvedConfig{})
 	if resolved.AdjudicationMaxIterations != maxIterations {
 		t.Errorf("AdjudicationMaxIterations = %d, want %d", resolved.AdjudicationMaxIterations, maxIterations)
+	}
+	if resolved.AdjudicationMaxDuration != -time.Second {
+		t.Errorf("AdjudicationMaxDuration = %s, want %s", resolved.AdjudicationMaxDuration, -time.Second)
 	}
 	if resolved.AdjudicationMaxCostUSD != maxCostUSD {
 		t.Errorf("AdjudicationMaxCostUSD = %g, want %g", resolved.AdjudicationMaxCostUSD, maxCostUSD)

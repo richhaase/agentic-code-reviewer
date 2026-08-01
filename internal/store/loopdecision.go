@@ -8,7 +8,24 @@ import (
 
 type LoopDecisionKindV1 string
 
+type LoopDecisionScopeV1 string
+
 const (
+	LoopDecisionScopeAutomaticExecution  LoopDecisionScopeV1 = "automatic_execution"
+	LoopDecisionScopeSemanticConvergence LoopDecisionScopeV1 = "semantic_convergence"
+)
+
+func (s LoopDecisionScopeV1) Validate() error {
+	switch s {
+	case "", LoopDecisionScopeAutomaticExecution, LoopDecisionScopeSemanticConvergence:
+		return nil
+	default:
+		return fmt.Errorf("unknown loop decision scope %q", s)
+	}
+}
+
+const (
+	LoopDecisionAdmit    LoopDecisionKindV1 = "admit"
 	LoopDecisionContinue LoopDecisionKindV1 = "continue"
 	LoopDecisionStop     LoopDecisionKindV1 = "stop"
 	LoopDecisionEscalate LoopDecisionKindV1 = "escalate"
@@ -16,7 +33,7 @@ const (
 
 func (k LoopDecisionKindV1) Validate() error {
 	switch k {
-	case LoopDecisionContinue, LoopDecisionStop, LoopDecisionEscalate:
+	case LoopDecisionAdmit, LoopDecisionContinue, LoopDecisionStop, LoopDecisionEscalate:
 		return nil
 	default:
 		return fmt.Errorf("unknown loop decision kind %q", k)
@@ -24,22 +41,29 @@ func (k LoopDecisionKindV1) Validate() error {
 }
 
 type BudgetStateV1 struct {
-	Known           bool    `json:"known"`
-	IterationsUsed  int     `json:"iterations_used"`
-	IterationsLimit int     `json:"iterations_limit"`
-	CostUSDUsed     float64 `json:"cost_usd_used"`
-	CostUSDLimit    float64 `json:"cost_usd_limit"`
+	Known           bool          `json:"known"`
+	IterationsUsed  int           `json:"iterations_used"`
+	IterationsLimit int           `json:"iterations_limit"`
+	StartedAt       time.Time     `json:"started_at,omitempty"`
+	Elapsed         time.Duration `json:"elapsed"`
+	DurationLimit   time.Duration `json:"duration_limit"`
+	CostKnown       bool          `json:"cost_known"`
+	CostUSDUsed     float64       `json:"cost_usd_used"`
+	CostUSDLimit    float64       `json:"cost_usd_limit"`
 }
 
 func (b BudgetStateV1) Validate() error {
 	if !b.Known {
-		if b.IterationsUsed != 0 || b.IterationsLimit != 0 || b.CostUSDUsed != 0 || b.CostUSDLimit != 0 {
+		if b.IterationsUsed != 0 || b.IterationsLimit != 0 || !b.StartedAt.IsZero() || b.Elapsed != 0 || b.DurationLimit != 0 || b.CostKnown || b.CostUSDUsed != 0 || b.CostUSDLimit != 0 {
 			return fmt.Errorf("budget state marked unknown must not carry nonzero measurements")
 		}
 		return nil
 	}
 	if b.IterationsUsed < 0 || b.IterationsLimit < 0 {
 		return fmt.Errorf("known budget iteration counts must not be negative")
+	}
+	if b.Elapsed < 0 || b.DurationLimit < 0 {
+		return fmt.Errorf("known budget durations must not be negative")
 	}
 	if isInvalidKnownCost(b.CostUSDUsed) || isInvalidKnownCost(b.CostUSDLimit) {
 		return fmt.Errorf("known budget cost must be a finite number that is not negative")
@@ -52,16 +76,21 @@ func isInvalidKnownCost(cost float64) bool {
 }
 
 type LoopDecisionV1 struct {
-	SchemaVersion             int                `json:"schema_version"`
-	ID                        string             `json:"id"`
-	PullRequest               PullRequestKeyV1   `json:"pull_request"`
-	RunID                     string             `json:"run_id"`
-	Decision                  LoopDecisionKindV1 `json:"decision"`
-	Reason                    string             `json:"reason"`
-	IterationCount            int                `json:"iteration_count"`
-	Budget                    BudgetStateV1      `json:"budget"`
-	SupportingAdjudicationIDs []string           `json:"supporting_adjudication_ids,omitempty"`
-	DecidedAt                 time.Time          `json:"decided_at"`
+	SchemaVersion             int                 `json:"schema_version"`
+	ID                        string              `json:"id"`
+	PullRequest               PullRequestKeyV1    `json:"pull_request"`
+	RunID                     string              `json:"run_id,omitempty"`
+	SessionID                 string              `json:"session_id,omitempty"`
+	AuthorizationKind         string              `json:"authorization_kind,omitempty"`
+	AuthorizedBy              string              `json:"authorized_by,omitempty"`
+	PolicySource              *PolicySourceV1     `json:"policy_source,omitempty"`
+	Scope                     LoopDecisionScopeV1 `json:"scope,omitempty"`
+	Decision                  LoopDecisionKindV1  `json:"decision"`
+	Reason                    string              `json:"reason"`
+	IterationCount            int                 `json:"iteration_count"`
+	Budget                    BudgetStateV1       `json:"budget"`
+	SupportingAdjudicationIDs []string            `json:"supporting_adjudication_ids,omitempty"`
+	DecidedAt                 time.Time           `json:"decided_at"`
 }
 
 func (d LoopDecisionV1) Validate() error {
@@ -74,8 +103,36 @@ func (d LoopDecisionV1) Validate() error {
 	if err := d.PullRequest.Validate(); err != nil {
 		return err
 	}
-	if err := validateNonEmpty("loop decision run_id", d.RunID); err != nil {
+	if err := d.Scope.Validate(); err != nil {
 		return err
+	}
+	if d.Decision == LoopDecisionContinue {
+		if err := validateNonEmpty("loop decision run_id", d.RunID); err != nil {
+			return err
+		}
+	}
+	if d.Decision == LoopDecisionAdmit {
+		if d.Scope != LoopDecisionScopeAutomaticExecution {
+			return fmt.Errorf("loop decision admission requires automatic_execution scope")
+		}
+		if err := validateNonEmpty("loop decision session_id", d.SessionID); err != nil {
+			return err
+		}
+		if err := validateNonEmpty("loop decision authorization_kind", d.AuthorizationKind); err != nil {
+			return err
+		}
+		if d.AuthorizationKind != "user" && d.AuthorizationKind != "workspace_controller" {
+			return fmt.Errorf("loop decision authorization_kind %q is not trusted", d.AuthorizationKind)
+		}
+		if err := validateNonEmpty("loop decision authorized_by", d.AuthorizedBy); err != nil {
+			return err
+		}
+		if d.PolicySource == nil {
+			return fmt.Errorf("loop decision policy_source is required for admission")
+		}
+		if err := d.PolicySource.Validate(); err != nil {
+			return err
+		}
 	}
 	if err := d.Decision.Validate(); err != nil {
 		return err
