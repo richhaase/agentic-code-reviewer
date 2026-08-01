@@ -55,7 +55,13 @@ func NewTrustedPolicy(policy store.AdjudicationPolicyV1, target store.ReviewTarg
 	if policy.Budget.MaxIterations == 0 && policy.Budget.MaxDuration == 0 {
 		return TrustedPolicy{}, fmt.Errorf("automatic review policy requires a review or duration bound")
 	}
-	return TrustedPolicy{policy: policy, target: target}, nil
+	if target.PullRequest == nil {
+		return TrustedPolicy{}, fmt.Errorf("automatic review target must identify a pull request")
+	}
+	targetCopy := target
+	pullRequestCopy := *target.PullRequest
+	targetCopy.PullRequest = &pullRequestCopy
+	return TrustedPolicy{policy: policy, target: targetCopy}, nil
 }
 
 type Decision struct {
@@ -448,7 +454,10 @@ func validateTrustedTarget(key store.PullRequestKeyV1, target store.ReviewTarget
 	if !reflect.DeepEqual(target, policy.target) {
 		return fmt.Errorf("automatic review policy was not validated for the requested review target")
 	}
-	if target.PullRequest != nil && *target.PullRequest != key {
+	if target.PullRequest == nil {
+		return fmt.Errorf("automatic review target must identify the requested pull request")
+	}
+	if *target.PullRequest != key {
 		return fmt.Errorf("automatic review target %s does not match requested pull request %s", target.PullRequest.String(), key.String())
 	}
 	return nil
