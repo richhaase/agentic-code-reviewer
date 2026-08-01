@@ -22,6 +22,14 @@ type failingEconomicsStore struct {
 	failAfter int
 }
 
+type releaseFailingDecisionStore struct {
+	store.LoopDecisionStore
+}
+
+func (s *releaseFailingDecisionStore) AcquireDecisionWriteLock() (func() error, error) {
+	return func() error { return fmt.Errorf("release failed") }, nil
+}
+
 func (s *failingEconomicsStore) ListEconomics(key store.PullRequestKeyV1) ([]store.EconomicsRecordV1, []store.CorruptRecord, error) {
 	s.listCalls++
 	if s.listCalls > s.failAfter {
@@ -691,7 +699,8 @@ func TestControllerRecordsUnknownBudgetForCorruptHistory(t *testing.T) {
 	dir := t.TempDir()
 	controller := testController(t, dir, &now)
 	key := testKey()
-	if _, err := controller.Commission(key, testTarget(), testPolicy(t, 2, time.Hour, 0), testUserAuthorization(t)); err != nil {
+	policy := testPolicy(t, 2, time.Hour, 0)
+	if _, err := controller.Commission(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
 		t.Fatal(err)
 	}
 	decisionDir := filepath.Join(dir, "prs", key.Host, key.Owner, key.Repository, fmt.Sprintf("%d", key.Number), "loop_decisions")
@@ -704,6 +713,70 @@ func TestControllerRecordsUnknownBudgetForCorruptHistory(t *testing.T) {
 	}
 	if escalated.Kind != store.LoopDecisionEscalate || escalated.Budget.Known {
 		t.Fatalf("expected corrupt history escalation with unknown budget, got %+v", escalated)
+	}
+	if _, err := controller.Resume(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
+		t.Fatalf("trusted resume after corruption escalation: %v", err)
+	}
+	resumed, err := controller.AuthorizeReview(key, testTarget(), policy, "run-after-resume")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resumed.Allowed {
+		t.Fatalf("trusted resume did not isolate corrupt prior session: %+v", resumed)
+	}
+}
+
+func TestActiveSessionRejectsDecisionFromAnotherSession(t *testing.T) {
+	admission := store.LoopDecisionV1{ID: "admission", SessionID: "session-a", Decision: store.LoopDecisionAdmit}
+	foreign := store.LoopDecisionV1{ID: "foreign", SessionID: "session-b", Decision: store.LoopDecisionContinue}
+	if _, _, err := activeSession([]store.LoopDecisionV1{admission, foreign}); err == nil {
+		t.Fatal("expected decision from another session to be rejected")
+	}
+}
+
+func TestControllerTreatsZeroCallEconomicsAsKnownZero(t *testing.T) {
+	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	controller := testController(t, t.TempDir(), &now)
+	key := testKey()
+	policy := testPolicy(t, 3, time.Hour, 5)
+	if _, err := controller.Commission(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.AuthorizeReview(key, testTarget(), policy, "zero-call-run"); err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.RecordEconomics(key, now, store.ReviewEconomicsV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		RunID:         "zero-call-run",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	decision, err := controller.AuthorizeReview(key, testTarget(), policy, "run-after-zero-call")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decision.Allowed || !decision.Budget.CostKnown || decision.Budget.CostUSDUsed != 0 {
+		t.Fatalf("zero-call economics were not treated as known zero: %+v", decision)
+	}
+}
+
+func TestControllerPropagatesDecisionLockReleaseFailure(t *testing.T) {
+	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	controller, err := NewController(
+		&releaseFailingDecisionStore{LoopDecisionStore: store.NewFilesystemLoopDecisionStore(dir)},
+		store.NewFilesystemEconomicsStore(dir),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller.now = func() time.Time { return now }
+	controller.newID = func() (string, error) {
+		return fmt.Sprintf("id-%d", testIDCounter.Add(1)), nil
+	}
+	_, err = controller.Commission(testKey(), testTarget(), testPolicy(t, 1, time.Hour, 0), testUserAuthorization(t))
+	if err == nil || !strings.Contains(err.Error(), "release automatic review decision lock") {
+		t.Fatalf("expected lock release failure, got %v", err)
 	}
 }
 

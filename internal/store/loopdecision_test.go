@@ -217,8 +217,25 @@ func TestLoopDecisionV1_SemanticTerminalRequiresRunID(t *testing.T) {
 		t.Fatal("expected semantic terminal decision without run id to fail validation")
 	}
 	decision.Scope = LoopDecisionScopeAutomaticExecution
+	decision.SessionID = "session-1"
 	if err := decision.Validate(); err != nil {
 		t.Fatalf("automatic terminal decision should not require a run id: %v", err)
+	}
+}
+
+func TestLoopDecisionV1_AutomaticDecisionRequiresSessionID(t *testing.T) {
+	decision := LoopDecisionV1{
+		SchemaVersion: CurrentSchemaVersion,
+		ID:            "automatic-stop",
+		PullRequest:   testPullRequestKey(),
+		Scope:         LoopDecisionScopeAutomaticExecution,
+		Decision:      LoopDecisionStop,
+		Reason:        "stopped",
+		Budget:        BudgetStateV1{Known: true},
+		DecidedAt:     time.Date(2026, 7, 31, 9, 0, 0, 0, time.UTC),
+	}
+	if err := decision.Validate(); err == nil {
+		t.Fatal("expected automatic decision without session id to fail validation")
 	}
 }
 

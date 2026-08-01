@@ -129,6 +129,11 @@ func (d LoopDecisionV1) Validate() error {
 	if err := d.Scope.Validate(); err != nil {
 		return err
 	}
+	if d.Scope == LoopDecisionScopeAutomaticExecution {
+		if err := validateNonEmpty("loop decision session_id", d.SessionID); err != nil {
+			return err
+		}
+	}
 	if d.Decision == LoopDecisionContinue || (d.Scope != LoopDecisionScopeAutomaticExecution && (d.Decision == LoopDecisionStop || d.Decision == LoopDecisionEscalate)) {
 		if err := validateNonEmpty("loop decision run_id", d.RunID); err != nil {
 			return err

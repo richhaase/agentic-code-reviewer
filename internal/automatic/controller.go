@@ -3,6 +3,7 @@ package automatic
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -95,14 +96,14 @@ func NewController(decisions store.LoopDecisionStore, economics store.EconomicsS
 	}, nil
 }
 
-func (c *Controller) Commission(key store.PullRequestKeyV1, target store.ReviewTargetV1, policy TrustedPolicy, authorization Authorization) (Decision, error) {
+func (c *Controller) Commission(key store.PullRequestKeyV1, target store.ReviewTargetV1, policy TrustedPolicy, authorization Authorization) (_ Decision, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	release, err := c.decisions.AcquireDecisionWriteLock()
 	if err != nil {
 		return Decision{}, fmt.Errorf("lock automatic review decisions: %w", err)
 	}
-	defer func() { _ = release() }()
+	defer releaseDecisionLock(release, &err)
 	if err := validateTrustedTarget(key, target, policy); err != nil {
 		return Decision{}, err
 	}
@@ -122,24 +123,21 @@ func (c *Controller) Commission(key store.PullRequestKeyV1, target store.ReviewT
 	return c.admit(key, policy, authorization, "automatic review explicitly commissioned")
 }
 
-func (c *Controller) Resume(key store.PullRequestKeyV1, target store.ReviewTargetV1, policy TrustedPolicy, authorization Authorization) (Decision, error) {
+func (c *Controller) Resume(key store.PullRequestKeyV1, target store.ReviewTargetV1, policy TrustedPolicy, authorization Authorization) (_ Decision, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	release, err := c.decisions.AcquireDecisionWriteLock()
 	if err != nil {
 		return Decision{}, fmt.Errorf("lock automatic review decisions: %w", err)
 	}
-	defer func() { _ = release() }()
+	defer releaseDecisionLock(release, &err)
 	if err := validateTrustedTarget(key, target, policy); err != nil {
 		return Decision{}, err
 	}
 
-	decisions, corrupt, err := c.decisions.ListLoopDecisions(key)
+	decisions, _, err := c.decisions.ListLoopDecisions(key)
 	if err != nil {
 		return Decision{}, fmt.Errorf("load automatic review decisions: %w", err)
-	}
-	if len(corrupt) != 0 {
-		return Decision{}, fmt.Errorf("automatic review history contains %d corrupt record(s)", len(corrupt))
 	}
 	decisions = automaticDecisions(decisions)
 	if len(decisions) == 0 {
@@ -152,14 +150,14 @@ func (c *Controller) Resume(key store.PullRequestKeyV1, target store.ReviewTarge
 	return c.admit(key, policy, authorization, "automatic review resumed by trusted decision")
 }
 
-func (c *Controller) AuthorizeReview(key store.PullRequestKeyV1, target store.ReviewTargetV1, policy TrustedPolicy, runID string) (Decision, error) {
+func (c *Controller) AuthorizeReview(key store.PullRequestKeyV1, target store.ReviewTargetV1, policy TrustedPolicy, runID string) (_ Decision, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	release, err := c.decisions.AcquireDecisionWriteLock()
 	if err != nil {
 		return Decision{}, fmt.Errorf("lock automatic review decisions: %w", err)
 	}
-	defer func() { _ = release() }()
+	defer releaseDecisionLock(release, &err)
 	if err := validateTrustedTarget(key, target, policy); err != nil {
 		return Decision{}, err
 	}
@@ -184,7 +182,7 @@ func (c *Controller) AuthorizeReview(key store.PullRequestKeyV1, target store.Re
 	if latest.Decision == store.LoopDecisionStop || latest.Decision == store.LoopDecisionEscalate {
 		return decisionFromRecord(latest, false), nil
 	}
-	if len(corrupt) != 0 {
+	if hasCorruptDecisionAtOrAfter(corrupt, session.DecidedAt) {
 		return c.recordDecision(key, session, store.LoopDecisionEscalate, "automatic review history is incomplete because durable decision records are corrupt", "", store.BudgetStateV1{}, false)
 	}
 	for _, decision := range allDecisions {
@@ -223,14 +221,14 @@ func (c *Controller) AuthorizeReview(key store.PullRequestKeyV1, target store.Re
 	return c.recordDecision(key, session, store.LoopDecisionContinue, "automatic review admitted within the configured lifecycle bounds", runID, budget, true)
 }
 
-func (c *Controller) RecordEconomics(key store.PullRequestKeyV1, recordedAt time.Time, economics store.ReviewEconomicsV1) error {
+func (c *Controller) RecordEconomics(key store.PullRequestKeyV1, recordedAt time.Time, economics store.ReviewEconomicsV1) (err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	release, err := c.decisions.AcquireDecisionWriteLock()
 	if err != nil {
 		return fmt.Errorf("lock automatic review decisions: %w", err)
 	}
-	defer func() { _ = release() }()
+	defer releaseDecisionLock(release, &err)
 
 	decisions, corrupt, err := c.decisions.ListLoopDecisions(key)
 	if err != nil {
@@ -255,14 +253,14 @@ func (c *Controller) RecordEconomics(key store.PullRequestKeyV1, recordedAt time
 	return nil
 }
 
-func (c *Controller) Escalate(key store.PullRequestKeyV1, reason string) (Decision, error) {
+func (c *Controller) Escalate(key store.PullRequestKeyV1, reason string) (_ Decision, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	release, err := c.decisions.AcquireDecisionWriteLock()
 	if err != nil {
 		return Decision{}, fmt.Errorf("lock automatic review decisions: %w", err)
 	}
-	defer func() { _ = release() }()
+	defer releaseDecisionLock(release, &err)
 
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
@@ -366,7 +364,15 @@ func (c *Controller) currentBudget(key store.PullRequestKeyV1, admission store.L
 	}
 	for runID := range runIDs {
 		economics, ok := byRun[runID]
-		if !ok || len(economics.ProviderUsage) == 0 {
+		if !ok {
+			budget.CostKnown = false
+			budget.CostUSDUsed = 0
+			return budget, false, nil
+		}
+		if len(economics.ProviderUsage) == 0 {
+			if economics.ReviewerCallCount == 0 && economics.ModelCallCount == 0 {
+				continue
+			}
 			budget.CostKnown = false
 			budget.CostUSDUsed = 0
 			return budget, false, nil
@@ -401,7 +407,13 @@ func activeSession(decisions []store.LoopDecisionV1) (store.LoopDecisionV1, []st
 			if decisions[i].SessionID == "" {
 				return store.LoopDecisionV1{}, nil, fmt.Errorf("automatic review admission has no session id")
 			}
-			return decisions[i], decisions[i:], nil
+			session := decisions[i:]
+			for _, decision := range session {
+				if decision.SessionID != decisions[i].SessionID {
+					return store.LoopDecisionV1{}, nil, fmt.Errorf("automatic review decision %q does not belong to active session %q", decision.ID, decisions[i].SessionID)
+				}
+			}
+			return decisions[i], session, nil
 		}
 	}
 	return store.LoopDecisionV1{}, nil, fmt.Errorf("automatic review has no durable trusted admission")
@@ -437,13 +449,18 @@ func (c *Controller) recordDecision(key store.PullRequestKeyV1, admission store.
 
 func (c *Controller) nextDecisionTime(key store.PullRequestKeyV1) (time.Time, error) {
 	now := c.now().UTC()
-	decisions, _, err := c.decisions.ListLoopDecisions(key)
+	decisions, corrupt, err := c.decisions.ListLoopDecisions(key)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("load automatic review decisions: %w", err)
 	}
 	for _, decision := range decisions {
 		if !now.After(decision.DecidedAt) {
 			now = decision.DecidedAt.Add(time.Nanosecond)
+		}
+	}
+	for _, record := range corrupt {
+		if !record.RecordedAt.IsZero() && !now.After(record.RecordedAt) {
+			now = record.RecordedAt.Add(time.Nanosecond)
 		}
 	}
 	return now, nil
@@ -478,6 +495,21 @@ func validateTrustedTarget(key store.PullRequestKeyV1, target store.ReviewTarget
 		return fmt.Errorf("automatic review target %s does not match requested pull request %s", target.PullRequest.String(), key.String())
 	}
 	return nil
+}
+
+func releaseDecisionLock(release func() error, err *error) {
+	if releaseErr := release(); releaseErr != nil {
+		*err = errors.Join(*err, fmt.Errorf("release automatic review decision lock: %w", releaseErr))
+	}
+}
+
+func hasCorruptDecisionAtOrAfter(records []store.CorruptRecord, startedAt time.Time) bool {
+	for _, record := range records {
+		if record.RecordedAt.IsZero() || !record.RecordedAt.Before(startedAt) {
+			return true
+		}
+	}
+	return false
 }
 
 func randomID() (string, error) {
