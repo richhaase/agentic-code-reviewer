@@ -12,6 +12,7 @@ import (
 
 type CorruptRecord struct {
 	Path        string
+	RecordID    string
 	Fingerprint string
 	Err         error
 }
@@ -75,14 +76,19 @@ func listTimestampedRecords[T any](dir string, decode func([]byte) (T, error)) (
 			corrupt = append(corrupt, CorruptRecord{Path: path, Err: err})
 			continue
 		}
+		recordID, err := parseRecordID(name)
+		if err != nil {
+			corrupt = append(corrupt, CorruptRecord{Path: path, Err: err})
+			continue
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
-			corrupt = append(corrupt, CorruptRecord{Path: path, Err: fmt.Errorf("read %s: %w", path, err)})
+			corrupt = append(corrupt, CorruptRecord{Path: path, RecordID: recordID, Err: fmt.Errorf("read %s: %w", path, err)})
 			continue
 		}
 		record, err := decode(data)
 		if err != nil {
-			corrupt = append(corrupt, CorruptRecord{Path: path, Fingerprint: corruptFingerprint(data), Err: fmt.Errorf("decode %s: %w", path, err)})
+			corrupt = append(corrupt, CorruptRecord{Path: path, RecordID: recordID, Fingerprint: corruptFingerprint(data), Err: fmt.Errorf("decode %s: %w", path, err)})
 			continue
 		}
 		records = append(records, timestampedRecord[T]{recordedAt: recordedAt, record: record})
