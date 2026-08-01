@@ -856,6 +856,14 @@ func (l *loop) tryApprove(ctx context.Context) (ExitReason, bool) {
 		l.logf("New PR discussion arrived before approval; deferring.")
 		return 0, false
 	}
+	control, reason, done := l.controlDecision(ctx, st)
+	if done {
+		return reason, true
+	}
+	if control.State == ControlSnoozed {
+		l.logf("Lifecycle snoozed before approval; deferring.")
+		return 0, false
+	}
 	if err := l.deps.Approve(ctx, l.pendingApproval); err != nil {
 		if ctx.Err() != nil {
 			return ReasonInterrupted, true

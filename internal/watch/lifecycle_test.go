@@ -417,3 +417,55 @@ func TestLifecycleControlStopsDuringStatePollingFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestLifecycleControlPreventsDeferredApproval(t *testing.T) {
+	tests := []struct {
+		name       string
+		control    ControlState
+		wantReason ExitReason
+	}{
+		{name: "snoozed", control: ControlSnoozed, wantReason: ReasonMerged},
+		{name: "released", control: ControlReleased, wantReason: ReasonReleased},
+		{name: "opted out", control: ControlOptedOut, wantReason: ReasonOptedOut},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.states = []PRState{
+				open("aaa"),
+				open("aaa"),
+				open("aaa"),
+				{HeadSHA: "aaa", Merged: true},
+			}
+			h.cycles = []Cycle{{Result: CycleLGTMCommentCIPending, LGTMBody: "LGTM"}}
+			h.ci = []bool{true}
+			deps := h.deps()
+			controlCalls := 0
+			control := func(context.Context, PRState) (ControlDecision, error) {
+				controlCalls++
+				if controlCalls < 3 {
+					return ControlDecision{State: ControlActive}, nil
+				}
+				return ControlDecision{State: test.control}, nil
+			}
+			lifecycle := NewLifecycle(
+				defaultConfig(PostModeApprove),
+				Polling{State: deps.State, Wait: deps.Wait, Clock: deps.Clock},
+				ReviewExecution{RunCycle: deps.RunCycle},
+				ActionPolicies{CIGreen: deps.CIGreen, Approve: deps.Approve, Control: control},
+				Presentation{Emit: deps.Emit, Logf: deps.Logf},
+			)
+
+			if reason := lifecycle.Run(context.Background()); reason != test.wantReason {
+				t.Fatalf("reason = %v, want %v", reason, test.wantReason)
+			}
+			if len(h.approvedWith) != 0 {
+				t.Fatalf("approvals = %v, want none", h.approvedWith)
+			}
+			if controlCalls != 3 {
+				t.Fatalf("control calls = %d, want final pre-approval check", controlCalls)
+			}
+		})
+	}
+}
