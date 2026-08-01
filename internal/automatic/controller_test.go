@@ -45,7 +45,15 @@ func testKey() store.PullRequestKeyV1 {
 
 func testTarget() store.ReviewTargetV1 {
 	key := testKey()
-	return store.ReviewTargetV1{PullRequest: &key}
+	return store.ReviewTargetV1{
+		RepositoryRoot: "/repo",
+		WorktreeRoot:   "/repo/worktree",
+		Revision: store.RevisionEvidenceV1{
+			RequestedBaseRef: "main",
+			ResolvedBaseRef:  "refs/remotes/origin/main",
+		},
+		PullRequest: &key,
+	}
 }
 
 func testPolicy(t *testing.T, reviews int, duration time.Duration, cost float64) TrustedPolicy {
@@ -239,6 +247,39 @@ func TestControllerDurationStartsAtAdmissionDespiteFutureHistory(t *testing.T) {
 	}
 	if stopped.Kind != store.LoopDecisionStop {
 		t.Fatalf("future history postponed duration stop: %+v", stopped)
+	}
+}
+
+func TestControllerSamplesAdmissionClockOnce(t *testing.T) {
+	first := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	second := first.Add(-time.Minute)
+	dir := t.TempDir()
+	controller, err := NewController(
+		store.NewFilesystemLoopDecisionStore(dir),
+		store.NewFilesystemEconomicsStore(dir),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	times := []time.Time{first, second}
+	calls := 0
+	controller.now = func() time.Time {
+		value := times[calls]
+		calls++
+		return value
+	}
+	controller.newID = func() (string, error) {
+		return fmt.Sprintf("id-%d", testIDCounter.Add(1)), nil
+	}
+	admission, err := controller.Commission(testKey(), testTarget(), testPolicy(t, 1, time.Hour, 0), testUserAuthorization(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("sampled admission clock %d times, want 1", calls)
+	}
+	if !admission.Budget.StartedAt.Equal(first) {
+		t.Fatalf("admission started at %s, want %s", admission.Budget.StartedAt, first)
 	}
 }
 
@@ -510,8 +551,10 @@ func TestTrustedPolicyCannotBeReusedForAnotherTarget(t *testing.T) {
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
 	controller := testController(t, t.TempDir(), &now)
 	key := testKey()
-	targetA := store.ReviewTargetV1{Revision: store.RevisionEvidenceV1{HeadObjectID: "head-a"}, PullRequest: &key}
-	targetB := store.ReviewTargetV1{Revision: store.RevisionEvidenceV1{HeadObjectID: "head-b"}, PullRequest: &key}
+	targetA := testTarget()
+	targetA.Revision.HeadObjectID = "head-a"
+	targetB := testTarget()
+	targetB.Revision.HeadObjectID = "head-b"
 	policy, err := NewTrustedPolicy(store.AdjudicationPolicyV1{
 		SchemaVersion: store.CurrentSchemaVersion,
 		Source:        store.PolicySourceV1{Kind: config.SourceKindDefaults},
@@ -533,6 +576,18 @@ func TestTrustedPolicyRequiresPullRequestIdentity(t *testing.T) {
 	}, store.ReviewTargetV1{})
 	if err == nil {
 		t.Fatal("expected target without pull request identity to be rejected")
+	}
+}
+
+func TestTrustedPolicyRejectsIncompleteReviewTarget(t *testing.T) {
+	key := testKey()
+	_, err := NewTrustedPolicy(store.AdjudicationPolicyV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		Source:        store.PolicySourceV1{Kind: config.SourceKindDefaults},
+		Budget:        store.BudgetPolicyV1{MaxIterations: 1},
+	}, store.ReviewTargetV1{PullRequest: &key})
+	if err == nil {
+		t.Fatal("expected incomplete review target to be rejected")
 	}
 }
 
@@ -744,12 +799,16 @@ func TestControllerRecordsUnknownBudgetForCorruptHistory(t *testing.T) {
 			resumedAdmission = record
 		}
 	}
-	if !reflect.DeepEqual(resumedAdmission.AcknowledgedCorruptFiles, []string{"malformed.json"}) {
+	wantAcknowledgment := []store.CorruptRecordAcknowledgmentV1{{
+		Name:        "malformed.json",
+		Fingerprint: corrupt[0].Fingerprint,
+	}}
+	if !reflect.DeepEqual(resumedAdmission.AcknowledgedCorruptRecords, wantAcknowledgment) {
 		t.Fatalf("trusted resume did not durably acknowledge corrupt history: %+v", resumedAdmission)
 	}
 }
 
-func TestControllerEscalatesForCorruptionCreatedAfterTrustedResume(t *testing.T) {
+func TestControllerEscalatesForCorruptionReplacedAfterTrustedResume(t *testing.T) {
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
 	dir := t.TempDir()
 	controller := testController(t, dir, &now)
@@ -768,15 +827,15 @@ func TestControllerEscalatesForCorruptionCreatedAfterTrustedResume(t *testing.T)
 	if _, err := controller.Resume(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(decisionDir, "new-corrupt.json"), []byte("not json"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(decisionDir, "old-corrupt.json"), []byte("different invalid json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	decision, err := testAuthorize(t, controller, key, "run-after-new-corruption")
+	decision, err := testAuthorize(t, controller, key, "run-after-replaced-corruption")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if decision.Kind != store.LoopDecisionEscalate || decision.Budget.Known {
-		t.Fatalf("expected new corruption to fail closed, got %+v", decision)
+		t.Fatalf("expected replaced corruption to fail closed, got %+v", decision)
 	}
 }
 

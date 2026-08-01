@@ -51,6 +51,9 @@ func NewTrustedPolicy(policy store.AdjudicationPolicyV1, target store.ReviewTarg
 	if err := policy.Validate(); err != nil {
 		return TrustedPolicy{}, fmt.Errorf("automatic review policy: %w", err)
 	}
+	if err := target.Validate(); err != nil {
+		return TrustedPolicy{}, fmt.Errorf("automatic review target: %w", err)
+	}
 	if err := store.ValidatePolicySourceOutsideReview(policy.Source, target); err != nil {
 		return TrustedPolicy{}, fmt.Errorf("automatic review policy: %w", err)
 	}
@@ -301,7 +304,7 @@ func (c *Controller) admit(key store.PullRequestKeyV1, policy TrustedPolicy, aut
 		return Decision{}, fmt.Errorf("create automatic review session id: %w", err)
 	}
 	startedAt := c.now().UTC()
-	decidedAt, err := c.nextDecisionTime(key)
+	decidedAt, err := c.nextDecisionTime(key, startedAt)
 	if err != nil {
 		return Decision{}, err
 	}
@@ -319,25 +322,30 @@ func (c *Controller) admit(key store.PullRequestKeyV1, policy TrustedPolicy, aut
 	}
 	source := policy.policy.Source
 	target := policy.target
-	acknowledgedCorruptFiles := make([]string, 0, len(corrupt))
+	acknowledgedCorruptRecords := make([]store.CorruptRecordAcknowledgmentV1, 0, len(corrupt))
 	for _, record := range corrupt {
-		acknowledgedCorruptFiles = append(acknowledgedCorruptFiles, filepath.Base(record.Path))
+		if record.Fingerprint != "" {
+			acknowledgedCorruptRecords = append(acknowledgedCorruptRecords, store.CorruptRecordAcknowledgmentV1{
+				Name:        filepath.Base(record.Path),
+				Fingerprint: record.Fingerprint,
+			})
+		}
 	}
 	record := store.LoopDecisionV1{
-		SchemaVersion:            store.CurrentSchemaVersion,
-		ID:                       id,
-		PullRequest:              key,
-		SessionID:                sessionID,
-		AuthorizationKind:        string(authorization.kind),
-		AuthorizedBy:             authorization.actor,
-		PolicySource:             &source,
-		ReviewTarget:             &target,
-		AcknowledgedCorruptFiles: acknowledgedCorruptFiles,
-		Scope:                    store.LoopDecisionScopeAutomaticExecution,
-		Decision:                 store.LoopDecisionAdmit,
-		Reason:                   fmt.Sprintf("%s by %s %q", reason, authorization.kind, authorization.actor),
-		Budget:                   budget,
-		DecidedAt:                decidedAt,
+		SchemaVersion:              store.CurrentSchemaVersion,
+		ID:                         id,
+		PullRequest:                key,
+		SessionID:                  sessionID,
+		AuthorizationKind:          string(authorization.kind),
+		AuthorizedBy:               authorization.actor,
+		PolicySource:               &source,
+		ReviewTarget:               &target,
+		AcknowledgedCorruptRecords: acknowledgedCorruptRecords,
+		Scope:                      store.LoopDecisionScopeAutomaticExecution,
+		Decision:                   store.LoopDecisionAdmit,
+		Reason:                     fmt.Sprintf("%s by %s %q", reason, authorization.kind, authorization.actor),
+		Budget:                     budget,
+		DecidedAt:                  decidedAt,
 	}
 	if _, err := c.decisions.SaveLoopDecision(record); err != nil {
 		return Decision{}, fmt.Errorf("record automatic review admission: %w", err)
@@ -434,7 +442,7 @@ func (c *Controller) recordDecision(key store.PullRequestKeyV1, admission store.
 	if err != nil {
 		return Decision{}, fmt.Errorf("create automatic review decision id: %w", err)
 	}
-	decidedAt, err := c.nextDecisionTime(key)
+	decidedAt, err := c.nextDecisionTime(key, c.now().UTC())
 	if err != nil {
 		return Decision{}, err
 	}
@@ -457,8 +465,7 @@ func (c *Controller) recordDecision(key store.PullRequestKeyV1, admission store.
 	return decisionFromRecord(record, allowed), nil
 }
 
-func (c *Controller) nextDecisionTime(key store.PullRequestKeyV1) (time.Time, error) {
-	now := c.now().UTC()
+func (c *Controller) nextDecisionTime(key store.PullRequestKeyV1, now time.Time) (time.Time, error) {
 	decisions, _, err := c.decisions.ListLoopDecisions(key)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("load automatic review decisions: %w", err)
@@ -509,12 +516,13 @@ func releaseDecisionLock(release func() error, err *error) {
 }
 
 func hasUnacknowledgedCorruptDecisions(records []store.CorruptRecord, admission store.LoopDecisionV1) bool {
-	acknowledged := make(map[string]struct{}, len(admission.AcknowledgedCorruptFiles))
-	for _, name := range admission.AcknowledgedCorruptFiles {
-		acknowledged[name] = struct{}{}
+	acknowledged := make(map[store.CorruptRecordAcknowledgmentV1]struct{}, len(admission.AcknowledgedCorruptRecords))
+	for _, record := range admission.AcknowledgedCorruptRecords {
+		acknowledged[record] = struct{}{}
 	}
 	for _, record := range records {
-		if _, ok := acknowledged[filepath.Base(record.Path)]; !ok {
+		identity := store.CorruptRecordAcknowledgmentV1{Name: filepath.Base(record.Path), Fingerprint: record.Fingerprint}
+		if _, ok := acknowledged[identity]; !ok {
 			return true
 		}
 	}

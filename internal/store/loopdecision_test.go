@@ -10,6 +10,22 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/config"
 )
 
+func validLoopDecisionTarget(key PullRequestKeyV1) ReviewTargetV1 {
+	return ReviewTargetV1{
+		RepositoryRoot: "/repo",
+		WorktreeRoot:   "/repo/worktree",
+		Revision: RevisionEvidenceV1{
+			RequestedBaseRef: "main",
+			ResolvedBaseRef:  "refs/remotes/origin/main",
+		},
+		PullRequest: &key,
+	}
+}
+
+func pointerTo[T any](value T) *T {
+	return &value
+}
+
 func TestLoopDecisionV1_RoundTripAllKinds(t *testing.T) {
 	kinds := []LoopDecisionKindV1{LoopDecisionContinue, LoopDecisionStop, LoopDecisionEscalate}
 
@@ -64,7 +80,7 @@ func TestLoopDecisionV1_AdmissionRequiresAuthorizationAndPolicy(t *testing.T) {
 		AuthorizationKind: "user",
 		AuthorizedBy:      "alice",
 		PolicySource:      &PolicySourceV1{Kind: config.SourceKindDefaults},
-		ReviewTarget:      &ReviewTargetV1{PullRequest: &key},
+		ReviewTarget:      pointerTo(validLoopDecisionTarget(key)),
 		Scope:             LoopDecisionScopeAutomaticExecution,
 		Decision:          LoopDecisionAdmit,
 		Reason:            "commissioned",
@@ -90,7 +106,7 @@ func TestLoopDecisionV1_AdmissionRequiresBoundedBudget(t *testing.T) {
 		AuthorizationKind: "user",
 		AuthorizedBy:      "alice",
 		PolicySource:      &PolicySourceV1{Kind: config.SourceKindDefaults},
-		ReviewTarget:      &ReviewTargetV1{PullRequest: &key},
+		ReviewTarget:      pointerTo(validLoopDecisionTarget(key)),
 		Scope:             LoopDecisionScopeAutomaticExecution,
 		Decision:          LoopDecisionAdmit,
 		Reason:            "commissioned",
@@ -109,26 +125,29 @@ func TestLoopDecisionV1_AdmissionRequiresBoundedBudget(t *testing.T) {
 func TestLoopDecisionV1_AcknowledgedCorruptFilesRequireSafeAdmissionNames(t *testing.T) {
 	key := testPullRequestKey()
 	decision := LoopDecisionV1{
-		SchemaVersion:            CurrentSchemaVersion,
-		ID:                       "admission-corrupt-history",
-		PullRequest:              key,
-		SessionID:                "session-corrupt-history",
-		AuthorizationKind:        "user",
-		AuthorizedBy:             "alice",
-		PolicySource:             &PolicySourceV1{Kind: config.SourceKindDefaults},
-		ReviewTarget:             &ReviewTargetV1{PullRequest: &key},
-		AcknowledgedCorruptFiles: []string{"malformed.json"},
-		Scope:                    LoopDecisionScopeAutomaticExecution,
-		Decision:                 LoopDecisionAdmit,
-		Reason:                   "trusted recovery",
-		Budget:                   BudgetStateV1{Known: true, IterationsLimit: 1},
-		DecidedAt:                time.Date(2026, 7, 31, 9, 0, 0, 0, time.UTC),
+		SchemaVersion:     CurrentSchemaVersion,
+		ID:                "admission-corrupt-history",
+		PullRequest:       key,
+		SessionID:         "session-corrupt-history",
+		AuthorizationKind: "user",
+		AuthorizedBy:      "alice",
+		PolicySource:      &PolicySourceV1{Kind: config.SourceKindDefaults},
+		ReviewTarget:      pointerTo(validLoopDecisionTarget(key)),
+		AcknowledgedCorruptRecords: []CorruptRecordAcknowledgmentV1{{
+			Name:        "malformed.json",
+			Fingerprint: "fingerprint",
+		}},
+		Scope:     LoopDecisionScopeAutomaticExecution,
+		Decision:  LoopDecisionAdmit,
+		Reason:    "trusted recovery",
+		Budget:    BudgetStateV1{Known: true, IterationsLimit: 1},
+		DecidedAt: time.Date(2026, 7, 31, 9, 0, 0, 0, time.UTC),
 	}
 	if err := decision.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
 	unsafe := decision
-	unsafe.AcknowledgedCorruptFiles = []string{"../malformed.json"}
+	unsafe.AcknowledgedCorruptRecords = []CorruptRecordAcknowledgmentV1{{Name: "../malformed.json", Fingerprint: "fingerprint"}}
 	if err := unsafe.Validate(); err == nil {
 		t.Fatal("expected unsafe acknowledged filename to fail validation")
 	}
@@ -145,10 +164,8 @@ func TestLoopDecisionV1_AcknowledgedCorruptFilesRequireSafeAdmissionNames(t *tes
 
 func TestLoopDecisionV1_AdmissionRequiresTrustedTargetSourceBinding(t *testing.T) {
 	key := testPullRequestKey()
-	target := ReviewTargetV1{
-		Revision:    RevisionEvidenceV1{HeadObjectID: "reviewed-head"},
-		PullRequest: &key,
-	}
+	target := validLoopDecisionTarget(key)
+	target.Revision.HeadObjectID = "reviewed-head"
 	valid := func() LoopDecisionV1 {
 		return LoopDecisionV1{
 			SchemaVersion:     CurrentSchemaVersion,
@@ -175,9 +192,15 @@ func TestLoopDecisionV1_AdmissionRequiresTrustedTargetSourceBinding(t *testing.T
 	mismatched := valid()
 	otherKey := key
 	otherKey.Number++
-	mismatched.ReviewTarget = &ReviewTargetV1{PullRequest: &otherKey}
+	mismatchedTarget := validLoopDecisionTarget(otherKey)
+	mismatched.ReviewTarget = &mismatchedTarget
 	if err := mismatched.Validate(); err == nil {
 		t.Fatal("expected admission with mismatched target to fail")
+	}
+	incomplete := valid()
+	incomplete.ReviewTarget = &ReviewTargetV1{PullRequest: &key}
+	if err := incomplete.Validate(); err == nil {
+		t.Fatal("expected admission with an incomplete review target to fail")
 	}
 	reviewedSource := valid()
 	reviewedSource.PolicySource = &PolicySourceV1{Kind: config.SourceKindRepositoryRevision, Revision: "reviewed-head"}

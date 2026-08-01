@@ -98,23 +98,28 @@ func isInvalidKnownCost(cost float64) bool {
 }
 
 type LoopDecisionV1 struct {
-	SchemaVersion             int                 `json:"schema_version"`
-	ID                        string              `json:"id"`
-	PullRequest               PullRequestKeyV1    `json:"pull_request"`
-	RunID                     string              `json:"run_id,omitempty"`
-	SessionID                 string              `json:"session_id,omitempty"`
-	AuthorizationKind         string              `json:"authorization_kind,omitempty"`
-	AuthorizedBy              string              `json:"authorized_by,omitempty"`
-	PolicySource              *PolicySourceV1     `json:"policy_source,omitempty"`
-	ReviewTarget              *ReviewTargetV1     `json:"review_target,omitempty"`
-	AcknowledgedCorruptFiles  []string            `json:"acknowledged_corrupt_files,omitempty"`
-	Scope                     LoopDecisionScopeV1 `json:"scope,omitempty"`
-	Decision                  LoopDecisionKindV1  `json:"decision"`
-	Reason                    string              `json:"reason"`
-	IterationCount            int                 `json:"iteration_count"`
-	Budget                    BudgetStateV1       `json:"budget"`
-	SupportingAdjudicationIDs []string            `json:"supporting_adjudication_ids,omitempty"`
-	DecidedAt                 time.Time           `json:"decided_at"`
+	SchemaVersion              int                             `json:"schema_version"`
+	ID                         string                          `json:"id"`
+	PullRequest                PullRequestKeyV1                `json:"pull_request"`
+	RunID                      string                          `json:"run_id,omitempty"`
+	SessionID                  string                          `json:"session_id,omitempty"`
+	AuthorizationKind          string                          `json:"authorization_kind,omitempty"`
+	AuthorizedBy               string                          `json:"authorized_by,omitempty"`
+	PolicySource               *PolicySourceV1                 `json:"policy_source,omitempty"`
+	ReviewTarget               *ReviewTargetV1                 `json:"review_target,omitempty"`
+	AcknowledgedCorruptRecords []CorruptRecordAcknowledgmentV1 `json:"acknowledged_corrupt_records,omitempty"`
+	Scope                      LoopDecisionScopeV1             `json:"scope,omitempty"`
+	Decision                   LoopDecisionKindV1              `json:"decision"`
+	Reason                     string                          `json:"reason"`
+	IterationCount             int                             `json:"iteration_count"`
+	Budget                     BudgetStateV1                   `json:"budget"`
+	SupportingAdjudicationIDs  []string                        `json:"supporting_adjudication_ids,omitempty"`
+	DecidedAt                  time.Time                       `json:"decided_at"`
+}
+
+type CorruptRecordAcknowledgmentV1 struct {
+	Name        string `json:"name"`
+	Fingerprint string `json:"fingerprint"`
 }
 
 func (d LoopDecisionV1) Validate() error {
@@ -165,6 +170,9 @@ func (d LoopDecisionV1) Validate() error {
 		if d.ReviewTarget == nil || d.ReviewTarget.PullRequest == nil {
 			return fmt.Errorf("loop decision admission requires a pull-request review target")
 		}
+		if err := d.ReviewTarget.Validate(); err != nil {
+			return fmt.Errorf("loop decision admission review target: %w", err)
+		}
 		if *d.ReviewTarget.PullRequest != d.PullRequest {
 			return fmt.Errorf("loop decision admission review target does not match pull request")
 		}
@@ -174,12 +182,15 @@ func (d LoopDecisionV1) Validate() error {
 		if !d.Budget.Known || (d.Budget.IterationsLimit == 0 && d.Budget.DurationLimit == 0) {
 			return fmt.Errorf("loop decision admission requires a known review or duration bound")
 		}
-		for _, name := range d.AcknowledgedCorruptFiles {
-			if err := validateRecordID("acknowledged corrupt decision file", name); err != nil {
+		for _, acknowledgment := range d.AcknowledgedCorruptRecords {
+			if err := validateRecordID("acknowledged corrupt decision file", acknowledgment.Name); err != nil {
+				return err
+			}
+			if err := validateNonEmpty("acknowledged corrupt decision fingerprint", acknowledgment.Fingerprint); err != nil {
 				return err
 			}
 		}
-	} else if len(d.AcknowledgedCorruptFiles) != 0 {
+	} else if len(d.AcknowledgedCorruptRecords) != 0 {
 		return fmt.Errorf("acknowledged corrupt decision files require an admission decision")
 	}
 	if err := d.Decision.Validate(); err != nil {
