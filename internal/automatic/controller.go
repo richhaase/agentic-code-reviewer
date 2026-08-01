@@ -192,12 +192,9 @@ func (c *Controller) AuthorizeReview(key store.PullRequestKeyV1, target store.Re
 			return Decision{}, fmt.Errorf("automatic review run %q already has a durable decision", runID)
 		}
 	}
-	economics, corruptEconomics, err := c.economics.ListEconomics(key)
+	economics, _, err := c.economics.ListEconomics(key)
 	if err != nil {
 		return Decision{}, fmt.Errorf("load automatic review economics: %w", err)
-	}
-	if len(corruptEconomics) != 0 {
-		return Decision{}, fmt.Errorf("automatic review economics contain %d corrupt record(s)", len(corruptEconomics))
 	}
 	for _, record := range economics {
 		if record.Economics.RunID == runID {

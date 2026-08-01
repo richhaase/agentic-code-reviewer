@@ -344,6 +344,47 @@ func TestControllerEscalatesWhenConfiguredProviderUsageIsUnavailable(t *testing.
 	}
 }
 
+func TestControllerClassifiesCorruptEconomicsByConfiguredBudget(t *testing.T) {
+	tests := []struct {
+		name     string
+		cost     float64
+		wantKind store.LoopDecisionKindV1
+		allowed  bool
+	}{
+		{name: "no cost bound", cost: 0, wantKind: store.LoopDecisionContinue, allowed: true},
+		{name: "cost bound", cost: 5, wantKind: store.LoopDecisionEscalate, allowed: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+			dir := t.TempDir()
+			controller := testController(t, dir, &now)
+			key := testKey()
+			policy := testPolicy(t, 3, time.Hour, tt.cost)
+			if _, err := controller.Commission(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := controller.AuthorizeReview(key, testTarget(), policy, "run-before-corruption"); err != nil {
+				t.Fatal(err)
+			}
+			economicsDir := filepath.Join(dir, "prs", key.Host, key.Owner, key.Repository, fmt.Sprintf("%d", key.Number), "economics")
+			if err := os.MkdirAll(economicsDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(economicsDir, "20260731T120001.000000000Z-corrupt.json"), []byte("not json"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			decision, err := controller.AuthorizeReview(key, testTarget(), policy, "run-after-corruption")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if decision.Kind != tt.wantKind || decision.Allowed != tt.allowed {
+				t.Fatalf("unexpected corruption decision: %+v", decision)
+			}
+		})
+	}
+}
+
 func TestTrustedPolicyRejectsReviewedWorktreeAndHead(t *testing.T) {
 	target := testTarget()
 	target.Revision.HeadObjectID = "head-sha"

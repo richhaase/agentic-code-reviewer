@@ -156,6 +156,9 @@ func (d LoopDecisionV1) Validate() error {
 		if err := d.PolicySource.Validate(); err != nil {
 			return err
 		}
+		if !d.Budget.Known || (d.Budget.IterationsLimit == 0 && d.Budget.DurationLimit == 0) {
+			return fmt.Errorf("loop decision admission requires a known review or duration bound")
+		}
 	}
 	if err := d.Decision.Validate(); err != nil {
 		return err

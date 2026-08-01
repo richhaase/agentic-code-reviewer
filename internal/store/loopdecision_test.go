@@ -66,7 +66,7 @@ func TestLoopDecisionV1_AdmissionRequiresAuthorizationAndPolicy(t *testing.T) {
 		Scope:             LoopDecisionScopeAutomaticExecution,
 		Decision:          LoopDecisionAdmit,
 		Reason:            "commissioned",
-		Budget:            BudgetStateV1{Known: true},
+		Budget:            BudgetStateV1{Known: true, IterationsLimit: 1},
 		DecidedAt:         time.Date(2026, 7, 31, 9, 0, 0, 0, time.UTC),
 	}
 	if err := decision.Validate(); err != nil {
@@ -75,6 +75,30 @@ func TestLoopDecisionV1_AdmissionRequiresAuthorizationAndPolicy(t *testing.T) {
 	decision.AuthorizedBy = ""
 	if err := decision.Validate(); err == nil {
 		t.Fatal("expected admission without a trusted actor to fail validation")
+	}
+}
+
+func TestLoopDecisionV1_AdmissionRequiresBoundedBudget(t *testing.T) {
+	decision := LoopDecisionV1{
+		SchemaVersion:     CurrentSchemaVersion,
+		ID:                "admission-unbounded",
+		PullRequest:       testPullRequestKey(),
+		SessionID:         "session-unbounded",
+		AuthorizationKind: "user",
+		AuthorizedBy:      "alice",
+		PolicySource:      &PolicySourceV1{Kind: config.SourceKindDefaults},
+		Scope:             LoopDecisionScopeAutomaticExecution,
+		Decision:          LoopDecisionAdmit,
+		Reason:            "commissioned",
+		Budget:            BudgetStateV1{Known: true},
+		DecidedAt:         time.Date(2026, 7, 31, 9, 0, 0, 0, time.UTC),
+	}
+	if err := decision.Validate(); err == nil {
+		t.Fatal("expected known admission without review or duration bound to fail")
+	}
+	decision.Budget = BudgetStateV1{}
+	if err := decision.Validate(); err == nil {
+		t.Fatal("expected admission with unknown budget to fail")
 	}
 }
 
