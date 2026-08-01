@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"time"
@@ -52,6 +53,24 @@ type BudgetStateV1 struct {
 	CostUSDLimit    float64       `json:"cost_usd_limit"`
 }
 
+func (b *BudgetStateV1) UnmarshalJSON(data []byte) error {
+	type budgetState BudgetStateV1
+	decoded := struct {
+		budgetState
+		CostKnown *bool `json:"cost_known"`
+	}{}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*b = BudgetStateV1(decoded.budgetState)
+	if decoded.CostKnown == nil {
+		b.CostKnown = b.Known
+	} else {
+		b.CostKnown = *decoded.CostKnown
+	}
+	return nil
+}
+
 func (b BudgetStateV1) Validate() error {
 	if !b.Known {
 		if b.IterationsUsed != 0 || b.IterationsLimit != 0 || !b.StartedAt.IsZero() || b.Elapsed != 0 || b.DurationLimit != 0 || b.CostKnown || b.CostUSDUsed != 0 || b.CostUSDLimit != 0 {
@@ -67,6 +86,9 @@ func (b BudgetStateV1) Validate() error {
 	}
 	if isInvalidKnownCost(b.CostUSDUsed) || isInvalidKnownCost(b.CostUSDLimit) {
 		return fmt.Errorf("known budget cost must be a finite number that is not negative")
+	}
+	if !b.CostKnown && b.CostUSDUsed != 0 {
+		return fmt.Errorf("budget with unknown cost must not carry measured cost usage")
 	}
 	return nil
 }
@@ -106,7 +128,7 @@ func (d LoopDecisionV1) Validate() error {
 	if err := d.Scope.Validate(); err != nil {
 		return err
 	}
-	if d.Decision == LoopDecisionContinue {
+	if d.Decision == LoopDecisionContinue || (d.Scope != LoopDecisionScopeAutomaticExecution && (d.Decision == LoopDecisionStop || d.Decision == LoopDecisionEscalate)) {
 		if err := validateNonEmpty("loop decision run_id", d.RunID); err != nil {
 			return err
 		}

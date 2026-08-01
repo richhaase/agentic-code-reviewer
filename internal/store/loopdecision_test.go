@@ -27,6 +27,7 @@ func TestLoopDecisionV1_RoundTripAllKinds(t *testing.T) {
 					Known:           true,
 					IterationsUsed:  2,
 					IterationsLimit: 5,
+					CostKnown:       true,
 					CostUSDUsed:     1.5,
 					CostUSDLimit:    10,
 				},
@@ -99,6 +100,44 @@ func TestBudgetStateV1_ValidateRejectsUnknownWithNonzeroMeasurements(t *testing.
 	unknown := BudgetStateV1{Known: false, IterationsUsed: 1}
 	if err := unknown.Validate(); err == nil {
 		t.Fatal("expected an error for unknown budget state with a nonzero measurement")
+	}
+}
+
+func TestBudgetStateV1_UnmarshalLegacyKnownCost(t *testing.T) {
+	data := []byte(`{"known":true,"cost_usd_used":1.5,"cost_usd_limit":10}`)
+	var budget BudgetStateV1
+	if err := json.Unmarshal(data, &budget); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if !budget.CostKnown || budget.CostUSDUsed != 1.5 {
+		t.Fatalf("legacy known cost was not preserved: %+v", budget)
+	}
+}
+
+func TestBudgetStateV1_ValidateRejectsUnknownCostWithMeasuredUsage(t *testing.T) {
+	budget := BudgetStateV1{Known: true, CostKnown: false, CostUSDUsed: 1}
+	if err := budget.Validate(); err == nil {
+		t.Fatal("expected unknown cost with measured usage to fail validation")
+	}
+}
+
+func TestLoopDecisionV1_SemanticTerminalRequiresRunID(t *testing.T) {
+	decision := LoopDecisionV1{
+		SchemaVersion: CurrentSchemaVersion,
+		ID:            "semantic-stop",
+		PullRequest:   testPullRequestKey(),
+		Scope:         LoopDecisionScopeSemanticConvergence,
+		Decision:      LoopDecisionStop,
+		Reason:        "converged",
+		Budget:        BudgetStateV1{Known: true},
+		DecidedAt:     time.Date(2026, 7, 31, 9, 0, 0, 0, time.UTC),
+	}
+	if err := decision.Validate(); err == nil {
+		t.Fatal("expected semantic terminal decision without run id to fail validation")
+	}
+	decision.Scope = LoopDecisionScopeAutomaticExecution
+	if err := decision.Validate(); err != nil {
+		t.Fatalf("automatic terminal decision should not require a run id: %v", err)
 	}
 }
 

@@ -2,7 +2,10 @@ package automatic
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -69,7 +72,7 @@ func TestControllerRequiresTrustedCommissionAndRecordsAdmission(t *testing.T) {
 		t.Fatal("expected uncommissioned automatic review to be rejected")
 	}
 
-	decision, err := controller.Commission(key, testPolicy(t, 2, time.Hour, 0), testUserAuthorization(t))
+	decision, err := controller.Commission(key, store.ReviewTargetV1{}, testPolicy(t, 2, time.Hour, 0), testUserAuthorization(t))
 	if err != nil {
 		t.Fatalf("Commission: %v", err)
 	}
@@ -95,7 +98,7 @@ func TestControllerReviewBoundPersistsAcrossRunsAndRequiresResume(t *testing.T) 
 	controller := testController(t, dir, &now)
 	key := testKey()
 	policy := testPolicy(t, 2, time.Hour, 0)
-	if _, err := controller.Commission(key, policy, testUserAuthorization(t)); err != nil {
+	if _, err := controller.Commission(key, store.ReviewTargetV1{}, policy, testUserAuthorization(t)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -129,7 +132,7 @@ func TestControllerReviewBoundPersistsAcrossRunsAndRequiresResume(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := restarted.Resume(key, policy, workspace); err != nil {
+	if _, err := restarted.Resume(key, store.ReviewTargetV1{}, policy, workspace); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
 	resumed, err := restarted.AuthorizeReview(key, "run-after-resume")
@@ -146,7 +149,7 @@ func TestControllerDurationBoundAndDeadlineSpanLifecycle(t *testing.T) {
 	now := started
 	controller := testController(t, t.TempDir(), &now)
 	key := testKey()
-	if _, err := controller.Commission(key, testPolicy(t, 10, 30*time.Minute, 0), testUserAuthorization(t)); err != nil {
+	if _, err := controller.Commission(key, store.ReviewTargetV1{}, testPolicy(t, 10, 30*time.Minute, 0), testUserAuthorization(t)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -174,7 +177,7 @@ func TestControllerDoesNotCountSemanticConvergenceDecisionsAsReviewAdmissions(t 
 	dir := t.TempDir()
 	controller := testController(t, dir, &now)
 	key := testKey()
-	if _, err := controller.Commission(key, testPolicy(t, 2, time.Hour, 0), testUserAuthorization(t)); err != nil {
+	if _, err := controller.Commission(key, store.ReviewTargetV1{}, testPolicy(t, 2, time.Hour, 0), testUserAuthorization(t)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := controller.AuthorizeReview(key, "automatic-run-one"); err != nil {
@@ -208,7 +211,7 @@ func TestControllerEnforcesMeasuredProviderCost(t *testing.T) {
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
 	controller := testController(t, t.TempDir(), &now)
 	key := testKey()
-	if _, err := controller.Commission(key, testPolicy(t, 10, time.Hour, 1), testUserAuthorization(t)); err != nil {
+	if _, err := controller.Commission(key, store.ReviewTargetV1{}, testPolicy(t, 10, time.Hour, 1), testUserAuthorization(t)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := controller.AuthorizeReview(key, "run-one"); err != nil {
@@ -238,7 +241,7 @@ func TestControllerEscalatesWhenConfiguredProviderUsageIsUnavailable(t *testing.
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
 	controller := testController(t, t.TempDir(), &now)
 	key := testKey()
-	if _, err := controller.Commission(key, testPolicy(t, 10, time.Hour, 5), testUserAuthorization(t)); err != nil {
+	if _, err := controller.Commission(key, store.ReviewTargetV1{}, testPolicy(t, 10, time.Hour, 5), testUserAuthorization(t)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := controller.AuthorizeReview(key, "run-one"); err != nil {
@@ -291,13 +294,118 @@ func TestTrustedPolicyRejectsReviewedWorktreeAndHead(t *testing.T) {
 	}
 }
 
+func TestTrustedPolicyCannotBeReusedForAnotherTarget(t *testing.T) {
+	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	controller := testController(t, t.TempDir(), &now)
+	key := testKey()
+	targetA := store.ReviewTargetV1{Revision: store.RevisionEvidenceV1{HeadObjectID: "head-a"}, PullRequest: &key}
+	targetB := store.ReviewTargetV1{Revision: store.RevisionEvidenceV1{HeadObjectID: "head-b"}, PullRequest: &key}
+	policy, err := NewTrustedPolicy(store.AdjudicationPolicyV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		Source:        store.PolicySourceV1{Kind: config.SourceKindDefaults},
+		Budget:        store.BudgetPolicyV1{MaxIterations: 1},
+	}, targetA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.Commission(key, targetB, policy, testUserAuthorization(t)); err == nil {
+		t.Fatal("expected policy reuse for another target to be rejected")
+	}
+}
+
+func TestControllerSerializesReviewAdmissionAcrossInstances(t *testing.T) {
+	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	first := testController(t, dir, &now)
+	second := testController(t, dir, &now)
+	key := testKey()
+	policy := testPolicy(t, 1, time.Hour, 0)
+	if _, err := first.Commission(key, store.ReviewTargetV1{}, policy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+
+	type result struct {
+		decision Decision
+		err      error
+	}
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	var group sync.WaitGroup
+	for index, controller := range []*Controller{first, second} {
+		group.Add(1)
+		go func(index int, controller *Controller) {
+			defer group.Done()
+			<-start
+			decision, err := controller.AuthorizeReview(key, fmt.Sprintf("concurrent-run-%d", index))
+			results <- result{decision: decision, err: err}
+		}(index, controller)
+	}
+	close(start)
+	group.Wait()
+	close(results)
+
+	allowed := 0
+	for result := range results {
+		if result.err == nil && result.decision.Allowed {
+			allowed++
+		}
+	}
+	if allowed != 1 {
+		t.Fatalf("got %d concurrently admitted reviews, want 1", allowed)
+	}
+}
+
+func TestControllerRejectsRunIDReusedAcrossSessions(t *testing.T) {
+	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	controller := testController(t, dir, &now)
+	key := testKey()
+	policy := testPolicy(t, 1, time.Hour, 0)
+	if _, err := controller.Commission(key, store.ReviewTargetV1{}, policy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.AuthorizeReview(key, "reused-run"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.AuthorizeReview(key, "stop-run"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.Resume(key, store.ReviewTargetV1{}, policy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.AuthorizeReview(key, "reused-run"); err == nil {
+		t.Fatal("expected run id reused across sessions to be rejected")
+	}
+}
+
+func TestControllerRecordsUnknownBudgetForCorruptHistory(t *testing.T) {
+	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	controller := testController(t, dir, &now)
+	key := testKey()
+	if _, err := controller.Commission(key, store.ReviewTargetV1{}, testPolicy(t, 2, time.Hour, 0), testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	decisionDir := filepath.Join(dir, "prs", key.Host, key.Owner, key.Repository, fmt.Sprintf("%d", key.Number), "loop_decisions")
+	if err := os.WriteFile(filepath.Join(decisionDir, "20260731T120001.000000000Z-corrupt.json"), []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	escalated, err := controller.AuthorizeReview(key, "run-after-corruption")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if escalated.Kind != store.LoopDecisionEscalate || escalated.Budget.Known {
+		t.Fatalf("expected corrupt history escalation with unknown budget, got %+v", escalated)
+	}
+}
+
 func TestControllerRecordsExplicitEscalationAndTrustedResume(t *testing.T) {
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
 	dir := t.TempDir()
 	controller := testController(t, dir, &now)
 	key := testKey()
 	policy := testPolicy(t, 2, time.Hour, 0)
-	if _, err := controller.Commission(key, policy, testUserAuthorization(t)); err != nil {
+	if _, err := controller.Commission(key, store.ReviewTargetV1{}, policy, testUserAuthorization(t)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := controller.AuthorizeReview(key, "run-one"); err != nil {
@@ -306,7 +414,7 @@ func TestControllerRecordsExplicitEscalationAndTrustedResume(t *testing.T) {
 	if _, err := controller.Escalate(key, "operator decision required"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := controller.Resume(key, policy, testUserAuthorization(t)); err != nil {
+	if _, err := controller.Resume(key, store.ReviewTargetV1{}, policy, testUserAuthorization(t)); err != nil {
 		t.Fatal(err)
 	}
 
