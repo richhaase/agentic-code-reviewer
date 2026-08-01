@@ -349,6 +349,9 @@ func (c *Controller) currentBudget(key store.PullRequestKeyV1, admission store.L
 			runIDs[decision.RunID] = struct{}{}
 		}
 	}
+	if budget.CostUSDLimit == 0 {
+		return budget, true, nil
+	}
 	if len(runIDs) == 0 {
 		budget.CostKnown = true
 		return budget, true, nil

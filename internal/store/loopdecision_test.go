@@ -55,14 +55,16 @@ func TestLoopDecisionV1_RoundTripAllKinds(t *testing.T) {
 }
 
 func TestLoopDecisionV1_AdmissionRequiresAuthorizationAndPolicy(t *testing.T) {
+	key := testPullRequestKey()
 	decision := LoopDecisionV1{
 		SchemaVersion:     CurrentSchemaVersion,
 		ID:                "admission-1",
-		PullRequest:       testPullRequestKey(),
+		PullRequest:       key,
 		SessionID:         "session-1",
 		AuthorizationKind: "user",
 		AuthorizedBy:      "alice",
 		PolicySource:      &PolicySourceV1{Kind: config.SourceKindDefaults},
+		ReviewTarget:      &ReviewTargetV1{PullRequest: &key},
 		Scope:             LoopDecisionScopeAutomaticExecution,
 		Decision:          LoopDecisionAdmit,
 		Reason:            "commissioned",
@@ -79,14 +81,16 @@ func TestLoopDecisionV1_AdmissionRequiresAuthorizationAndPolicy(t *testing.T) {
 }
 
 func TestLoopDecisionV1_AdmissionRequiresBoundedBudget(t *testing.T) {
+	key := testPullRequestKey()
 	decision := LoopDecisionV1{
 		SchemaVersion:     CurrentSchemaVersion,
 		ID:                "admission-unbounded",
-		PullRequest:       testPullRequestKey(),
+		PullRequest:       key,
 		SessionID:         "session-unbounded",
 		AuthorizationKind: "user",
 		AuthorizedBy:      "alice",
 		PolicySource:      &PolicySourceV1{Kind: config.SourceKindDefaults},
+		ReviewTarget:      &ReviewTargetV1{PullRequest: &key},
 		Scope:             LoopDecisionScopeAutomaticExecution,
 		Decision:          LoopDecisionAdmit,
 		Reason:            "commissioned",
@@ -99,6 +103,49 @@ func TestLoopDecisionV1_AdmissionRequiresBoundedBudget(t *testing.T) {
 	decision.Budget = BudgetStateV1{}
 	if err := decision.Validate(); err == nil {
 		t.Fatal("expected admission with unknown budget to fail")
+	}
+}
+
+func TestLoopDecisionV1_AdmissionRequiresTrustedTargetSourceBinding(t *testing.T) {
+	key := testPullRequestKey()
+	target := ReviewTargetV1{
+		Revision:    RevisionEvidenceV1{HeadObjectID: "reviewed-head"},
+		PullRequest: &key,
+	}
+	valid := func() LoopDecisionV1 {
+		return LoopDecisionV1{
+			SchemaVersion:     CurrentSchemaVersion,
+			ID:                "admission-target",
+			PullRequest:       key,
+			SessionID:         "session-target",
+			AuthorizationKind: "user",
+			AuthorizedBy:      "alice",
+			PolicySource:      &PolicySourceV1{Kind: config.SourceKindDefaults},
+			ReviewTarget:      &target,
+			Scope:             LoopDecisionScopeAutomaticExecution,
+			Decision:          LoopDecisionAdmit,
+			Reason:            "commissioned",
+			Budget:            BudgetStateV1{Known: true, IterationsLimit: 1},
+			DecidedAt:         time.Date(2026, 7, 31, 9, 0, 0, 0, time.UTC),
+		}
+	}
+
+	missingTarget := valid()
+	missingTarget.ReviewTarget = nil
+	if err := missingTarget.Validate(); err == nil {
+		t.Fatal("expected admission without target to fail")
+	}
+	mismatched := valid()
+	otherKey := key
+	otherKey.Number++
+	mismatched.ReviewTarget = &ReviewTargetV1{PullRequest: &otherKey}
+	if err := mismatched.Validate(); err == nil {
+		t.Fatal("expected admission with mismatched target to fail")
+	}
+	reviewedSource := valid()
+	reviewedSource.PolicySource = &PolicySourceV1{Kind: config.SourceKindRepositoryRevision, Revision: "reviewed-head"}
+	if err := reviewedSource.Validate(); err == nil {
+		t.Fatal("expected admission sourced from reviewed head to fail")
 	}
 }
 

@@ -16,6 +16,20 @@ import (
 
 var testIDCounter atomic.Int64
 
+type failingEconomicsStore struct {
+	store.EconomicsStore
+	listCalls int
+	failAfter int
+}
+
+func (s *failingEconomicsStore) ListEconomics(key store.PullRequestKeyV1) ([]store.EconomicsRecordV1, []store.CorruptRecord, error) {
+	s.listCalls++
+	if s.listCalls > s.failAfter {
+		return nil, nil, fmt.Errorf("economics backend unavailable")
+	}
+	return s.EconomicsStore.ListEconomics(key)
+}
+
 func testKey() store.PullRequestKeyV1 {
 	return store.PullRequestKeyV1{Host: "github.com", Owner: "owner", Repository: "repo", Number: 42}
 }
@@ -382,6 +396,37 @@ func TestControllerClassifiesCorruptEconomicsByConfiguredBudget(t *testing.T) {
 				t.Fatalf("unexpected corruption decision: %+v", decision)
 			}
 		})
+	}
+}
+
+func TestControllerSkipsBudgetEconomicsReadWithoutCostLimit(t *testing.T) {
+	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	economics := &failingEconomicsStore{
+		EconomicsStore: store.NewFilesystemEconomicsStore(dir),
+		failAfter:      2,
+	}
+	controller, err := NewController(store.NewFilesystemLoopDecisionStore(dir), economics)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller.now = func() time.Time { return now }
+	controller.newID = func() (string, error) {
+		return fmt.Sprintf("id-%d", testIDCounter.Add(1)), nil
+	}
+	key := testKey()
+	policy := testPolicy(t, 3, time.Hour, 0)
+	if _, err := controller.Commission(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.AuthorizeReview(key, testTarget(), policy, "run-one"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.AuthorizeReview(key, testTarget(), policy, "run-two"); err != nil {
+		t.Fatal(err)
+	}
+	if economics.listCalls != 2 {
+		t.Fatalf("got %d economics reads, want only the two run-id checks", economics.listCalls)
 	}
 }
 

@@ -156,6 +156,15 @@ func (d LoopDecisionV1) Validate() error {
 		if err := d.PolicySource.Validate(); err != nil {
 			return err
 		}
+		if d.ReviewTarget == nil || d.ReviewTarget.PullRequest == nil {
+			return fmt.Errorf("loop decision admission requires a pull-request review target")
+		}
+		if *d.ReviewTarget.PullRequest != d.PullRequest {
+			return fmt.Errorf("loop decision admission review target does not match pull request")
+		}
+		if err := ValidatePolicySourceOutsideReview(*d.PolicySource, *d.ReviewTarget); err != nil {
+			return fmt.Errorf("loop decision admission policy source: %w", err)
+		}
 		if !d.Budget.Known || (d.Budget.IterationsLimit == 0 && d.Budget.DurationLimit == 0) {
 			return fmt.Errorf("loop decision admission requires a known review or duration bound")
 		}
