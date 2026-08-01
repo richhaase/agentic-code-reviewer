@@ -285,14 +285,15 @@ func (c *Controller) admit(key store.PullRequestKeyV1, policy TrustedPolicy, aut
 	if err != nil {
 		return Decision{}, fmt.Errorf("create automatic review session id: %w", err)
 	}
-	now, err := c.nextDecisionTime(key)
+	startedAt := c.now().UTC()
+	decidedAt, err := c.nextDecisionTime(key)
 	if err != nil {
 		return Decision{}, err
 	}
 	budget := store.BudgetStateV1{
 		Known:           true,
 		IterationsLimit: policy.policy.Budget.MaxIterations,
-		StartedAt:       now,
+		StartedAt:       startedAt,
 		DurationLimit:   policy.policy.Budget.MaxDuration,
 		CostKnown:       true,
 		CostUSDLimit:    policy.policy.Budget.MaxCostUSD,
@@ -314,7 +315,7 @@ func (c *Controller) admit(key store.PullRequestKeyV1, policy TrustedPolicy, aut
 		Decision:          store.LoopDecisionAdmit,
 		Reason:            fmt.Sprintf("%s by %s %q", reason, authorization.kind, authorization.actor),
 		Budget:            budget,
-		DecidedAt:         now,
+		DecidedAt:         decidedAt,
 	}
 	if _, err := c.decisions.SaveLoopDecision(record); err != nil {
 		return Decision{}, fmt.Errorf("record automatic review admission: %w", err)
@@ -326,6 +327,9 @@ func (c *Controller) currentBudget(key store.PullRequestKeyV1, admission store.L
 	budget := budgetFromAdmission(admission, c.now())
 	runIDs := make(map[string]struct{})
 	for _, decision := range decisions {
+		if decision.Budget.Elapsed > budget.Elapsed {
+			budget.Elapsed = decision.Budget.Elapsed
+		}
 		if decision.Decision == store.LoopDecisionContinue {
 			budget.IterationsUsed++
 			runIDs[decision.RunID] = struct{}{}

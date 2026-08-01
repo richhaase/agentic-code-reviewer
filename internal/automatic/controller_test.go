@@ -177,6 +177,66 @@ func TestControllerDurationBoundAndDeadlineSpanLifecycle(t *testing.T) {
 	}
 }
 
+func TestControllerDurationStartsAtAdmissionDespiteFutureHistory(t *testing.T) {
+	started := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	now := started
+	dir := t.TempDir()
+	key := testKey()
+	future := store.LoopDecisionV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		ID:            "future-semantic-decision",
+		PullRequest:   key,
+		RunID:         "future-run",
+		Scope:         store.LoopDecisionScopeSemanticConvergence,
+		Decision:      store.LoopDecisionContinue,
+		Reason:        "future clock skew",
+		Budget:        store.BudgetStateV1{Known: true},
+		DecidedAt:     started.Add(2 * time.Hour),
+	}
+	if _, err := store.NewFilesystemLoopDecisionStore(dir).SaveLoopDecision(future); err != nil {
+		t.Fatal(err)
+	}
+	controller := testController(t, dir, &now)
+	admission, err := controller.Commission(key, testTarget(), testPolicy(t, 10, 30*time.Minute, 0), testUserAuthorization(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !admission.Budget.StartedAt.Equal(started) {
+		t.Fatalf("duration started at %s, want actual admission time %s", admission.Budget.StartedAt, started)
+	}
+	now = started.Add(31 * time.Minute)
+	stopped, err := controller.AuthorizeReview(key, "run-after-duration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stopped.Kind != store.LoopDecisionStop {
+		t.Fatalf("future history postponed duration stop: %+v", stopped)
+	}
+}
+
+func TestControllerElapsedDurationDoesNotRegressWithClock(t *testing.T) {
+	started := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	now := started
+	controller := testController(t, t.TempDir(), &now)
+	key := testKey()
+	if _, err := controller.Commission(key, testTarget(), testPolicy(t, 10, time.Hour, 0), testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	now = started.Add(20 * time.Minute)
+	first, err := controller.AuthorizeReview(key, "run-before-regression")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = started.Add(10 * time.Minute)
+	second, err := controller.AuthorizeReview(key, "run-after-regression")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Budget.Elapsed < first.Budget.Elapsed {
+		t.Fatalf("elapsed duration regressed from %s to %s", first.Budget.Elapsed, second.Budget.Elapsed)
+	}
+}
+
 func TestControllerDoesNotCountSemanticConvergenceDecisionsAsReviewAdmissions(t *testing.T) {
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
 	dir := t.TempDir()
