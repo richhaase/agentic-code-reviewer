@@ -27,6 +27,19 @@ type releaseFailingDecisionStore struct {
 	store.LoopDecisionStore
 }
 
+type unreadableCorruptDecisionStore struct {
+	store.LoopDecisionStore
+	reportCorruption bool
+}
+
+func (s *unreadableCorruptDecisionStore) ListLoopDecisions(key store.PullRequestKeyV1) ([]store.LoopDecisionV1, []store.CorruptRecord, error) {
+	decisions, corrupt, err := s.LoopDecisionStore.ListLoopDecisions(key)
+	if s.reportCorruption {
+		corrupt = append(corrupt, store.CorruptRecord{Path: "/unreadable/corrupt.json"})
+	}
+	return decisions, corrupt, err
+}
+
 func (s *releaseFailingDecisionStore) AcquireDecisionWriteLock() (func() error, error) {
 	return func() error { return fmt.Errorf("release failed") }, nil
 }
@@ -836,6 +849,40 @@ func TestControllerEscalatesForCorruptionReplacedAfterTrustedResume(t *testing.T
 	}
 	if decision.Kind != store.LoopDecisionEscalate || decision.Budget.Known {
 		t.Fatalf("expected replaced corruption to fail closed, got %+v", decision)
+	}
+}
+
+func TestControllerRejectsResumeForUnacknowledgeableCorruption(t *testing.T) {
+	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	decisionStore := &unreadableCorruptDecisionStore{LoopDecisionStore: store.NewFilesystemLoopDecisionStore(dir)}
+	controller, err := NewController(decisionStore, store.NewFilesystemEconomicsStore(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller.now = func() time.Time { return now }
+	controller.newID = func() (string, error) {
+		return fmt.Sprintf("id-%d", testIDCounter.Add(1)), nil
+	}
+	key := testKey()
+	policy := testPolicy(t, 2, time.Hour, 0)
+	if _, err := controller.Commission(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.Escalate(key, "operator decision required"); err != nil {
+		t.Fatal(err)
+	}
+	decisionStore.reportCorruption = true
+	if _, err := controller.Resume(key, testTarget(), policy, testUserAuthorization(t)); err == nil || !strings.Contains(err.Error(), "cannot be durably acknowledged") {
+		t.Fatalf("expected unacknowledgeable corruption to reject resume, got %v", err)
+	}
+	decisionStore.reportCorruption = false
+	decisions, corrupt, err := decisionStore.ListLoopDecisions(key)
+	if err != nil || len(corrupt) != 0 {
+		t.Fatalf("ListLoopDecisions: corrupt=%v err=%v", corrupt, err)
+	}
+	if len(decisions) != 2 || decisions[len(decisions)-1].Decision != store.LoopDecisionEscalate {
+		t.Fatalf("failed resume persisted a new admission: %+v", decisions)
 	}
 }
 

@@ -299,6 +299,11 @@ func (c *Controller) admit(key store.PullRequestKeyV1, policy TrustedPolicy, aut
 	if strings.TrimSpace(authorization.actor) == "" {
 		return Decision{}, fmt.Errorf("automatic review authorization actor is required")
 	}
+	for _, record := range corrupt {
+		if record.Fingerprint == "" {
+			return Decision{}, fmt.Errorf("automatic review cannot resume because corrupt decision record %q cannot be durably acknowledged", filepath.Base(record.Path))
+		}
+	}
 	sessionID, err := c.newID()
 	if err != nil {
 		return Decision{}, fmt.Errorf("create automatic review session id: %w", err)
@@ -324,12 +329,10 @@ func (c *Controller) admit(key store.PullRequestKeyV1, policy TrustedPolicy, aut
 	target := policy.target
 	acknowledgedCorruptRecords := make([]store.CorruptRecordAcknowledgmentV1, 0, len(corrupt))
 	for _, record := range corrupt {
-		if record.Fingerprint != "" {
-			acknowledgedCorruptRecords = append(acknowledgedCorruptRecords, store.CorruptRecordAcknowledgmentV1{
-				Name:        filepath.Base(record.Path),
-				Fingerprint: record.Fingerprint,
-			})
-		}
+		acknowledgedCorruptRecords = append(acknowledgedCorruptRecords, store.CorruptRecordAcknowledgmentV1{
+			Name:        filepath.Base(record.Path),
+			Fingerprint: record.Fingerprint,
+		})
 	}
 	record := store.LoopDecisionV1{
 		SchemaVersion:              store.CurrentSchemaVersion,
