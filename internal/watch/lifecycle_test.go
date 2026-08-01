@@ -2,6 +2,7 @@ package watch
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -191,5 +192,150 @@ func TestLifecyclePresentationDoesNotControlTransitions(t *testing.T) {
 	if len(silentHarness.triggers) != 1 || len(visibleHarness.triggers) != 1 ||
 		silentHarness.triggers[0] != visibleHarness.triggers[0] {
 		t.Fatalf("silent triggers = %v, visible triggers = %v", silentHarness.triggers, visibleHarness.triggers)
+	}
+}
+
+func TestLifecycleAdmissionUsesLatestSuccessfulState(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa"), open("bbb")}
+	h.cycles = []Cycle{{Result: CycleLGTMApproved}}
+	deps := h.deps()
+	var controlledHeads []string
+	controlCalls := 0
+	control := func(_ context.Context, state PRState) (ControlDecision, error) {
+		controlledHeads = append(controlledHeads, state.HeadSHA)
+		controlCalls++
+		if controlCalls == 1 {
+			return ControlDecision{State: ControlSnoozed}, nil
+		}
+		return ControlDecision{State: ControlActive}, nil
+	}
+	lifecycle := NewLifecycle(
+		defaultConfig(PostModeApprove),
+		Polling{State: deps.State, Wait: deps.Wait, Clock: deps.Clock},
+		ReviewExecution{RunCycle: deps.RunCycle},
+		ActionPolicies{CIGreen: deps.CIGreen, Approve: deps.Approve, Control: control},
+		Presentation{Emit: deps.Emit, Logf: deps.Logf},
+	)
+
+	if reason := lifecycle.Run(context.Background()); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want %v", reason, ReasonLGTM)
+	}
+	if len(controlledHeads) != 2 || controlledHeads[1] != "bbb" {
+		t.Fatalf("controlled heads = %v, want [aaa bbb]", controlledHeads)
+	}
+}
+
+func TestLifecycleAdmissionPreservesStateAfterFailedRefresh(t *testing.T) {
+	h := newHarness(t)
+	h.cycles = []Cycle{{Result: CycleLGTMApproved}}
+	deps := h.deps()
+	stateCalls := 0
+	deps.State = func(context.Context) (PRState, error) {
+		stateCalls++
+		if stateCalls == 1 {
+			return open("aaa"), nil
+		}
+		return open("bbb"), errors.New("transient gh failure")
+	}
+	var controlledHeads []string
+	controlCalls := 0
+	control := func(_ context.Context, state PRState) (ControlDecision, error) {
+		controlledHeads = append(controlledHeads, state.HeadSHA)
+		controlCalls++
+		if controlCalls == 1 {
+			return ControlDecision{State: ControlSnoozed}, nil
+		}
+		return ControlDecision{State: ControlActive}, nil
+	}
+	lifecycle := NewLifecycle(
+		defaultConfig(PostModeApprove),
+		Polling{State: deps.State, Wait: deps.Wait, Clock: deps.Clock},
+		ReviewExecution{RunCycle: deps.RunCycle},
+		ActionPolicies{CIGreen: deps.CIGreen, Approve: deps.Approve, Control: control},
+		Presentation{Emit: deps.Emit, Logf: deps.Logf},
+	)
+
+	if reason := lifecycle.Run(context.Background()); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want %v", reason, ReasonLGTM)
+	}
+	if len(controlledHeads) != 2 || controlledHeads[1] != "aaa" {
+		t.Fatalf("controlled heads = %v, want [aaa aaa]", controlledHeads)
+	}
+}
+
+func TestLifecycleSnoozeExpiryRetainsPollIntervalAfterStateError(t *testing.T) {
+	h := newHarness(t)
+	h.cycles = []Cycle{{Result: CycleFindings}}
+	deps := h.deps()
+	stateCalls := 0
+	deps.State = func(context.Context) (PRState, error) {
+		stateCalls++
+		switch stateCalls {
+		case 1, 2:
+			return open("aaa"), nil
+		case 3:
+			return PRState{}, errors.New("transient gh failure")
+		default:
+			return PRState{HeadSHA: "aaa", Merged: true}, nil
+		}
+	}
+	var waits []time.Duration
+	deps.Wait = func(_ context.Context, duration time.Duration) (WaitResult, error) {
+		waits = append(waits, duration)
+		h.clock.now = h.clock.now.Add(duration)
+		return WaitResult{}, nil
+	}
+	controlCalls := 0
+	control := func(context.Context, PRState) (ControlDecision, error) {
+		controlCalls++
+		if controlCalls == 1 {
+			return ControlDecision{State: ControlActive}, nil
+		}
+		return ControlDecision{State: ControlSnoozed, ResumeAt: h.clock.Now().Add(time.Minute)}, nil
+	}
+	lifecycle := NewLifecycle(
+		defaultConfig(PostModeComment),
+		Polling{State: deps.State, Wait: deps.Wait, Clock: deps.Clock},
+		ReviewExecution{RunCycle: deps.RunCycle},
+		ActionPolicies{CIGreen: deps.CIGreen, Approve: deps.Approve, Control: control},
+		Presentation{Emit: deps.Emit, Logf: deps.Logf},
+	)
+
+	if reason := lifecycle.Run(context.Background()); reason != ReasonMerged {
+		t.Fatalf("reason = %v, want %v", reason, ReasonMerged)
+	}
+	if len(waits) != 3 || waits[2] != time.Minute {
+		t.Fatalf("waits = %v, want three one-minute waits", waits)
+	}
+}
+
+func TestLifecycleResumeAtDeadlineDoesNotAdmitReview(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa")}
+	h.cycles = []Cycle{{Result: CycleLGTMApproved}}
+	deps := h.deps()
+	cfg := defaultConfig(PostModeApprove)
+	cfg.MaxDuration = time.Minute
+	resumeAt := h.clock.Now().Add(cfg.MaxDuration)
+	lifecycle := NewLifecycle(
+		cfg,
+		Polling{State: deps.State, Wait: deps.Wait, Clock: deps.Clock},
+		ReviewExecution{RunCycle: deps.RunCycle},
+		ActionPolicies{
+			CIGreen: deps.CIGreen,
+			Approve: deps.Approve,
+			Control: func(context.Context, PRState) (ControlDecision, error) {
+				return ControlDecision{State: ControlSnoozed, ResumeAt: resumeAt}, nil
+			},
+		},
+		Presentation{Emit: deps.Emit, Logf: deps.Logf},
+	)
+
+	if reason := lifecycle.Run(context.Background()); reason != ReasonMaxDuration {
+		t.Fatalf("reason = %v, want %v", reason, ReasonMaxDuration)
+	}
+	if len(h.triggers) != 0 {
+		t.Fatalf("triggers = %v, want none", h.triggers)
 	}
 }

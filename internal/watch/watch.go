@@ -433,17 +433,17 @@ func (l *loop) awaitAdmission(ctx context.Context, state PRState) (PRState, Exit
 		if done {
 			return PRState{}, reason, true
 		}
-		if decision.State == ControlActive {
-			return state, 0, false
-		}
 		now := l.deps.Clock.Now()
 		if !now.Before(l.deadline) {
 			l.logf("Reached maximum duration (%s) while lifecycle was snoozed; stopping.", l.cfg.MaxDuration)
 			return PRState{}, ReasonMaxDuration, true
 		}
+		if decision.State == ControlActive {
+			return state, 0, false
+		}
 		sleep := l.cfg.PollInterval
 		if !decision.ResumeAt.IsZero() {
-			if untilResume := decision.ResumeAt.Sub(now); untilResume < sleep {
+			if untilResume := decision.ResumeAt.Sub(now); untilResume > 0 && untilResume < sleep {
 				sleep = untilResume
 			}
 		}
@@ -457,7 +457,7 @@ func (l *loop) awaitAdmission(ctx context.Context, state PRState) (PRState, Exit
 		if waitResult.Interrupted {
 			return PRState{}, ReasonInterrupted, true
 		}
-		state, err, waitResult, waitErr := l.stateAfterWait(ctx, waitResult)
+		refreshedState, err, waitResult, waitErr := l.stateAfterWait(ctx, waitResult)
 		if reason, done := l.handleWaitError(waitErr); done {
 			return PRState{}, reason, true
 		}
@@ -479,6 +479,7 @@ func (l *loop) awaitAdmission(ctx context.Context, state PRState) (PRState, Exit
 			}
 			continue
 		}
+		state = refreshedState
 		pollErrors = 0
 		if reason, done := l.checkOpen(state); done {
 			return PRState{}, reason, true
@@ -534,7 +535,7 @@ func run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		if l.manualRequests == 0 || pollErrors > 0 {
 			sleep := cfg.PollInterval
 			if l.control.State == ControlSnoozed && !l.control.ResumeAt.IsZero() {
-				if untilResume := l.control.ResumeAt.Sub(now); untilResume < sleep {
+				if untilResume := l.control.ResumeAt.Sub(now); untilResume > 0 && untilResume < sleep {
 					sleep = untilResume
 				}
 			}
