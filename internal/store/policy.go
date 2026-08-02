@@ -3,16 +3,21 @@ package store
 import (
 	"fmt"
 	"math"
+	"time"
 )
 
 type BudgetPolicyV1 struct {
-	MaxIterations int     `json:"max_iterations"`
-	MaxCostUSD    float64 `json:"max_cost_usd"`
+	MaxIterations int           `json:"max_iterations"`
+	MaxDuration   time.Duration `json:"max_duration"`
+	MaxCostUSD    float64       `json:"max_cost_usd"`
 }
 
 func (p BudgetPolicyV1) Validate() error {
 	if p.MaxIterations < 0 {
 		return fmt.Errorf("budget policy max_iterations must not be negative")
+	}
+	if p.MaxDuration < 0 {
+		return fmt.Errorf("budget policy max_duration must not be negative")
 	}
 	if p.MaxCostUSD < 0 || math.IsNaN(p.MaxCostUSD) || math.IsInf(p.MaxCostUSD, 0) {
 		return fmt.Errorf("budget policy max_cost_usd must be a finite number that is not negative")

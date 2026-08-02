@@ -5,6 +5,7 @@ import (
 	"math"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/config"
 )
@@ -20,7 +21,7 @@ func TestAdjudicationPolicyV1_RoundTrip(t *testing.T) {
 			ConfigPresent: true,
 			ConfigDigest:  "digest",
 		},
-		Budget:             BudgetPolicyV1{MaxIterations: 5, MaxCostUSD: 10},
+		Budget:             BudgetPolicyV1{MaxIterations: 5, MaxDuration: time.Hour, MaxCostUSD: 10},
 		Stop:               StopPolicyV1{StopOnCleanRun: true, StopOnNoNewFindings: true},
 		EvaluationGuidance: "prefer precision over recall",
 	}
@@ -61,6 +62,7 @@ func TestAdjudicationPolicyV1_Validate(t *testing.T) {
 		{name: "filesystem source rejected", mutate: func(p *AdjudicationPolicyV1) { p.Source = PolicySourceV1{Kind: config.SourceKindFilesystem} }, wantErr: true},
 		{name: "empty source kind rejected", mutate: func(p *AdjudicationPolicyV1) { p.Source = PolicySourceV1{} }, wantErr: true},
 		{name: "negative max iterations", mutate: func(p *AdjudicationPolicyV1) { p.Budget.MaxIterations = -1 }, wantErr: true},
+		{name: "negative max duration", mutate: func(p *AdjudicationPolicyV1) { p.Budget.MaxDuration = -time.Second }, wantErr: true},
 		{name: "negative max cost", mutate: func(p *AdjudicationPolicyV1) { p.Budget.MaxCostUSD = -1 }, wantErr: true},
 		{name: "NaN max cost", mutate: func(p *AdjudicationPolicyV1) { p.Budget.MaxCostUSD = math.NaN() }, wantErr: true},
 		{name: "infinite max cost", mutate: func(p *AdjudicationPolicyV1) { p.Budget.MaxCostUSD = math.Inf(1) }, wantErr: true},

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/config"
 )
@@ -56,6 +57,7 @@ func policyResolveGitOutput(t *testing.T, repositoryRoot string, args ...string)
 
 const trustedAdjudicationConfig = `adjudication:
   max_iterations: 5
+  max_duration: 2h
   max_cost_usd: 10
   stop_on_clean_run: true
   stop_on_no_new_findings: true
@@ -95,6 +97,9 @@ func TestResolveAdjudicationPolicy_IgnoresConflictingWorktreeConfig(t *testing.T
 
 	if policy.Budget.MaxIterations != 5 || policy.Budget.MaxCostUSD != 10 {
 		t.Fatalf("expected trusted budget policy, got %+v; the reviewed head's worktree config must never supply this data", policy.Budget)
+	}
+	if policy.Budget.MaxDuration != 2*time.Hour {
+		t.Fatalf("expected trusted duration budget, got %+v", policy.Budget)
 	}
 	if !policy.Stop.StopOnCleanRun || !policy.Stop.StopOnNoNewFindings {
 		t.Fatalf("expected trusted stop policy, got %+v", policy.Stop)

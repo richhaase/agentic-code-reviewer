@@ -72,11 +72,12 @@ type Config struct {
 }
 
 type AdjudicationConfig struct {
-	MaxIterations       *int     `yaml:"max_iterations"`
-	MaxCostUSD          *float64 `yaml:"max_cost_usd"`
-	StopOnCleanRun      *bool    `yaml:"stop_on_clean_run"`
-	StopOnNoNewFindings *bool    `yaml:"stop_on_no_new_findings"`
-	EvaluationGuidance  *string  `yaml:"evaluation_guidance"`
+	MaxIterations       *int      `yaml:"max_iterations"`
+	MaxDuration         *Duration `yaml:"max_duration"`
+	MaxCostUSD          *float64  `yaml:"max_cost_usd"`
+	StopOnCleanRun      *bool     `yaml:"stop_on_clean_run"`
+	StopOnNoNewFindings *bool     `yaml:"stop_on_no_new_findings"`
+	EvaluationGuidance  *string   `yaml:"evaluation_guidance"`
 }
 
 type WatchConfig struct {
@@ -191,7 +192,7 @@ var knownWatchKeys = []string{"poll_interval", "settle_time", "max_reviews", "ma
 
 var knownFilterKeys = []string{"exclude_patterns"}
 
-var knownAdjudicationKeys = []string{"max_iterations", "max_cost_usd", "stop_on_clean_run", "stop_on_no_new_findings", "evaluation_guidance"}
+var knownAdjudicationKeys = []string{"max_iterations", "max_duration", "max_cost_usd", "stop_on_clean_run", "stop_on_no_new_findings", "evaluation_guidance"}
 
 func checkUnknownKeys(data []byte) []string {
 	var warnings []string
@@ -416,6 +417,9 @@ func (r *ResolvedConfig) ValidateAll() []string {
 	if r.AdjudicationMaxIterations < 0 {
 		errs = append(errs, fmt.Sprintf("adjudication.max_iterations must be >= 0, got %d", r.AdjudicationMaxIterations))
 	}
+	if r.AdjudicationMaxDuration < 0 {
+		errs = append(errs, fmt.Sprintf("adjudication.max_duration must be >= 0, got %s", r.AdjudicationMaxDuration))
+	}
 	if r.AdjudicationMaxCostUSD < 0 || math.IsNaN(r.AdjudicationMaxCostUSD) || math.IsInf(r.AdjudicationMaxCostUSD, 0) {
 		errs = append(errs, fmt.Sprintf("adjudication.max_cost_usd must be a finite number >= 0, got %g", r.AdjudicationMaxCostUSD))
 	}
@@ -478,6 +482,7 @@ type ResolvedConfig struct {
 	WatchUncertain    string
 
 	AdjudicationMaxIterations int
+	AdjudicationMaxDuration   time.Duration
 	AdjudicationMaxCostUSD    float64
 }
 
@@ -792,6 +797,9 @@ func Resolve(cfg *Config, envState EnvState, flagState FlagState, flagValues Res
 		}
 		if cfg.Adjudication.MaxIterations != nil {
 			result.AdjudicationMaxIterations = *cfg.Adjudication.MaxIterations
+		}
+		if cfg.Adjudication.MaxDuration != nil {
+			result.AdjudicationMaxDuration = cfg.Adjudication.MaxDuration.AsDuration()
 		}
 		if cfg.Adjudication.MaxCostUSD != nil {
 			result.AdjudicationMaxCostUSD = *cfg.Adjudication.MaxCostUSD

@@ -9,6 +9,7 @@ import (
 type LoopDecisionStore interface {
 	SaveLoopDecision(decision LoopDecisionV1) (string, error)
 	ListLoopDecisions(key PullRequestKeyV1) ([]LoopDecisionV1, []CorruptRecord, error)
+	AcquireDecisionWriteLock() (func() error, error)
 }
 
 type FilesystemLoopDecisionStore struct {
@@ -60,4 +61,12 @@ func (s *FilesystemLoopDecisionStore) ListLoopDecisions(key PullRequestKeyV1) ([
 		return nil, nil, err
 	}
 	return listRecords(dir, decodeLoopDecision)
+}
+
+func (s *FilesystemLoopDecisionStore) AcquireDecisionWriteLock() (func() error, error) {
+	lock, err := AcquireWriteLock(s.dataDir)
+	if err != nil {
+		return nil, err
+	}
+	return lock.Release, nil
 }

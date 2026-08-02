@@ -104,3 +104,14 @@ func parseRecordTimestamp(name string) (time.Time, error) {
 	}
 	return ts, nil
 }
+
+func parseRecordID(name string) (string, error) {
+	if !strings.HasSuffix(name, ".json") || len(name) <= recordTimestampLen+1+len(".json") {
+		return "", fmt.Errorf("record filename %q has no record id", name)
+	}
+	id := strings.TrimSuffix(name[recordTimestampLen+1:], ".json")
+	if err := validateRecordID("record", id); err != nil {
+		return "", err
+	}
+	return id, nil
+}

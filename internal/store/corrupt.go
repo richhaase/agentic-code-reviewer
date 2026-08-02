@@ -1,6 +1,8 @@
 package store
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,8 +11,10 @@ import (
 )
 
 type CorruptRecord struct {
-	Path string
-	Err  error
+	Path        string
+	RecordID    string
+	Fingerprint string
+	Err         error
 }
 
 type timestampedRecord[T any] struct {
@@ -42,7 +46,7 @@ func listRecords[T any](dir string, decode func([]byte) (T, error)) ([]T, []Corr
 		}
 		record, err := decode(data)
 		if err != nil {
-			corrupt = append(corrupt, CorruptRecord{Path: path, Err: fmt.Errorf("decode %s: %w", path, err)})
+			corrupt = append(corrupt, CorruptRecord{Path: path, Fingerprint: corruptFingerprint(data), Err: fmt.Errorf("decode %s: %w", path, err)})
 			continue
 		}
 		records = append(records, record)
@@ -72,17 +76,27 @@ func listTimestampedRecords[T any](dir string, decode func([]byte) (T, error)) (
 			corrupt = append(corrupt, CorruptRecord{Path: path, Err: err})
 			continue
 		}
+		recordID, err := parseRecordID(name)
+		if err != nil {
+			corrupt = append(corrupt, CorruptRecord{Path: path, Err: err})
+			continue
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
-			corrupt = append(corrupt, CorruptRecord{Path: path, Err: fmt.Errorf("read %s: %w", path, err)})
+			corrupt = append(corrupt, CorruptRecord{Path: path, RecordID: recordID, Err: fmt.Errorf("read %s: %w", path, err)})
 			continue
 		}
 		record, err := decode(data)
 		if err != nil {
-			corrupt = append(corrupt, CorruptRecord{Path: path, Err: fmt.Errorf("decode %s: %w", path, err)})
+			corrupt = append(corrupt, CorruptRecord{Path: path, RecordID: recordID, Fingerprint: corruptFingerprint(data), Err: fmt.Errorf("decode %s: %w", path, err)})
 			continue
 		}
 		records = append(records, timestampedRecord[T]{recordedAt: recordedAt, record: record})
 	}
 	return records, corrupt, nil
+}
+
+func corruptFingerprint(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
