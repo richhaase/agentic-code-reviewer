@@ -1602,3 +1602,87 @@ func assertOrderedEventBoundaries(t *testing.T, events []Event, status domain.Re
 		t.Fatalf("last event status = %q, want %q", events[len(events)-1].Status, status)
 	}
 }
+
+func TestServiceScalesReviewerTimeoutWithDiffSize(t *testing.T) {
+	tests := []struct {
+		name        string
+		diffBytes   int
+		wantTimeout time.Duration
+		wantMessage string
+	}{
+		{
+			name:        "diff at threshold keeps configured timeout",
+			diffBytes:   agent.RefFileSizeThreshold,
+			wantTimeout: time.Minute,
+		},
+		{
+			name:        "oversized diff scales reviewer timeout and announces it",
+			diffBytes:   2 * agent.RefFileSizeThreshold,
+			wantTimeout: 2 * time.Minute,
+			wantMessage: "Diff is 200KB; scaling reviewer timeout 1m → 2m",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reviewTimeouts := make(chan time.Duration, 2)
+			summaryRemaining := make(chan time.Duration, 1)
+			reviewAgent := &mockReviewAgent{
+				name: "codex",
+				review: func(_ context.Context, config *agent.ReviewConfig) (string, int, string, error) {
+					reviewTimeouts <- config.Timeout
+					return codexReviewOutput("src/service.go:10: missing validation"), 0, "", nil
+				},
+				summary: func(ctx context.Context, _ int64, _ string, _ []byte) (string, int, string, error) {
+					remaining := time.Duration(0)
+					if deadline, ok := ctx.Deadline(); ok {
+						remaining = time.Until(deadline)
+					}
+					summaryRemaining <- remaining
+					return codexSummaryOutput(`{"findings":[{"title":"Missing validation","summary":"Input is not checked.","messages":["src/service.go:10: missing validation"],"reviewer_count":2,"sources":[0]}],"info":[]}`), 0, "", nil
+				},
+			}
+			service := serviceForTest(t, reviewAgent, strings.Repeat("d", tt.diffBytes))
+			request := validRequest(t, t.TempDir())
+			var events []Event
+			request.Events = EventSinkFunc(func(event Event) { events = append(events, event) })
+
+			run, err := service.Run(context.Background(), request)
+			if err != nil {
+				t.Fatalf("run review: %v", err)
+			}
+			if run.Status != domain.ReviewStatusCompleted || run.Conclusion != domain.ReviewConclusionFindings {
+				t.Fatalf("unexpected run outcome: status=%q conclusion=%q failure=%#v", run.Status, run.Conclusion, run.Failure)
+			}
+			close(reviewTimeouts)
+			executions := 0
+			for reviewerTimeout := range reviewTimeouts {
+				executions++
+				if reviewerTimeout != tt.wantTimeout {
+					t.Errorf("reviewer timeout = %v, want %v", reviewerTimeout, tt.wantTimeout)
+				}
+			}
+			if executions != 2 {
+				t.Errorf("reviewer executions = %d, want 2", executions)
+			}
+			remaining := <-summaryRemaining
+			if remaining <= 0 || remaining > time.Minute+time.Second {
+				t.Errorf("summarizer deadline remaining = %v, want within configured %v", remaining, time.Minute)
+			}
+			var scaledMessages []string
+			for _, event := range events {
+				if event.Kind == EventReviewerTimeoutScaled {
+					scaledMessages = append(scaledMessages, event.Message)
+				}
+			}
+			if tt.wantMessage == "" {
+				if len(scaledMessages) != 0 {
+					t.Errorf("unexpected timeout scaling events: %v", scaledMessages)
+				}
+				return
+			}
+			if len(scaledMessages) != 1 || scaledMessages[0] != tt.wantMessage {
+				t.Errorf("timeout scaling events = %v, want [%s]", scaledMessages, tt.wantMessage)
+			}
+		})
+	}
+}

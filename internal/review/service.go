@@ -207,6 +207,10 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 		emitter.setBeforeCompletion(feedbackTask.stop)
 	}
 
+	reviewerTimeout := scaledReviewerTimeout(values.Timeout, len(diff))
+	if reviewerTimeout != values.Timeout {
+		emitter.emit(Event{Kind: EventReviewerTimeoutScaled, Phase: domain.ReviewPhaseReviewers, Message: reviewerTimeoutScaledMessage(len(diff), values.Timeout, reviewerTimeout)})
+	}
 	emitter.emit(Event{Kind: EventPhaseStarted, Phase: domain.ReviewPhaseReviewers})
 	reviewerEvents := runner.Events{
 		ReviewerStarted: func(reviewerID int, agentName string) {
@@ -230,7 +234,7 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 		Reviewers:       values.Reviewers,
 		Concurrency:     values.Concurrency,
 		BaseRef:         run.Target.Revision.BaseObjectID,
-		Timeout:         values.Timeout,
+		Timeout:         reviewerTimeout,
 		Retries:         values.Retries,
 		WorkDir:         run.Target.WorktreeRoot,
 		Guidance:        values.Guidance,

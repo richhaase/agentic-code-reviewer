@@ -112,7 +112,7 @@ func registerSharedReviewFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVarP(&baseRef, "base", "b", "",
 		"Base ref for review command (default: main, env: ACR_BASE_REF)")
 	cmd.Flags().DurationVarP(&timeout, "timeout", "t", 0,
-		"Timeout per reviewer (default: 10m, env: ACR_TIMEOUT)")
+		"Timeout per reviewer, scaled up automatically for diffs over 100KB (default: 10m, env: ACR_TIMEOUT)")
 	cmd.Flags().IntVarP(&retries, "retries", "R", 0,
 		"Retry failed reviewers N times (default: 1, env: ACR_RETRIES)")
 	cmd.Flags().BoolVar(&fetch, "fetch", true,

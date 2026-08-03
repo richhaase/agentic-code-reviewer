@@ -48,6 +48,8 @@ func (e *cliReviewEvents) HandleReviewEvent(event reviewpkg.Event) {
 		e.reviewerOutput(event)
 	case reviewpkg.EventReviewerRetrying:
 		e.logger.Logf(terminal.StyleWarning, "Reviewer #%d %s", event.ReviewerID, event.Message)
+	case reviewpkg.EventReviewerTimeoutScaled:
+		e.logger.Log(event.Message, terminal.StyleInfo)
 	case reviewpkg.EventReviewerCompleted:
 		if e.reviewers != nil && e.reviewers.completed != nil {
 			e.reviewers.completed()
