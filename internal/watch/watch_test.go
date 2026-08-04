@@ -258,6 +258,57 @@ func TestRetryableDiscussionReviewPreservesEvidence(t *testing.T) {
 	}
 }
 
+func TestTerminalDiscussionRetryIncludesNewDiscussionEvidence(t *testing.T) {
+	first := discussion("issue_comment", 1, "v1", "reviewer", "The nil case changes the conclusion.")
+	updated := discussion("issue_comment", 1, "v2", "reviewer", "The nil and empty cases change the conclusion.")
+	newItem := discussion("review_comment", 2, "v1", "reviewer", "The error path also needs reconsideration.")
+	h := newHarness(t)
+	h.routes = []RoutingDecision{RoutingReviewRequired}
+	deps := h.deps()
+	attempts := 0
+	stateCalls := 0
+	deps.State = func(context.Context) (PRState, error) {
+		stateCalls++
+		if stateCalls == 1 {
+			return open("aaa"), nil
+		}
+		if attempts >= 2 {
+			return discussed("aaa", updated, newItem), nil
+		}
+		return discussed("aaa", first), nil
+	}
+	var cycleDiscussion [][]Discussion
+	var revisions []string
+	deps.RunCycle = func(_ context.Context, _ int, trigger string, discussion []Discussion, revision string) (Cycle, error) {
+		attempts++
+		h.triggers = append(h.triggers, trigger)
+		cycleDiscussion = append(cycleDiscussion, append([]Discussion(nil), discussion...))
+		revisions = append(revisions, revision)
+		switch attempts {
+		case 1:
+			return Cycle{Result: CycleFindings}, nil
+		case 2:
+			return Cycle{Result: CycleError}, fmt.Errorf("%w: network unavailable", ErrRetryableCycle)
+		default:
+			return Cycle{Result: CycleLGTMApproved}, nil
+		}
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if fmt.Sprint(h.triggers) != "[initial review discussion requires reconsideration discussion requires reconsideration]" {
+		t.Fatalf("triggers = %v", h.triggers)
+	}
+	if len(cycleDiscussion[2]) != 2 || cycleDiscussion[2][0].Revision != updated.Revision || cycleDiscussion[2][1].ID != newItem.ID {
+		t.Fatalf("retry discussion = %#v", cycleDiscussion[2])
+	}
+	wantRevision := DiscussionRevision([]Discussion{updated, newItem})
+	if revisions[2] != wantRevision {
+		t.Fatalf("retry revision = %q, want %q", revisions[2], wantRevision)
+	}
+}
+
 func TestNoReviewDiscussionConsumesWithoutReviewSlot(t *testing.T) {
 	item := discussion("issue_comment", 1, "v1", "reviewer", "Thanks.")
 	h := newHarness(t)
@@ -1229,6 +1280,53 @@ func TestManualRequestSupersedesSettledCommitRetry(t *testing.T) {
 		}
 	}
 	if len(started) != 1 || started[0].RequestCount != 1 || started[0].ReviewNumber != 2 {
+		t.Fatalf("manual review events = %#v", started)
+	}
+}
+
+func TestNewManualRequestSupersedesManualRetry(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa")}
+	deps := h.deps()
+	attempts := 0
+	manualRequests := 0
+	deps.RunCycle = func(_ context.Context, _ int, trigger string, _ []Discussion, _ string) (Cycle, error) {
+		attempts++
+		h.triggers = append(h.triggers, trigger)
+		switch attempts {
+		case 1:
+			return Cycle{Result: CycleFindings}, nil
+		case 2:
+			return Cycle{Result: CycleError}, fmt.Errorf("%w: network unavailable", ErrRetryableCycle)
+		default:
+			return Cycle{Result: CycleLGTMApproved}, nil
+		}
+	}
+	deps.Wait = func(ctx context.Context, duration time.Duration) (WaitResult, error) {
+		if attempts == 1 && manualRequests == 0 {
+			manualRequests++
+			return WaitResult{ManualRequests: 1}, nil
+		}
+		if attempts == 2 && manualRequests == 1 {
+			manualRequests++
+			return WaitResult{ManualRequests: 1}, nil
+		}
+		return WaitResult{}, h.clock.Sleep(ctx, duration)
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if fmt.Sprint(h.triggers) != "[initial review manual request manual request]" {
+		t.Fatalf("triggers = %v", h.triggers)
+	}
+	var started []Event
+	for _, event := range h.events {
+		if event.Type == EventManualReviewStarted {
+			started = append(started, event)
+		}
+	}
+	if len(started) != 2 || started[0].RequestCount != 1 || started[1].RequestCount != 1 {
 		t.Fatalf("manual review events = %#v", started)
 	}
 }

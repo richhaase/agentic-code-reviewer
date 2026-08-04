@@ -349,6 +349,29 @@ func DiscussionRevision(items []Discussion) string {
 	return signature
 }
 
+func mergeRetryDiscussion(saved, current []Discussion) []Discussion {
+	currentByID := make(map[DiscussionID]Discussion, len(current))
+	for _, item := range current {
+		currentByID[item.ID] = item
+	}
+	merged := make([]Discussion, 0, len(saved)+len(current))
+	seen := make(map[DiscussionID]struct{}, len(saved)+len(current))
+	for _, item := range saved {
+		if replacement, exists := currentByID[item.ID]; exists {
+			item = replacement
+		}
+		merged = append(merged, item)
+		seen[item.ID] = struct{}{}
+	}
+	for _, item := range current {
+		if _, exists := seen[item.ID]; exists {
+			continue
+		}
+		merged = append(merged, item)
+	}
+	return merged
+}
+
 func (l *loop) initializeDiscussion(items []Discussion) {
 	l.discussionCursor = make(map[DiscussionID]string, len(items))
 	l.ownDiscussion = make(map[DiscussionID]struct{})
@@ -542,7 +565,7 @@ func run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 
 	l.requestArmed = !st.ReviewRequested
 
-	if reason, done := l.cycle(ctx, st.HeadSHA, "initial review", nil, DiscussionRevision(st.Discussion)); done {
+	if reason, done := l.cycle(ctx, st.HeadSHA, "initial review", nil, DiscussionRevision(st.Discussion), false); done {
 		return reason
 	}
 	if reason, done := l.checkMaxReviews(); done {
@@ -665,6 +688,7 @@ func run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		trigger := ""
 		var cycleDiscussion []Discussion
 		cycleRevision := DiscussionRevision(st.Discussion)
+		replayingRetry := false
 		unprocessed := l.unprocessedDiscussion(st.Discussion)
 		l.updatePendingDiscussion(unprocessed)
 		if manualTrigger {
@@ -681,8 +705,11 @@ func run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 
 		if trigger == "" && l.retryPending {
 			trigger = l.retryTrigger
-			cycleDiscussion = append([]Discussion(nil), l.retryDiscussion...)
-			cycleRevision = l.retryRevision
+			cycleDiscussion = mergeRetryDiscussion(l.retryDiscussion, unprocessed)
+			if cycleRevision == "" {
+				cycleRevision = l.retryRevision
+			}
+			replayingRetry = true
 		}
 
 		if trigger == "" && l.pendingApproval != "" {
@@ -805,7 +832,7 @@ func run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 			}
 			continue
 		}
-		if reason, done := l.cycle(ctx, st.HeadSHA, trigger, cycleDiscussion, cycleRevision); done {
+		if reason, done := l.cycle(ctx, st.HeadSHA, trigger, cycleDiscussion, cycleRevision, replayingRetry); done {
 			return reason
 		}
 		if reason, done := l.checkMaxReviews(); done {
@@ -910,8 +937,8 @@ func (l *loop) cycle(
 	trigger string,
 	discussion []Discussion,
 	discussionRevision string,
+	replayingRetry bool,
 ) (ExitReason, bool) {
-	replayingRetry := l.retryPending && trigger == l.retryTrigger
 	l.retryPending = false
 	l.retryHead = ""
 	l.retryTrigger = ""
