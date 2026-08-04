@@ -213,6 +213,13 @@ func TestAntigravityPrintTimeoutCeilingFromContext(t *testing.T) {
 	})
 }
 
+func TestAntigravityPrintTimeoutCeilingSaturates(t *testing.T) {
+	got := antigravityPrintTimeoutCeiling(maxAntigravityPrintTimeout)
+	if got != maxAntigravityPrintTimeout {
+		t.Fatalf("got %s, want %s", got, maxAntigravityPrintTimeout)
+	}
+}
+
 func TestAntigravityAgent_ExecuteReview_RefFileMode(t *testing.T) {
 	tmpDir := t.TempDir()
 	initTestRepo(t, tmpDir)

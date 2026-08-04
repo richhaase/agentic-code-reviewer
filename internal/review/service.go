@@ -268,8 +268,14 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	if err := validateResolvedRevision(run.Target.Revision, confirmedRevision); err != nil {
 		return s.fail(run, domain.ReviewPhaseReviewers, err, emitter), nil
 	}
-	allTimedOutWithFindings := len(run.Stats.TimedOutReviewers) == run.Stats.TotalReviewers && len(run.RawFindings) > 0
-	if run.Stats.AllFailed() && !allTimedOutWithFindings {
+	timedOutWithFindings := false
+	for _, result := range run.ReviewerResults {
+		if result.TimedOut && len(result.Findings) > 0 {
+			timedOutWithFindings = true
+			break
+		}
+	}
+	if run.Stats.AllFailed() && !timedOutWithFindings {
 		return s.fail(run, domain.ReviewPhaseReviewers, fmt.Errorf("all reviewers failed"), emitter), nil
 	}
 	s.emitReviewerWarnings(run.Stats, emitter)

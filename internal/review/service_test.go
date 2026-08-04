@@ -1751,3 +1751,40 @@ func TestServiceCompletesWithPartialFindingsWhenAllReviewersTimeout(t *testing.T
 		t.Fatalf("timeout warnings = %d, want %d", timeoutWarnings, values.Reviewers)
 	}
 }
+
+func TestServiceCompletesWithTimeoutFindingsAndMixedFailures(t *testing.T) {
+	reviewAgent := &mockReviewAgent{
+		name: "codex",
+		reviewExecution: func(_ context.Context, config *agent.ReviewConfig) (*agent.ExecutionResult, error) {
+			if config.ReviewerID == "1" {
+				output := codexReviewOutput("src/service.go:10: partial finding before timeout")
+				reader := io.NopCloser(io.MultiReader(strings.NewReader(output), delayedReviewEOFReader{delay: 50 * time.Millisecond}))
+				return agent.NewExecutionResult(reader, func() int { return 124 }, func() string { return "" }), nil
+			}
+			return executionResult("", 1, "review failed"), nil
+		},
+	}
+	service := serviceForTest(t, reviewAgent, "diff")
+	request := validRequest(t, t.TempDir())
+	values := request.Configuration.Values()
+	values.Timeout = 5 * time.Millisecond
+	configuration, err := domain.NewReviewConfiguration(values)
+	if err != nil {
+		t.Fatalf("create timeout configuration: %v", err)
+	}
+	request.Configuration = configuration
+
+	run, err := service.Run(context.Background(), request)
+	if err != nil {
+		t.Fatalf("run review: %v", err)
+	}
+	if run.Status != domain.ReviewStatusCompleted || run.Conclusion != domain.ReviewConclusionFindings {
+		t.Fatalf("mixed failure outcome: status=%q conclusion=%q failure=%#v", run.Status, run.Conclusion, run.Failure)
+	}
+	if len(run.Stats.TimedOutReviewers) != 1 || len(run.Stats.FailedReviewers) != 1 || len(run.RawFindings) != 1 {
+		t.Fatalf("mixed failure evidence: stats=%#v raw findings=%v", run.Stats, run.RawFindings)
+	}
+	if reviewAgent.summaryCalls.Load() != 1 {
+		t.Fatalf("summary calls = %d, want 1", reviewAgent.summaryCalls.Load())
+	}
+}
