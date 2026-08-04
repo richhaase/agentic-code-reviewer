@@ -169,7 +169,7 @@ type controllerStub struct {
 	recorded   []store.ReviewEconomicsV1
 }
 
-func (c *controllerStub) AuthorizeReview(_ store.PullRequestKeyV1, _ store.ReviewTargetV1, _ automatic.TrustedPolicy, runID string) (automatic.Decision, error) {
+func (c *controllerStub) AuthorizeReview(_ store.PullRequestKeyV1, _ store.ReviewTargetV1, _ automatic.TrustedPolicy, runID string, _ ...string) (automatic.Decision, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.authorized = append(c.authorized, runID)
@@ -549,6 +549,113 @@ func TestLifecycleSkipsCompletedRevisionAfterRestartAndReviewsReplacement(t *tes
 	}
 	if fmt.Sprint(preparedHeads) != "[head-a head-b]" || fmt.Sprint(executedHeads) != "[head-b]" {
 		t.Fatalf("prepared = %v, executed = %v", preparedHeads, executedHeads)
+	}
+}
+
+func TestBackgroundReviewDeduplicatesTargetByWatcherEvidence(t *testing.T) {
+	dataDir := t.TempDir()
+	key := schedulerKey(1)
+	target := schedulerTarget(key, "head-1")
+	policyRecord := store.AdjudicationPolicyV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		Source:        store.PolicySourceV1{Kind: config.SourceKindDefaults},
+		Budget:        store.BudgetPolicyV1{MaxIterations: 10},
+	}
+	policy, err := automatic.NewTrustedPolicy(policyRecord, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newController := func() *automatic.Controller {
+		controller, err := automatic.NewController(
+			store.NewFilesystemLoopDecisionStore(dataDir),
+			store.NewFilesystemEconomicsStore(dataDir),
+			store.NewFilesystemRunStore(dataDir),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return controller
+	}
+	controller := newController()
+	authorization, err := automatic.WorkspaceAuthorization("evidence-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.Commission(key, target, policy, authorization); err != nil {
+		t.Fatal(err)
+	}
+	var prepared int
+	var executed int
+	newPort := func(controller *automatic.Controller) watch.ReviewExecution {
+		port, err := (BackgroundReview{
+			Key:        key,
+			Controller: controller,
+			Runs:       store.NewFilesystemRunStore(dataDir),
+			Prepare: func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error) {
+				prepared++
+				runID := fmt.Sprintf("evidence-run-%d", prepared)
+				return PreparedCycle{
+					Policy: policy,
+					Work: schedulerWork(runID, target, func(context.Context) (*domain.ReviewRun, error) {
+						executed++
+						return schedulerRun(t, runID, target, domain.ReviewConclusionClean), nil
+					}),
+				}, nil
+			},
+		}).Port()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return port
+	}
+	run := func(port watch.ReviewExecution, trigger, discussionRevision string) watch.Cycle {
+		cycle, err := port.RunCycle(context.Background(), 1, trigger, nil, discussionRevision)
+		if err != nil {
+			t.Fatalf("RunCycle(%q): %v", trigger, err)
+		}
+		return cycle
+	}
+	port := newPort(controller)
+	if cycle := run(port, "initial review", ""); cycle.Result != watch.CycleClean {
+		t.Fatalf("initial cycle = %+v", cycle)
+	}
+	if cycle := run(port, "manual request", ""); cycle.Result != watch.CycleClean {
+		t.Fatalf("manual cycle = %+v", cycle)
+	}
+	if cycle := run(port, "re-review requested", ""); cycle.Result != watch.CycleClean {
+		t.Fatalf("re-review cycle = %+v", cycle)
+	}
+	discussionA := "issue_comment:10:revision-a\n"
+	if cycle := run(port, "discussion requires reconsideration", discussionA); cycle.Result != watch.CycleClean {
+		t.Fatalf("discussion cycle = %+v", cycle)
+	}
+
+	port = newPort(newController())
+	if cycle := run(port, "discussion requires reconsideration", discussionA); cycle.Result != watch.CycleAlreadyReviewed {
+		t.Fatalf("repeated discussion cycle = %+v", cycle)
+	}
+	discussionB := discussionA + "review_comment:11:revision-b\n"
+	if cycle := run(port, "discussion requires reconsideration", discussionB); cycle.Result != watch.CycleClean {
+		t.Fatalf("new discussion cycle = %+v", cycle)
+	}
+	if cycle := run(port, "commits settled", ""); cycle.Result != watch.CycleAlreadyReviewed {
+		t.Fatalf("ordinary duplicate cycle = %+v", cycle)
+	}
+	if executed != 5 {
+		t.Fatalf("executed = %d, want five distinct evidence reviews", executed)
+	}
+	decisions, corrupt, err := store.NewFilesystemLoopDecisionStore(dataDir).ListLoopDecisions(key)
+	if err != nil || len(corrupt) != 0 {
+		t.Fatalf("decisions = %+v, corrupt = %+v, err = %v", decisions, corrupt, err)
+	}
+	var identities []string
+	for _, decision := range decisions {
+		if decision.Decision == store.LoopDecisionContinue {
+			identities = append(identities, decision.EvidenceIdentity)
+		}
+	}
+	if len(identities) != 5 || identities[0] != "automatic-revision" || identities[1] != "explicit:evidence-run-2" || identities[2] != "explicit:evidence-run-3" || identities[3] == identities[4] {
+		t.Fatalf("evidence identities = %v", identities)
 	}
 }
 

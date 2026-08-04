@@ -209,6 +209,7 @@ func TestServicePreparedRunOwnsResolvedIdentity(t *testing.T) {
 	agent := &mockReviewAgent{name: "codex"}
 	service := serviceForTest(t, agent, "")
 	request := validRequest(t, t.TempDir())
+	request.Target.PullRequest = &domain.PullRequestKey{Host: "github.com", Owner: "owner", Repository: "repo", Number: 42}
 	prepared, err := service.Prepare(context.Background(), request)
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
@@ -216,9 +217,13 @@ func TestServicePreparedRunOwnsResolvedIdentity(t *testing.T) {
 	if prepared.ID() != "run-test" {
 		t.Fatalf("prepared ID = %q, want run-test", prepared.ID())
 	}
+	request.Target.PullRequest.Number = 99
 	target := prepared.Target()
 	if target.Revision.HeadObjectID != "head-object" || target.Revision.BaseObjectID != "base-object" {
 		t.Fatalf("prepared target is not resolved: %+v", target.Revision)
+	}
+	if target.PullRequest == nil || target.PullRequest.Number != 42 {
+		t.Fatalf("prepared pull request drifted after caller mutation: %+v", target.PullRequest)
 	}
 	run, err := prepared.Run(context.Background())
 	if err != nil {
@@ -226,6 +231,9 @@ func TestServicePreparedRunOwnsResolvedIdentity(t *testing.T) {
 	}
 	if run.ID != prepared.ID() || run.Target.Revision != target.Revision {
 		t.Fatalf("run identity = %q %+v, prepared = %q %+v", run.ID, run.Target.Revision, prepared.ID(), target.Revision)
+	}
+	if run.Target.PullRequest == nil || run.Target.PullRequest.Number != 42 {
+		t.Fatalf("run pull request drifted after caller mutation: %+v", run.Target.PullRequest)
 	}
 	if _, err := prepared.Run(context.Background()); err == nil {
 		t.Fatal("expected prepared run to be single use")

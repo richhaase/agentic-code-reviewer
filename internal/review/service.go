@@ -165,6 +165,7 @@ func (s *Service) Prepare(ctx context.Context, request Request) (*PreparedRun, e
 	if ctx == nil {
 		return nil, fmt.Errorf("review context is required")
 	}
+	request.Target = request.Target.Clone()
 	if err := validateRequest(request); err != nil {
 		return nil, err
 	}

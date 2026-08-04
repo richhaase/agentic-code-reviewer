@@ -220,6 +220,44 @@ func TestSettledDiscussionRoutesIntoFullReview(t *testing.T) {
 	}
 }
 
+func TestRetryableDiscussionReviewPreservesEvidence(t *testing.T) {
+	item := discussion("issue_comment", 1, "v1", "reviewer", "The nil case changes the conclusion.")
+	h := newHarness(t)
+	h.states = []PRState{open("aaa"), discussed("aaa", item)}
+	h.routes = []RoutingDecision{RoutingReviewRequired}
+	deps := h.deps()
+	var triggers []string
+	var revisions []string
+	var cycleDiscussion [][]Discussion
+	deps.RunCycle = func(_ context.Context, _ int, trigger string, discussion []Discussion, revision string) (Cycle, error) {
+		triggers = append(triggers, trigger)
+		revisions = append(revisions, revision)
+		cycleDiscussion = append(cycleDiscussion, append([]Discussion(nil), discussion...))
+		switch len(triggers) {
+		case 1:
+			return Cycle{Result: CycleFindings}, nil
+		case 2:
+			return Cycle{Result: CycleError}, fmt.Errorf("%w: network unavailable", ErrRetryableCycle)
+		default:
+			return Cycle{Result: CycleLGTMApproved}, nil
+		}
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	wantRevision := DiscussionRevision([]Discussion{item})
+	if len(triggers) != 3 || triggers[1] != "discussion requires reconsideration" || triggers[2] != triggers[1] {
+		t.Fatalf("triggers = %v", triggers)
+	}
+	if revisions[1] != wantRevision || revisions[2] != wantRevision {
+		t.Fatalf("revisions = %v, want routed retries to preserve %q", revisions, wantRevision)
+	}
+	if len(cycleDiscussion[1]) != 1 || len(cycleDiscussion[2]) != 1 || cycleDiscussion[2][0].ID != item.ID {
+		t.Fatalf("cycle discussion = %#v", cycleDiscussion)
+	}
+}
+
 func TestNoReviewDiscussionConsumesWithoutReviewSlot(t *testing.T) {
 	item := discussion("issue_comment", 1, "v1", "reviewer", "Thanks.")
 	h := newHarness(t)
@@ -1055,7 +1093,7 @@ func TestRetryableCycleFailureDoesNotConsumeReviewBudget(t *testing.T) {
 	if len(reviewNumbers) != 2 || reviewNumbers[0] != 1 || reviewNumbers[1] != 1 {
 		t.Fatalf("review numbers = %v, want [1 1]", reviewNumbers)
 	}
-	if len(h.triggers) != 2 || h.triggers[1] != "retry after transient preparation failure" {
+	if len(h.triggers) != 2 || h.triggers[1] != "initial review" {
 		t.Fatalf("triggers = %v", h.triggers)
 	}
 }
@@ -1121,7 +1159,7 @@ func TestRetryableRequestedReviewCannotPostPriorPendingApproval(t *testing.T) {
 	if len(h.approvedWith) != 0 {
 		t.Fatalf("obsolete approval posted: %v", h.approvedWith)
 	}
-	if len(h.triggers) != 3 || h.triggers[1] != "re-review requested" || h.triggers[2] != "retry after transient preparation failure" {
+	if len(h.triggers) != 3 || h.triggers[1] != "re-review requested" || h.triggers[2] != "re-review requested" {
 		t.Fatalf("triggers = %v", h.triggers)
 	}
 }

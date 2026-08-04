@@ -256,7 +256,7 @@ func TestControllerEscalatesOrphanReservationAndResumeRecovers(t *testing.T) {
 	if _, err := controller.AuthorizeReview(key, target, policy, "orphan-run"); err != nil {
 		t.Fatal(err)
 	}
-	escalated, err := controller.AuthorizeReview(key, target, policy, "blocked-run")
+	escalated, err := controller.AuthorizeReview(key, target, policy, "blocked-run", "discussion:new-evidence")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,6 +272,48 @@ func TestControllerEscalatesOrphanReservationAndResumeRecovers(t *testing.T) {
 	}
 	if decision, err := controller.AuthorizeReview(key, target, policy, "recovered-run"); err != nil || !decision.Allowed {
 		t.Fatalf("post-resume authorization = %+v, err = %v", decision, err)
+	}
+}
+
+func TestControllerDeduplicatesCompletedTargetByEvidenceIdentity(t *testing.T) {
+	now := time.Date(2026, 8, 4, 14, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	controller := testController(t, dir, &now)
+	key := testKey()
+	target := testTarget()
+	policy, err := NewTrustedPolicy(store.AdjudicationPolicyV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		Source:        store.PolicySourceV1{Kind: config.SourceKindDefaults},
+		Budget:        store.BudgetPolicyV1{MaxIterations: 5},
+	}, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.Commission(key, target, policy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.AuthorizeReview(key, target, policy, "discussion-a", "discussion:evidence-a"); err != nil {
+		t.Fatal(err)
+	}
+	saveAutomaticRun(t, dir, "discussion-a", target, domain.ReviewStatusCompleted)
+	if _, err := controller.AuthorizeReview(key, target, policy, "discussion-a-repeat", "discussion:evidence-a"); !errors.Is(err, ErrRevisionAlreadyAuthorized) {
+		t.Fatalf("repeated discussion evidence error = %v, want duplicate rejection", err)
+	}
+	if decision, err := controller.AuthorizeReview(key, target, policy, "discussion-b", "discussion:evidence-b"); err != nil || !decision.Allowed {
+		t.Fatalf("new discussion evidence decision = %+v, err = %v", decision, err)
+	}
+	decisions, corrupt, err := store.NewFilesystemLoopDecisionStore(dir).ListLoopDecisions(key)
+	if err != nil || len(corrupt) != 0 {
+		t.Fatalf("decisions = %+v, corrupt = %+v, err = %v", decisions, corrupt, err)
+	}
+	var identities []string
+	for _, decision := range decisions {
+		if decision.Decision == store.LoopDecisionContinue {
+			identities = append(identities, decision.EvidenceIdentity)
+		}
+	}
+	if fmt.Sprint(identities) != "[discussion:evidence-a discussion:evidence-b]" {
+		t.Fatalf("evidence identities = %v", identities)
 	}
 }
 

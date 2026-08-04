@@ -224,6 +224,9 @@ type loop struct {
 	cycleErrors        int
 	retryPending       bool
 	retryHead          string
+	retryTrigger       string
+	retryDiscussion    []Discussion
+	retryRevision      string
 	manualRequests     int
 	discussionCursor   map[DiscussionID]string
 	ownDiscussion      map[DiscussionID]struct{}
@@ -653,11 +656,15 @@ func run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		if l.retryPending && st.HeadSHA != l.retryHead {
 			l.retryPending = false
 			l.retryHead = ""
+			l.retryTrigger = ""
+			l.retryDiscussion = nil
+			l.retryRevision = ""
 			l.cycleErrors = 0
 		}
 
 		trigger := ""
 		var cycleDiscussion []Discussion
+		cycleRevision := DiscussionRevision(st.Discussion)
 		unprocessed := l.unprocessedDiscussion(st.Discussion)
 		l.updatePendingDiscussion(unprocessed)
 		if manualTrigger {
@@ -673,8 +680,9 @@ func run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		}
 
 		if trigger == "" && l.retryPending {
-			trigger = "retry after transient preparation failure"
-			cycleDiscussion = unprocessed
+			trigger = l.retryTrigger
+			cycleDiscussion = append([]Discussion(nil), l.retryDiscussion...)
+			cycleRevision = l.retryRevision
 		}
 
 		if trigger == "" && l.pendingApproval != "" {
@@ -797,7 +805,7 @@ func run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 			}
 			continue
 		}
-		if reason, done := l.cycle(ctx, st.HeadSHA, trigger, cycleDiscussion, DiscussionRevision(st.Discussion)); done {
+		if reason, done := l.cycle(ctx, st.HeadSHA, trigger, cycleDiscussion, cycleRevision); done {
 			return reason
 		}
 		if reason, done := l.checkMaxReviews(); done {
@@ -903,11 +911,15 @@ func (l *loop) cycle(
 	discussion []Discussion,
 	discussionRevision string,
 ) (ExitReason, bool) {
+	retrying := l.retryPending
 	l.retryPending = false
 	l.retryHead = ""
+	l.retryTrigger = ""
+	l.retryDiscussion = nil
+	l.retryRevision = ""
 	l.pendingApproval = ""
 	l.reviews++
-	if trigger == "manual request" {
+	if trigger == "manual request" && !retrying {
 		l.emit(Event{Type: EventManualReviewStarted, RequestCount: l.manualRequests, ReviewNumber: l.reviews})
 		l.manualRequests = 0
 	}
@@ -935,6 +947,9 @@ func (l *loop) cycle(
 			l.logf("Review cycle failed (%d/%d); will retry: %v", l.cycleErrors, maxConsecutivePollErrors, err)
 			l.retryPending = true
 			l.retryHead = head
+			l.retryTrigger = trigger
+			l.retryDiscussion = append([]Discussion(nil), discussion...)
+			l.retryRevision = discussionRevision
 			return 0, false
 		}
 		var controlled interface {

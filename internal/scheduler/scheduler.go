@@ -2,6 +2,8 @@ package scheduler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"reflect"
@@ -107,7 +109,7 @@ func (s *Scheduler) release(key store.PullRequestKeyV1) {
 }
 
 type Controller interface {
-	AuthorizeReview(store.PullRequestKeyV1, store.ReviewTargetV1, automatic.TrustedPolicy, string) (automatic.Decision, error)
+	AuthorizeReview(store.PullRequestKeyV1, store.ReviewTargetV1, automatic.TrustedPolicy, string, ...string) (automatic.Decision, error)
 	RecordEconomics(store.PullRequestKeyV1, time.Time, store.ReviewEconomicsV1) error
 }
 
@@ -199,7 +201,11 @@ func (review BackgroundReview) Port() (watch.ReviewExecution, error) {
 		if prepared.Work.target.Revision.HeadObjectID == "" || prepared.Work.target.Revision.BaseObjectID == "" {
 			return watch.Cycle{}, fmt.Errorf("prepared background review target must have resolved object ids")
 		}
-		decision, err := review.Controller.AuthorizeReview(review.Key, prepared.Work.target, prepared.Policy, prepared.Work.runID)
+		evidenceIdentity, err := cycleEvidenceIdentity(trigger, discussionRevision, prepared.Work.runID)
+		if err != nil {
+			return watch.Cycle{}, err
+		}
+		decision, err := review.Controller.AuthorizeReview(review.Key, prepared.Work.target, prepared.Policy, prepared.Work.runID, evidenceIdentity)
 		if err != nil {
 			if errors.Is(err, automatic.ErrRevisionAlreadyAuthorized) {
 				return watch.Cycle{Result: watch.CycleAlreadyReviewed, HeadSHA: prepared.Work.target.Revision.HeadObjectID}, nil
@@ -241,6 +247,21 @@ func (review BackgroundReview) Port() (watch.ReviewExecution, error) {
 		}
 		return cycleFromRun(run)
 	}}, nil
+}
+
+func cycleEvidenceIdentity(trigger, discussionRevision, runID string) (string, error) {
+	switch trigger {
+	case "manual request", "re-review requested":
+		return "explicit:" + runID, nil
+	case "discussion requires reconsideration", "uncertain discussion requires reconsideration":
+		if discussionRevision == "" {
+			return "", fmt.Errorf("discussion review evidence is required")
+		}
+		digest := sha256.Sum256([]byte(discussionRevision))
+		return "discussion:" + hex.EncodeToString(digest[:]), nil
+	default:
+		return "automatic-revision", nil
+	}
 }
 
 func economicsFromRun(run *domain.ReviewRun) store.ReviewEconomicsV1 {
