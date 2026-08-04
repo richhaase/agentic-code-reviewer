@@ -268,14 +268,8 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	if err := validateResolvedRevision(run.Target.Revision, confirmedRevision); err != nil {
 		return s.fail(run, domain.ReviewPhaseReviewers, err, emitter), nil
 	}
-	timedOutWithFindings := false
-	for _, result := range run.ReviewerResults {
-		if result.TimedOut && len(result.Findings) > 0 {
-			timedOutWithFindings = true
-			break
-		}
-	}
-	if run.Stats.AllFailed() && !timedOutWithFindings {
+	reviewerOutputs := reviewerOutputsForAgreement(run.ReviewerResults, run.Stats.SuccessfulReviewers)
+	if run.Stats.AllFailed() && reviewerOutputs == 0 {
 		return s.fail(run, domain.ReviewPhaseReviewers, fmt.Errorf("all reviewers failed"), emitter), nil
 	}
 	s.emitReviewerWarnings(run.Stats, emitter)
@@ -358,7 +352,7 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	if values.FPFilterEnabled && len(finalGrouped.Findings) > 0 {
 		emitter.emit(Event{Kind: EventPhaseStarted, Phase: domain.ReviewPhaseFalsePositiveFilter})
 		fpCtx, fpCancel := context.WithTimeout(ctx, values.FPFilterTimeout)
-		fpResult := fpfilter.NewWithAgent(summarizerAgent, values.FPThreshold, postProcessDir).Apply(fpCtx, finalGrouped, priorFeedback, run.Stats.SuccessfulReviewers)
+		fpResult := fpfilter.NewWithAgent(summarizerAgent, values.FPThreshold, postProcessDir).Apply(fpCtx, finalGrouped, priorFeedback, reviewerOutputs)
 		fpCancel()
 		if fpResult != nil {
 			finalGrouped = cloneGroupedFindings(fpResult.Grouped)
@@ -443,6 +437,16 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 		return s.complete(run, domain.ReviewConclusionClean, emitter), nil
 	}
 	return s.complete(run, domain.ReviewConclusionFindings, emitter), nil
+}
+
+func reviewerOutputsForAgreement(results []domain.ReviewerResult, successful int) int {
+	outputs := successful
+	for _, result := range results {
+		if result.TimedOut && len(result.Findings) > 0 {
+			outputs++
+		}
+	}
+	return outputs
 }
 
 func validateRequest(request Request) error {

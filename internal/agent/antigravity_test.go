@@ -218,6 +218,14 @@ func TestAntigravityPrintTimeoutCeilingSaturates(t *testing.T) {
 	if got != maxAntigravityPrintTimeout {
 		t.Fatalf("got %s, want %s", got, maxAntigravityPrintTimeout)
 	}
+	rendered := formatAntigravityTimeout(got)
+	parsed, err := time.ParseDuration(rendered)
+	if err != nil {
+		t.Fatalf("parse formatted timeout %q: %v", rendered, err)
+	}
+	if parsed != maxAntigravityPrintTimeout {
+		t.Fatalf("parsed timeout = %s, want %s", parsed, maxAntigravityPrintTimeout)
+	}
 }
 
 func TestAntigravityAgent_ExecuteReview_RefFileMode(t *testing.T) {

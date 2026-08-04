@@ -18,7 +18,7 @@ const antigravityDefaultPrintTimeout = 30 * time.Minute
 
 const antigravityPrintTimeoutGrace = 5 * time.Second
 
-const maxAntigravityPrintTimeout = time.Duration(1<<63 - 1)
+const maxAntigravityPrintTimeout = time.Duration(1<<63-1) / time.Second * time.Second
 
 func NewAntigravityAgent(_ string) *AntigravityAgent {
 	return &AntigravityAgent{}

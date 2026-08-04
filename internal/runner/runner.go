@@ -398,6 +398,21 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) (result domain
 			result.ParseErrors++
 			break
 		}
+		if ctx.Err() != nil {
+			result.ParseErrors += parser.ParseErrors()
+			result.ExitCode = -1
+			result.Duration = time.Since(start)
+			result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureInterrupted, Message: ctx.Err().Error()}
+			return result
+		}
+		if timeoutCtx.Err() == context.DeadlineExceeded {
+			result.ParseErrors += parser.ParseErrors()
+			result.TimedOut = true
+			result.ExitCode = -1
+			result.Duration = time.Since(start)
+			result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureTimeout, Message: timeoutCtx.Err().Error()}
+			return result
+		}
 
 		if finding == nil {
 

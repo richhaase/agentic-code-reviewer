@@ -1713,7 +1713,7 @@ func TestServiceCompletesWithPartialFindingsWhenAllReviewersTimeout(t *testing.T
 	reviewAgent := &mockReviewAgent{
 		name: "codex",
 		reviewExecution: func(context.Context, *agent.ReviewConfig) (*agent.ExecutionResult, error) {
-			output := codexReviewOutput("src/service.go:10: partial finding before timeout")
+			output := codexReviewOutput("src/service.go:10: partial finding before timeout") + "\n"
 			reader := io.NopCloser(io.MultiReader(strings.NewReader(output), delayedReviewEOFReader{delay: 50 * time.Millisecond}))
 			return agent.NewExecutionResult(reader, func() int { return 124 }, func() string { return "" }), nil
 		},
@@ -1757,7 +1757,7 @@ func TestServiceCompletesWithTimeoutFindingsAndMixedFailures(t *testing.T) {
 		name: "codex",
 		reviewExecution: func(_ context.Context, config *agent.ReviewConfig) (*agent.ExecutionResult, error) {
 			if config.ReviewerID == "1" {
-				output := codexReviewOutput("src/service.go:10: partial finding before timeout")
+				output := codexReviewOutput("src/service.go:10: partial finding before timeout") + "\n"
 				reader := io.NopCloser(io.MultiReader(strings.NewReader(output), delayedReviewEOFReader{delay: 50 * time.Millisecond}))
 				return agent.NewExecutionResult(reader, func() int { return 124 }, func() string { return "" }), nil
 			}
@@ -1786,5 +1786,17 @@ func TestServiceCompletesWithTimeoutFindingsAndMixedFailures(t *testing.T) {
 	}
 	if reviewAgent.summaryCalls.Load() != 1 {
 		t.Fatalf("summary calls = %d, want 1", reviewAgent.summaryCalls.Load())
+	}
+}
+
+func TestReviewerOutputsForAgreementIncludesTimeoutFindings(t *testing.T) {
+	results := []domain.ReviewerResult{
+		{ReviewerID: 1},
+		{ReviewerID: 2, TimedOut: true, Findings: []domain.Finding{{Text: "partial", ReviewerID: 2}}},
+		{ReviewerID: 3, TimedOut: true},
+		{ReviewerID: 4, ExitCode: 1, Findings: []domain.Finding{{Text: "failed", ReviewerID: 4}}},
+	}
+	if got := reviewerOutputsForAgreement(results, 1); got != 2 {
+		t.Fatalf("reviewer outputs = %d, want 2", got)
 	}
 }

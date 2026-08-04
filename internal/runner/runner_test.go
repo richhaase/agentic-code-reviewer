@@ -955,6 +955,18 @@ func TestRunReviewerWithRetryTimeoutHandling(t *testing.T) {
 			wantFindings: 1,
 		},
 		{
+			name: "timeout discards finding parsed after deadline",
+			agentFor: func() (agent.Agent, func() int32) {
+				mock := &timedOutReviewAgent{name: "gemini", output: `{"response":"truncated`, delay: 300 * time.Millisecond}
+				return mock, mock.callCount.Load
+			},
+			retries:      2,
+			wantCalls:    1,
+			wantTimedOut: true,
+			wantAttempts: 1,
+			wantFindings: 0,
+		},
+		{
 			name: "non-timeout failure still retries with retry events",
 			agentFor: func() (agent.Agent, func() int32) {
 				mock := &mockAuthFailAgent{name: "codex", exitCode: 1, stderr: "some error"}
