@@ -429,7 +429,7 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) (result domain
 			result.TimedOut = true
 			result.ExitCode = -1
 			result.Duration = time.Since(start)
-			result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureTimeout, Message: timeoutCtx.Err().Error()}
+			result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureTimeout, Message: context.DeadlineExceeded.Error()}
 			return result
 		}
 
