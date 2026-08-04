@@ -55,11 +55,18 @@ func TestReviewerTimeoutScaledMessage(t *testing.T) {
 			want:       "Diff is 200KB; scaling reviewer timeout 30m → 1h",
 		},
 		{
-			name:       "subsecond effective rounds to whole seconds",
+			name:       "fractional second rounds to whole seconds",
 			diffBytes:  150 * 1024,
 			configured: time.Minute,
 			effective:  90*time.Second + 400*time.Millisecond,
 			want:       "Diff is 150KB; scaling reviewer timeout 1m → 1m30s",
+		},
+		{
+			name:       "subsecond timeouts retain precision",
+			diffBytes:  150 * 1024,
+			configured: 500 * time.Millisecond,
+			effective:  750 * time.Millisecond,
+			want:       "Diff is 150KB; scaling reviewer timeout 500ms → 750ms",
 		},
 	}
 	for _, tt := range tests {

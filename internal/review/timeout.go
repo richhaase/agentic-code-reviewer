@@ -38,7 +38,11 @@ func reviewerTimeoutScaledMessage(diffBytes int, configured, effective time.Dura
 }
 
 func formatReviewerTimeout(d time.Duration) string {
-	rendered := d.Round(time.Second).String()
+	renderedDuration := d
+	if d >= time.Second || d <= -time.Second {
+		renderedDuration = d.Round(time.Second)
+	}
+	rendered := renderedDuration.String()
 	if strings.HasSuffix(rendered, "m0s") {
 		rendered = strings.TrimSuffix(rendered, "0s")
 	}
