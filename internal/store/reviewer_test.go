@@ -96,6 +96,7 @@ func TestReviewStatsV1_RoundTrip(t *testing.T) {
 		SummarizerDuration:  time.Second,
 		FPFilterDuration:    time.Second,
 		FPFilteredCount:     1,
+		ModelCallCount:      5,
 	}
 
 	schema := ToReviewStatsSchema(stats)
@@ -108,7 +109,7 @@ func TestReviewStatsV1_RoundTrip(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	got := decoded.ToDomain()
-	if got.TotalReviewers != stats.TotalReviewers || got.ReviewerAgentNames[1] != "codex" || got.ReviewerDurations[0] != time.Second {
+	if got.TotalReviewers != stats.TotalReviewers || got.ReviewerAgentNames[1] != "codex" || got.ReviewerDurations[0] != time.Second || got.ModelCallCount != 5 {
 		t.Fatalf("round trip mismatch: got %+v, want %+v", got, stats)
 	}
 }

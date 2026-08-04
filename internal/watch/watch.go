@@ -172,6 +172,8 @@ const (
 	ReasonInterrupted
 	ReasonReleased
 	ReasonOptedOut
+	ReasonStopped
+	ReasonEscalated
 	ReasonError
 )
 
@@ -195,6 +197,10 @@ func (r ExitReason) String() string {
 		return "released"
 	case ReasonOptedOut:
 		return "opted out"
+	case ReasonStopped:
+		return "automatic review stopped"
+	case ReasonEscalated:
+		return "automatic review requires trusted intervention"
 	default:
 		return "error"
 	}
@@ -929,6 +935,14 @@ func (l *loop) cycle(
 			l.retryPending = true
 			l.retryHead = head
 			return 0, false
+		}
+		var controlled interface {
+			error
+			WatchExitReason() ExitReason
+		}
+		if errors.As(err, &controlled) {
+			l.logf("Review lifecycle ended: %v", err)
+			return controlled.WatchExitReason(), true
 		}
 		l.logf("Review #%d failed: %v", l.reviews, err)
 		return ReasonError, true

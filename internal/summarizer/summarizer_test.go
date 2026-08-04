@@ -27,6 +27,9 @@ func TestSummarize_EmptyInput(t *testing.T) {
 	if len(result.Grouped.Info) != 0 {
 		t.Errorf("expected no info, got %d", len(result.Grouped.Info))
 	}
+	if result.ModelCallCount != 0 {
+		t.Errorf("model calls = %d, want 0", result.ModelCallCount)
+	}
 }
 
 func TestSummarize_EmptySlice(t *testing.T) {

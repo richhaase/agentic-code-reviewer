@@ -60,32 +60,45 @@ func (s *Summarizer) SummarizePullRequestFromDirs(ctx context.Context, key domai
 	return s.summarizeContext(ctx, prCtx, agentDir)
 }
 
+func (s *Summarizer) SummarizePullRequestFromDirsWithModelCalls(ctx context.Context, key domain.PullRequestKey, repositoryDir, agentDir string) (string, int, error) {
+	prCtx, err := FetchPRContextForPullRequest(ctx, key, repositoryDir)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to fetch PR context: %w", err)
+	}
+	return s.summarizeContextWithModelCalls(ctx, prCtx, agentDir)
+}
+
 func (s *Summarizer) summarizeContext(ctx context.Context, prCtx *PRContext, workDir string) (string, error) {
+	summary, _, err := s.summarizeContextWithModelCalls(ctx, prCtx, workDir)
+	return summary, err
+}
+
+func (s *Summarizer) summarizeContextWithModelCalls(ctx context.Context, prCtx *PRContext, workDir string) (string, int, error) {
 	if !prCtx.HasContent() {
-		return "", nil
+		return "", 0, nil
 	}
 
 	input := s.buildInput(prCtx)
 
 	ag, err := agent.NewAgentWithModel(s.agentName, s.model)
 	if err != nil {
-		return "", fmt.Errorf("failed to create agent: %w", err)
+		return "", 0, fmt.Errorf("failed to create agent: %w", err)
 	}
 
 	execResult, err := ag.ExecuteSummary(ctx, &agent.SummaryConfig{Prompt: summarizePrompt, Input: []byte(input), WorkDir: workDir})
 	if err != nil {
 		if ctx.Err() != nil {
-			return "", ctx.Err()
+			return "", 1, ctx.Err()
 		}
-		return "", fmt.Errorf("agent execution failed: %w", err)
+		return "", 1, fmt.Errorf("agent execution failed: %w", err)
 	}
 	output, err := io.ReadAll(execResult)
 	closeErr := execResult.Close()
 	if err != nil {
 		if ctx.Err() != nil {
-			return "", errors.Join(ctx.Err(), closeErr)
+			return "", 1, errors.Join(ctx.Err(), closeErr)
 		}
-		return "", errors.Join(fmt.Errorf("failed to read agent output: %w", err), closeErr)
+		return "", 1, errors.Join(fmt.Errorf("failed to read agent output: %w", err), closeErr)
 	}
 
 	summary := strings.TrimSpace(string(output))
@@ -96,7 +109,7 @@ func (s *Summarizer) summarizeContext(ctx context.Context, prCtx *PRContext, wor
 		summary = ""
 	}
 
-	return summary, s.handleCloseError(closeErr)
+	return summary, 1, s.handleCloseError(closeErr)
 }
 
 func (s *Summarizer) handleCloseError(err error) error {

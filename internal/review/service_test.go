@@ -194,13 +194,69 @@ func serviceForTest(t *testing.T, reviewAgent agent.Agent, diff string, options 
 			return revision, nil
 		}),
 		WithDiffProvider(func(context.Context, domain.ReviewTarget) (string, error) { return diff, nil }),
-		WithPriorFeedbackProvider(func(context.Context, domain.ReviewTarget, string, string) (string, error) { return "", nil }),
+		WithPriorFeedbackProvider(func(context.Context, domain.ReviewTarget, string, string) (PriorFeedbackResult, error) {
+			return PriorFeedbackResult{}, nil
+		}),
 	}
 	service, err := NewService(append(baseOptions, options...)...)
 	if err != nil {
 		t.Fatalf("create service: %v", err)
 	}
 	return service
+}
+
+func TestServicePreparedRunOwnsResolvedIdentity(t *testing.T) {
+	agent := &mockReviewAgent{name: "codex"}
+	service := serviceForTest(t, agent, "")
+	request := validRequest(t, t.TempDir())
+	prepared, err := service.Prepare(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if prepared.ID() != "run-test" {
+		t.Fatalf("prepared ID = %q, want run-test", prepared.ID())
+	}
+	target := prepared.Target()
+	if target.Revision.HeadObjectID != "head-object" || target.Revision.BaseObjectID != "base-object" {
+		t.Fatalf("prepared target is not resolved: %+v", target.Revision)
+	}
+	run, err := prepared.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if run.ID != prepared.ID() || run.Target.Revision != target.Revision {
+		t.Fatalf("run identity = %q %+v, prepared = %q %+v", run.ID, run.Target.Revision, prepared.ID(), target.Revision)
+	}
+	if _, err := prepared.Run(context.Background()); err == nil {
+		t.Fatal("expected prepared run to be single use")
+	}
+}
+
+func TestServiceRecordsExactModelCallCount(t *testing.T) {
+	agent := &mockReviewAgent{name: "codex"}
+	request := validRequest(t, t.TempDir())
+	values := request.Configuration.Values()
+	values.FPFilterEnabled = true
+	values.PRFeedbackEnabled = true
+	configuration, err := domain.NewReviewConfiguration(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Configuration = configuration
+	request.Target.PullRequest = &domain.PullRequestKey{Host: "github.com", Owner: "owner", Repository: "repo", Number: 42}
+	service := serviceForTest(t, agent, "diff", WithPriorFeedbackProvider(func(context.Context, domain.ReviewTarget, string, string) (PriorFeedbackResult, error) {
+		return PriorFeedbackResult{Summary: "prior feedback", ModelCallCount: 1}, nil
+	}))
+	run, err := service.Run(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Stats.ModelCallCount != 5 {
+		t.Fatalf("model calls = %d, want 5", run.Stats.ModelCallCount)
+	}
+	if agent.summaryCalls.Load() != 2 {
+		t.Fatalf("summary executions = %d, want summarizer and false-positive filter", agent.summaryCalls.Load())
+	}
 }
 
 func TestServiceRunsMockAgentsHeadlessly(t *testing.T) {
@@ -871,11 +927,11 @@ func TestServiceCancelsAndJoinsPriorFeedbackOnEarlyFailure(t *testing.T) {
 	}
 	var feedbackStopped atomic.Bool
 	var completionClock atomic.Int64
-	feedbackProvider := func(ctx context.Context, _ domain.ReviewTarget, _, _ string) (string, error) {
+	feedbackProvider := func(ctx context.Context, _ domain.ReviewTarget, _, _ string) (PriorFeedbackResult, error) {
 		<-ctx.Done()
 		feedbackStopped.Store(true)
 		completionClock.Store(2)
-		return "", ctx.Err()
+		return PriorFeedbackResult{}, ctx.Err()
 	}
 	request := validRequest(t, t.TempDir())
 	values := request.Configuration.Values()
@@ -962,10 +1018,10 @@ func TestServiceCancelsPriorFeedbackWhenSummaryHasNoFindings(t *testing.T) {
 		t,
 		reviewAgent,
 		"diff",
-		WithPriorFeedbackProvider(func(ctx context.Context, _ domain.ReviewTarget, _, _ string) (string, error) {
+		WithPriorFeedbackProvider(func(ctx context.Context, _ domain.ReviewTarget, _, _ string) (PriorFeedbackResult, error) {
 			<-ctx.Done()
 			feedbackStopped.Store(true)
-			return "", ctx.Err()
+			return PriorFeedbackResult{}, ctx.Err()
 		}),
 	)
 
@@ -1027,8 +1083,8 @@ func TestServiceRetainsPriorFeedbackWhenCleanupWarns(t *testing.T) {
 		t,
 		reviewAgent,
 		"diff",
-		WithPriorFeedbackProvider(func(context.Context, domain.ReviewTarget, string, string) (string, error) {
-			return "trusted prior feedback", errors.New("feedback cleanup failed")
+		WithPriorFeedbackProvider(func(context.Context, domain.ReviewTarget, string, string) (PriorFeedbackResult, error) {
+			return PriorFeedbackResult{Summary: "trusted prior feedback", ModelCallCount: 1}, errors.New("feedback cleanup failed")
 		}),
 	)
 

@@ -112,35 +112,50 @@ type Controller interface {
 }
 
 type PreparedCycle struct {
-	RunID  string
-	Target store.ReviewTargetV1
 	Policy automatic.TrustedPolicy
 	Work   BackgroundWork
+}
+
+func NewPreparedCycle(work BackgroundWork, policy store.AdjudicationPolicyV1) (PreparedCycle, error) {
+	if work.runID == "" || work.run == nil {
+		return PreparedCycle{}, fmt.Errorf("prepared background review work is required")
+	}
+	trusted, err := automatic.NewTrustedPolicy(policy, work.target)
+	if err != nil {
+		return PreparedCycle{}, err
+	}
+	return PreparedCycle{Policy: trusted, Work: work}, nil
 }
 
 type PrepareCycle func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error)
 
 type BackgroundWork struct {
+	runID  string
 	target store.ReviewTargetV1
 	run    func(context.Context) (*domain.ReviewRun, error)
 }
 
-func NewBackgroundWork(service *reviewpkg.Service, request reviewpkg.Request) (BackgroundWork, error) {
+func NewBackgroundWork(ctx context.Context, service *reviewpkg.Service, request reviewpkg.Request) (BackgroundWork, error) {
 	if service == nil {
 		return BackgroundWork{}, fmt.Errorf("background semantic review service is required")
 	}
 	if request.Trigger != domain.ReviewTriggerDesk {
 		return BackgroundWork{}, fmt.Errorf("background review trigger must be %q", domain.ReviewTriggerDesk)
 	}
-	target := store.ToReviewTargetSchema(request.Target)
+	request.Events = nil
+	prepared, err := service.Prepare(ctx, request)
+	if err != nil {
+		return BackgroundWork{}, err
+	}
+	target := store.ToReviewTargetSchema(prepared.Target())
 	if target.PullRequest == nil {
 		return BackgroundWork{}, fmt.Errorf("background review target must identify a pull request")
 	}
-	request.Events = nil
 	return BackgroundWork{
+		runID:  prepared.ID(),
 		target: target,
 		run: func(ctx context.Context) (*domain.ReviewRun, error) {
-			return service.Run(ctx, request)
+			return prepared.Run(ctx)
 		},
 	}, nil
 }
@@ -148,6 +163,7 @@ func NewBackgroundWork(service *reviewpkg.Service, request reviewpkg.Request) (B
 type BackgroundReview struct {
 	Key        store.PullRequestKeyV1
 	Controller Controller
+	Runs       store.RunStore
 	Prepare    PrepareCycle
 	Now        func() time.Time
 }
@@ -158,6 +174,9 @@ func (review BackgroundReview) Port() (watch.ReviewExecution, error) {
 	}
 	if review.Controller == nil {
 		return watch.ReviewExecution{}, fmt.Errorf("automatic review controller is required")
+	}
+	if review.Runs == nil {
+		return watch.ReviewExecution{}, fmt.Errorf("automatic review run store is required")
 	}
 	if review.Prepare == nil {
 		return watch.ReviewExecution{}, fmt.Errorf("automatic review preparation is required")
@@ -171,21 +190,21 @@ func (review BackgroundReview) Port() (watch.ReviewExecution, error) {
 		if err != nil {
 			return watch.Cycle{}, err
 		}
-		if prepared.RunID == "" {
+		if prepared.Work.runID == "" {
 			return watch.Cycle{}, fmt.Errorf("prepared automatic review run id is required")
 		}
 		if prepared.Work.run == nil {
 			return watch.Cycle{}, fmt.Errorf("prepared background review work is required")
 		}
-		if !reflect.DeepEqual(prepared.Work.target, prepared.Target) {
-			return watch.Cycle{}, fmt.Errorf("prepared background review work does not match its authorized target")
+		if prepared.Work.target.Revision.HeadObjectID == "" || prepared.Work.target.Revision.BaseObjectID == "" {
+			return watch.Cycle{}, fmt.Errorf("prepared background review target must have resolved object ids")
 		}
-		decision, err := review.Controller.AuthorizeReview(review.Key, prepared.Target, prepared.Policy, prepared.RunID)
+		decision, err := review.Controller.AuthorizeReview(review.Key, prepared.Work.target, prepared.Policy, prepared.Work.runID)
 		if err != nil {
 			return watch.Cycle{}, err
 		}
 		if !decision.Allowed {
-			return watch.Cycle{}, fmt.Errorf("%w: %s", ErrAutomaticReviewStopped, decision.Reason)
+			return watch.Cycle{}, automaticTermination{kind: decision.Kind, reason: decision.Reason}
 		}
 		runCtx := ctx
 		cancel := func() {}
@@ -200,8 +219,18 @@ func (review BackgroundReview) Port() (watch.ReviewExecution, error) {
 		if run == nil {
 			return watch.Cycle{}, fmt.Errorf("background semantic review returned no run")
 		}
-		if run.ID != prepared.RunID {
-			return watch.Cycle{}, fmt.Errorf("background semantic review run id %q does not match prepared run %q", run.ID, prepared.RunID)
+		if run.ID != prepared.Work.runID {
+			return watch.Cycle{}, fmt.Errorf("background semantic review run id %q does not match prepared run %q", run.ID, prepared.Work.runID)
+		}
+		if !reflect.DeepEqual(store.ToReviewTargetSchema(run.Target), prepared.Work.target) {
+			return watch.Cycle{}, fmt.Errorf("background semantic review target does not match authorized target")
+		}
+		schema, err := store.ToReviewRunSchema(*run, store.RenderedOutcomeV1{})
+		if err != nil {
+			return watch.Cycle{}, fmt.Errorf("encode background semantic review run: %w", err)
+		}
+		if _, err := review.Runs.SaveRun(schema); err != nil {
+			return watch.Cycle{}, fmt.Errorf("persist background semantic review run: %w", err)
 		}
 		economics := economicsFromRun(run)
 		if err := review.Controller.RecordEconomics(review.Key, now().UTC(), economics); err != nil {
@@ -216,13 +245,7 @@ func economicsFromRun(run *domain.ReviewRun) store.ReviewEconomicsV1 {
 	for _, result := range run.ReviewerResults {
 		reviewerCalls += result.Attempts
 	}
-	modelCalls := reviewerCalls
-	if run.Stats.SummarizerDuration > 0 {
-		modelCalls++
-	}
-	if run.Stats.FPFilterDuration > 0 {
-		modelCalls++
-	}
+	modelCalls := run.Stats.ModelCallCount
 	duration := run.CompletedAt.Sub(run.StartedAt)
 	if duration < 0 {
 		duration = 0
@@ -234,6 +257,26 @@ func economicsFromRun(run *domain.ReviewRun) store.ReviewEconomicsV1 {
 		ModelCallCount:    modelCalls,
 		Duration:          duration,
 	}
+}
+
+type automaticTermination struct {
+	kind   store.LoopDecisionKindV1
+	reason string
+}
+
+func (e automaticTermination) Error() string {
+	return fmt.Sprintf("%s: %s", ErrAutomaticReviewStopped, e.reason)
+}
+
+func (e automaticTermination) Unwrap() error {
+	return ErrAutomaticReviewStopped
+}
+
+func (e automaticTermination) WatchExitReason() watch.ExitReason {
+	if e.kind == store.LoopDecisionEscalate {
+		return watch.ReasonEscalated
+	}
+	return watch.ReasonStopped
 }
 
 func cycleFromRun(run *domain.ReviewRun) (watch.Cycle, error) {

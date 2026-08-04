@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -36,7 +37,12 @@ type RevisionProvider func(context.Context, domain.ReviewTarget) (domain.Revisio
 
 type DiffProvider func(context.Context, domain.ReviewTarget) (string, error)
 
-type PriorFeedbackProvider func(context.Context, domain.ReviewTarget, string, string) (string, error)
+type PriorFeedbackResult struct {
+	Summary        string
+	ModelCallCount int
+}
+
+type PriorFeedbackProvider func(context.Context, domain.ReviewTarget, string, string) (PriorFeedbackResult, error)
 
 type RunIDGenerator func(time.Time) (string, error)
 
@@ -53,6 +59,46 @@ type serviceDependencies struct {
 
 type Service struct {
 	dependencies serviceDependencies
+}
+
+type PreparedRun struct {
+	service   *Service
+	request   Request
+	runID     string
+	startedAt time.Time
+	mu        sync.Mutex
+	executed  bool
+}
+
+func (p *PreparedRun) ID() string {
+	if p == nil {
+		return ""
+	}
+	return p.runID
+}
+
+func (p *PreparedRun) Target() domain.ReviewTarget {
+	if p == nil {
+		return domain.ReviewTarget{}
+	}
+	return p.request.Target.Clone()
+}
+
+func (p *PreparedRun) Run(ctx context.Context) (*domain.ReviewRun, error) {
+	if p == nil || p.service == nil {
+		return nil, fmt.Errorf("prepared review run is required")
+	}
+	if ctx == nil {
+		return nil, fmt.Errorf("review context is required")
+	}
+	p.mu.Lock()
+	if p.executed {
+		p.mu.Unlock()
+		return nil, fmt.Errorf("prepared review run %q was already executed", p.runID)
+	}
+	p.executed = true
+	p.mu.Unlock()
+	return p.service.run(ctx, p.request, p.runID, p.startedAt)
 }
 
 func NewService(options ...Option) (*Service, error) {
@@ -112,6 +158,38 @@ func WithPriorFeedbackProvider(provider PriorFeedbackProvider) Option {
 	}
 }
 
+func (s *Service) Prepare(ctx context.Context, request Request) (*PreparedRun, error) {
+	if s == nil {
+		return nil, fmt.Errorf("review service is required")
+	}
+	if ctx == nil {
+		return nil, fmt.Errorf("review context is required")
+	}
+	if err := validateRequest(request); err != nil {
+		return nil, err
+	}
+	if err := git.ValidateWorktreeRepository(context.WithoutCancel(ctx), request.Target.RepositoryRoot, request.Target.WorktreeRoot); err != nil {
+		return nil, fmt.Errorf("invalid review request: %w", err)
+	}
+	startedAt := s.dependencies.now()
+	runID, err := s.dependencies.newRunID(startedAt)
+	if err != nil {
+		return nil, fmt.Errorf("create review run ID: %w", err)
+	}
+	if strings.TrimSpace(runID) == "" {
+		return nil, fmt.Errorf("create review run ID: empty ID")
+	}
+	revision, err := s.dependencies.revisions(ctx, request.Target)
+	if err != nil {
+		return nil, fmt.Errorf("resolve prepared review revision: %w", err)
+	}
+	if err := validateResolvedRevision(request.Target.Revision, revision); err != nil {
+		return nil, fmt.Errorf("resolve prepared review revision: %w", err)
+	}
+	request.Target.Revision = revision
+	return &PreparedRun{service: s, request: request, runID: runID, startedAt: startedAt}, nil
+}
+
 func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, error) {
 	if s == nil {
 		return nil, fmt.Errorf("review service is required")
@@ -134,7 +212,10 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	if strings.TrimSpace(runID) == "" {
 		return nil, fmt.Errorf("create review run ID: empty ID")
 	}
+	return s.run(ctx, request, runID, startedAt)
+}
 
+func (s *Service) run(ctx context.Context, request Request, runID string, startedAt time.Time) (*domain.ReviewRun, error) {
 	run := &domain.ReviewRun{
 		ID:                       runID,
 		Target:                   request.Target.Clone(),
@@ -204,7 +285,10 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 
 	feedbackTask := s.startPriorFeedback(ctx, run.Target, values, emitter)
 	if feedbackTask != nil {
-		emitter.setBeforeCompletion(feedbackTask.stop)
+		emitter.setBeforeCompletion(func() {
+			feedbackTask.stop()
+			run.Stats.ModelCallCount += feedbackTask.modelCalls()
+		})
 	}
 
 	reviewerTimeout := scaledReviewerTimeout(values.Timeout, len(diff))
@@ -252,6 +336,9 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	results, wallClock, err := reviewRunner.Run(ctx)
 	run.ReviewerResults = cloneReviewerResults(results)
 	run.Stats = runner.BuildStats(results, values.Reviewers, wallClock)
+	for _, result := range run.ReviewerResults {
+		run.Stats.ModelCallCount += result.Attempts
+	}
 	run.RawFindings = cloneFindings(runner.CollectFindings(results))
 	run.AggregatedFindings = cloneAggregatedFindings(domain.AggregateFindings(run.RawFindings))
 	emitter.emit(Event{Kind: EventPhaseCompleted, Phase: domain.ReviewPhaseReviewers})
@@ -281,6 +368,7 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	parentContextErr := ctx.Err()
 	summaryCancel()
 	if summaryResult != nil {
+		run.Stats.ModelCallCount += summaryResult.ModelCallCount
 		run.Stats.SummarizerDuration = summaryResult.Duration
 		run.Summarizer = domain.SummarizerOutcome{
 			ExitCode: summaryResult.ExitCode,
@@ -337,7 +425,9 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	if len(run.PreFilterSummary.Findings) == 0 {
 		feedbackTask.cancelAndComplete(emitter)
 	} else {
-		priorFeedback, err = feedbackTask.receive(ctx, emitter)
+		feedbackResult, feedbackErr := feedbackTask.receive(ctx, emitter)
+		priorFeedback = feedbackResult.Summary
+		err = feedbackErr
 		if err != nil {
 			return s.interrupt(run, domain.ReviewPhaseFeedback, err, emitter), nil
 		}
@@ -355,6 +445,7 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 		fpResult := fpfilter.NewWithAgent(summarizerAgent, values.FPThreshold, postProcessDir).Apply(fpCtx, finalGrouped, priorFeedback, reviewerOutputs)
 		fpCancel()
 		if fpResult != nil {
+			run.Stats.ModelCallCount += fpResult.ModelCallCount
 			finalGrouped = cloneGroupedFindings(fpResult.Grouped)
 			run.FalsePositiveFilter.Applied = !fpResult.Skipped
 			run.FalsePositiveFilter.Skipped = fpResult.Skipped
@@ -508,14 +599,15 @@ func (s *Service) initializeAgents(values domain.ReviewConfigurationValues) ([]a
 }
 
 type priorFeedbackResult struct {
-	summary string
-	err     error
+	result PriorFeedbackResult
+	err    error
 }
 
 type priorFeedbackTask struct {
-	result <-chan priorFeedbackResult
-	done   <-chan struct{}
-	cancel context.CancelFunc
+	result         <-chan priorFeedbackResult
+	done           <-chan struct{}
+	cancel         context.CancelFunc
+	modelCallCount int
 }
 
 func (s *Service) startPriorFeedback(ctx context.Context, target domain.ReviewTarget, values domain.ReviewConfigurationValues, emitter *eventEmitter) *priorFeedbackTask {
@@ -533,24 +625,25 @@ func (s *Service) startPriorFeedback(ctx context.Context, target domain.ReviewTa
 		if feedbackAgent == "" {
 			feedbackAgent = values.SummarizerAgent
 		}
-		summary, err := s.dependencies.priorFeedback(feedbackCtx, target, feedbackAgent, values.SummarizerModel)
-		result <- priorFeedbackResult{summary: summary, err: err}
+		feedbackResult, err := s.dependencies.priorFeedback(feedbackCtx, target, feedbackAgent, values.SummarizerModel)
+		task.modelCallCount = feedbackResult.ModelCallCount
+		result <- priorFeedbackResult{result: feedbackResult, err: err}
 	}()
 	return task
 }
 
-func (t *priorFeedbackTask) receive(ctx context.Context, emitter *eventEmitter) (string, error) {
+func (t *priorFeedbackTask) receive(ctx context.Context, emitter *eventEmitter) (PriorFeedbackResult, error) {
 	if t == nil {
-		return "", nil
+		return PriorFeedbackResult{}, nil
 	}
 	var feedbackResult priorFeedbackResult
 	select {
 	case feedbackResult = <-t.result:
 	case <-ctx.Done():
-		return "", ctx.Err()
+		return PriorFeedbackResult{}, ctx.Err()
 	}
 	completion := "empty"
-	if feedbackResult.summary != "" {
+	if feedbackResult.result.Summary != "" {
 		completion = "summarized"
 	}
 	if feedbackResult.err != nil {
@@ -559,13 +652,13 @@ func (t *priorFeedbackTask) receive(ctx context.Context, emitter *eventEmitter) 
 	emitter.emit(Event{Kind: EventPhaseCompleted, Phase: domain.ReviewPhaseFeedback, Message: completion})
 	if feedbackResult.err != nil {
 		message := "prior feedback unavailable: " + feedbackResult.err.Error()
-		if feedbackResult.summary != "" {
+		if feedbackResult.result.Summary != "" {
 			message = "prior feedback warning: " + feedbackResult.err.Error()
 		}
 		emitter.emit(Event{Kind: EventWarning, Phase: domain.ReviewPhaseFeedback, Message: message})
-		return feedbackResult.summary, nil
+		return feedbackResult.result, nil
 	}
-	return feedbackResult.summary, nil
+	return feedbackResult.result, nil
 }
 
 func (t *priorFeedbackTask) stop() {
@@ -574,6 +667,14 @@ func (t *priorFeedbackTask) stop() {
 	}
 	t.cancel()
 	<-t.done
+}
+
+func (t *priorFeedbackTask) modelCalls() int {
+	if t == nil {
+		return 0
+	}
+	<-t.done
+	return t.modelCallCount
 }
 
 func (t *priorFeedbackTask) cancelAndComplete(emitter *eventEmitter) {
@@ -676,17 +777,18 @@ func loadDiff(ctx context.Context, target domain.ReviewTarget) (string, error) {
 	return git.GetDiff(ctx, target.Revision.BaseObjectID, target.WorktreeRoot)
 }
 
-func summarizePriorFeedback(ctx context.Context, target domain.ReviewTarget, agentName, model string) (string, error) {
+func summarizePriorFeedback(ctx context.Context, target domain.ReviewTarget, agentName, model string) (PriorFeedbackResult, error) {
 	if target.PullRequest == nil {
-		return "", nil
+		return PriorFeedbackResult{}, nil
 	}
 	agentDir, cleanupAgentDir, err := agent.NewIsolatedWorkDir()
 	if err != nil {
-		return "", fmt.Errorf("create isolated feedback workspace: %w", err)
+		return PriorFeedbackResult{}, fmt.Errorf("create isolated feedback workspace: %w", err)
 	}
 	defer cleanupAgentDir()
 	summary := feedback.NewSummarizer(agentName, model, false, nil)
-	return summary.SummarizePullRequestFromDirs(ctx, *target.PullRequest, target.WorktreeRoot, agentDir)
+	text, calls, err := summary.SummarizePullRequestFromDirsWithModelCalls(ctx, *target.PullRequest, target.WorktreeRoot, agentDir)
+	return PriorFeedbackResult{Summary: text, ModelCallCount: calls}, err
 }
 
 func defaultRunID(startedAt time.Time) (string, error) {

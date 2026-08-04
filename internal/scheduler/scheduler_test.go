@@ -197,18 +197,37 @@ func schedulerTarget(key store.PullRequestKeyV1, head string) store.ReviewTarget
 	}
 }
 
-func schedulerWork(target store.ReviewTargetV1, run func(context.Context) (*domain.ReviewRun, error)) BackgroundWork {
-	return BackgroundWork{target: target, run: run}
+func schedulerWork(runID string, target store.ReviewTargetV1, run func(context.Context) (*domain.ReviewRun, error)) BackgroundWork {
+	return BackgroundWork{runID: runID, target: target, run: run}
 }
 
-func schedulerRun(id string, target store.ReviewTargetV1, conclusion domain.ReviewConclusion) *domain.ReviewRun {
+func schedulerRun(t *testing.T, id string, target store.ReviewTargetV1, conclusion domain.ReviewConclusion) *domain.ReviewRun {
+	t.Helper()
+	configuration, err := domain.NewReviewConfiguration(domain.ReviewConfigurationValues{
+		Reviewers:         1,
+		Concurrency:       1,
+		Timeout:           time.Minute,
+		ReviewerAgents:    []string{"inert"},
+		SummarizerAgent:   "inert",
+		SummarizerTimeout: time.Minute,
+		FPFilterTimeout:   time.Minute,
+		FPThreshold:       75,
+	})
+	if err != nil {
+		t.Fatalf("NewReviewConfiguration: %v", err)
+	}
 	return &domain.ReviewRun{
-		ID:          id,
-		Target:      target.ToDomain(),
-		StartedAt:   time.Unix(10, 0),
-		CompletedAt: time.Unix(20, 0),
-		Status:      domain.ReviewStatusCompleted,
-		Conclusion:  conclusion,
+		ID:                       id,
+		Target:                   target.ToDomain(),
+		Trigger:                  domain.ReviewTriggerDesk,
+		Engine:                   domain.ReviewEngine{Name: "acr", Version: "test"},
+		StartedAt:                time.Unix(10, 0),
+		CompletedAt:              time.Unix(20, 0),
+		Configuration:            configuration,
+		ConfigurationSource:      domain.ConfigurationSourceIdentity{Kind: "test"},
+		ConfigurationFingerprint: configuration.Fingerprint(),
+		Status:                   domain.ReviewStatusCompleted,
+		Conclusion:               conclusion,
 	}
 }
 
@@ -220,17 +239,16 @@ func TestBackgroundReviewAuthorizesBoundsAndRecordsRun(t *testing.T) {
 	port, err := (BackgroundReview{
 		Key:        key,
 		Controller: controller,
+		Runs:       store.NewFilesystemRunStore(t.TempDir()),
 		Now:        func() time.Time { return time.Unix(100, 0) },
 		Prepare: func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error) {
 			return PreparedCycle{
-				RunID:  "run-1",
-				Target: target,
-				Work: schedulerWork(target, func(ctx context.Context) (*domain.ReviewRun, error) {
+				Work: schedulerWork("run-1", target, func(ctx context.Context) (*domain.ReviewRun, error) {
 					gotDeadline, ok := ctx.Deadline()
 					if !ok || !gotDeadline.Equal(deadline) {
 						t.Fatalf("deadline = %v, %t, want %v", gotDeadline, ok, deadline)
 					}
-					return schedulerRun("run-1", target, domain.ReviewConclusionFindings), nil
+					return schedulerRun(t, "run-1", target, domain.ReviewConclusionFindings), nil
 				}),
 			}, nil
 		},
@@ -253,6 +271,67 @@ func TestBackgroundReviewAuthorizesBoundsAndRecordsRun(t *testing.T) {
 	}
 }
 
+func TestBackgroundReviewPersistsFailedAndInterruptedRuns(t *testing.T) {
+	tests := []domain.ReviewStatus{domain.ReviewStatusFailed, domain.ReviewStatusInterrupted}
+	for _, status := range tests {
+		t.Run(string(status), func(t *testing.T) {
+			key := schedulerKey(1)
+			target := schedulerTarget(key, "head-1")
+			runID := "run-" + string(status)
+			runStore := store.NewFilesystemRunStore(t.TempDir())
+			controller := &controllerStub{decision: automatic.Decision{Allowed: true}}
+			port, err := (BackgroundReview{
+				Key:        key,
+				Controller: controller,
+				Runs:       runStore,
+				Prepare: func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error) {
+					return PreparedCycle{Work: schedulerWork(runID, target, func(context.Context) (*domain.ReviewRun, error) {
+						run := schedulerRun(t, runID, target, domain.ReviewConclusionClean)
+						run.Status = status
+						run.Conclusion = domain.ReviewConclusionNone
+						run.Failure = &domain.ReviewFailure{Phase: domain.ReviewPhaseReviewers, Message: string(status)}
+						return run, nil
+					})}, nil
+				},
+			}).Port()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := port.RunCycle(context.Background(), 1, "initial review", nil, ""); err == nil {
+				t.Fatalf("expected %s cycle error", status)
+			}
+			runs, corrupt, err := runStore.ListRuns(key)
+			if err != nil || len(corrupt) != 0 || len(runs) != 1 || runs[0].Status != string(status) {
+				t.Fatalf("persisted runs = %+v, corrupt = %+v, err = %v", runs, corrupt, err)
+			}
+			if len(controller.recorded) != 1 || controller.recorded[0].RunID != runID {
+				t.Fatalf("recorded economics = %+v", controller.recorded)
+			}
+		})
+	}
+}
+
+func TestEconomicsUsesMeasuredModelCalls(t *testing.T) {
+	run := &domain.ReviewRun{
+		ID:          "run-measured",
+		StartedAt:   time.Unix(10, 0),
+		CompletedAt: time.Unix(20, 0),
+		ReviewerResults: []domain.ReviewerResult{
+			{Attempts: 2},
+			{Attempts: 1},
+		},
+		Stats: domain.ReviewStats{
+			SummarizerDuration: time.Second,
+			FPFilterDuration:   time.Second,
+			ModelCallCount:     6,
+		},
+	}
+	economics := economicsFromRun(run)
+	if economics.ReviewerCallCount != 3 || economics.ModelCallCount != 6 {
+		t.Fatalf("economics = %+v, want reviewer=3 model=6", economics)
+	}
+}
+
 func TestBackgroundReviewHonorsStopAndResumeDecision(t *testing.T) {
 	controller := &controllerStub{decision: automatic.Decision{Reason: "review budget exhausted"}}
 	key := schedulerKey(1)
@@ -261,14 +340,13 @@ func TestBackgroundReviewHonorsStopAndResumeDecision(t *testing.T) {
 	review := BackgroundReview{
 		Key:        key,
 		Controller: controller,
+		Runs:       store.NewFilesystemRunStore(t.TempDir()),
 		Prepare: func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error) {
 			runID := fmt.Sprintf("run-%d", len(controller.authorized)+1)
 			return PreparedCycle{
-				RunID:  runID,
-				Target: target,
-				Work: schedulerWork(target, func(context.Context) (*domain.ReviewRun, error) {
+				Work: schedulerWork(runID, target, func(context.Context) (*domain.ReviewRun, error) {
 					runs.Add(1)
-					return schedulerRun(runID, target, domain.ReviewConclusionFindings), nil
+					return schedulerRun(t, runID, target, domain.ReviewConclusionFindings), nil
 				}),
 			}, nil
 		},
@@ -311,6 +389,7 @@ func TestBackgroundReviewDurablyDeduplicatesRevisionAcrossRecreation(t *testing.
 		controller, err := automatic.NewController(
 			store.NewFilesystemLoopDecisionStore(dataDir),
 			store.NewFilesystemEconomicsStore(dataDir),
+			store.NewFilesystemRunStore(dataDir),
 		)
 		if err != nil {
 			t.Fatalf("NewController: %v", err)
@@ -330,17 +409,15 @@ func TestBackgroundReviewDurablyDeduplicatesRevisionAcrossRecreation(t *testing.
 	prepare := func(runID string, target store.ReviewTargetV1, policy automatic.TrustedPolicy) PrepareCycle {
 		return func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error) {
 			return PreparedCycle{
-				RunID:  runID,
-				Target: target,
 				Policy: policy,
-				Work: schedulerWork(target, func(context.Context) (*domain.ReviewRun, error) {
+				Work: schedulerWork(runID, target, func(context.Context) (*domain.ReviewRun, error) {
 					runs.Add(1)
-					return schedulerRun(runID, target, domain.ReviewConclusionFindings), nil
+					return schedulerRun(t, runID, target, domain.ReviewConclusionFindings), nil
 				}),
 			}, nil
 		}
 	}
-	first, err := (BackgroundReview{Key: key, Controller: controller, Prepare: prepare("run-a-1", targetA, newPolicy(targetA))}).Port()
+	first, err := (BackgroundReview{Key: key, Controller: controller, Runs: store.NewFilesystemRunStore(dataDir), Prepare: prepare("run-a-1", targetA, newPolicy(targetA))}).Port()
 	if err != nil {
 		t.Fatalf("first Port: %v", err)
 	}
@@ -349,7 +426,7 @@ func TestBackgroundReviewDurablyDeduplicatesRevisionAcrossRecreation(t *testing.
 	}
 
 	restarted := newController()
-	duplicate, err := (BackgroundReview{Key: key, Controller: restarted, Prepare: prepare("run-a-2", targetA, newPolicy(targetA))}).Port()
+	duplicate, err := (BackgroundReview{Key: key, Controller: restarted, Runs: store.NewFilesystemRunStore(dataDir), Prepare: prepare("run-a-2", targetA, newPolicy(targetA))}).Port()
 	if err != nil {
 		t.Fatalf("duplicate Port: %v", err)
 	}
@@ -361,7 +438,7 @@ func TestBackgroundReviewDurablyDeduplicatesRevisionAcrossRecreation(t *testing.
 	}
 
 	targetB := schedulerTarget(key, "head-b")
-	replacement, err := (BackgroundReview{Key: key, Controller: restarted, Prepare: prepare("run-b-1", targetB, newPolicy(targetB))}).Port()
+	replacement, err := (BackgroundReview{Key: key, Controller: restarted, Runs: store.NewFilesystemRunStore(dataDir), Prepare: prepare("run-b-1", targetB, newPolicy(targetB))}).Port()
 	if err != nil {
 		t.Fatalf("replacement Port: %v", err)
 	}
@@ -423,8 +500,11 @@ func TestBackgroundWorkExposesNoSubmissionCapability(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 	var submissionCalls atomic.Int32
-	work, err := NewBackgroundWork(service, reviewpkg.Request{
-		Target:        target.ToDomain(),
+	requestTarget := target
+	requestTarget.Revision.HeadObjectID = ""
+	requestTarget.Revision.BaseObjectID = ""
+	work, err := NewBackgroundWork(context.Background(), service, reviewpkg.Request{
+		Target:        requestTarget.ToDomain(),
 		Trigger:       domain.ReviewTriggerDesk,
 		Engine:        domain.ReviewEngine{Name: "acr", Version: "test"},
 		Configuration: configuration,
@@ -438,16 +518,21 @@ func TestBackgroundWorkExposesNoSubmissionCapability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewBackgroundWork: %v", err)
 	}
+	if work.runID != "run-clean" || work.target.Revision.HeadObjectID != "head-1" || work.target.Revision.BaseObjectID != "base-1" {
+		t.Fatalf("background work identity = %q %+v, want resolved prepared identity", work.runID, work.target.Revision)
+	}
 	controller := &controllerStub{decision: automatic.Decision{Allowed: true}}
+	runStore := store.NewFilesystemRunStore(t.TempDir())
 	port, err := (BackgroundReview{
 		Key:        key,
 		Controller: controller,
+		Runs:       runStore,
 		Prepare: func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error) {
-			return PreparedCycle{
-				RunID:  "run-clean",
-				Target: target,
-				Work:   work,
-			}, nil
+			return NewPreparedCycle(work, store.AdjudicationPolicyV1{
+				SchemaVersion: store.CurrentSchemaVersion,
+				Source:        store.PolicySourceV1{Kind: config.SourceKindDefaults},
+				Budget:        store.BudgetPolicyV1{MaxIterations: 1},
+			})
 		},
 	}).Port()
 	if err != nil {
@@ -462,6 +547,13 @@ func TestBackgroundWorkExposesNoSubmissionCapability(t *testing.T) {
 	}
 	if submissionCalls.Load() != 0 {
 		t.Fatalf("background work invoked supplied submission callback %d time(s)", submissionCalls.Load())
+	}
+	runs, corrupt, err := runStore.ListRuns(key)
+	if err != nil || len(corrupt) != 0 || len(runs) != 1 || runs[0].ID != "run-clean" {
+		t.Fatalf("persisted runs = %+v, corrupt = %+v, err = %v", runs, corrupt, err)
+	}
+	if len(controller.recorded) != 1 || controller.recorded[0].ModelCallCount != 0 {
+		t.Fatalf("recorded economics = %+v, want exact zero model calls", controller.recorded)
 	}
 }
 
@@ -547,6 +639,7 @@ func TestLifecycleReviewsSettledReplacementHeadOnce(t *testing.T) {
 	review := BackgroundReview{
 		Key:        key,
 		Controller: controller,
+		Runs:       store.NewFilesystemRunStore(t.TempDir()),
 		Prepare: func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error) {
 			mu.Lock()
 			head := states[stateIndex-1].HeadSHA
@@ -555,14 +648,12 @@ func TestLifecycleReviewsSettledReplacementHeadOnce(t *testing.T) {
 			target := schedulerTarget(key, head)
 			runID := "run-" + head
 			return PreparedCycle{
-				RunID:  runID,
-				Target: target,
-				Work: schedulerWork(target, func(context.Context) (*domain.ReviewRun, error) {
+				Work: schedulerWork(runID, target, func(context.Context) (*domain.ReviewRun, error) {
 					conclusion := domain.ReviewConclusionFindings
 					if head == "head-b" {
 						conclusion = domain.ReviewConclusionClean
 					}
-					return schedulerRun(runID, target, conclusion), nil
+					return schedulerRun(t, runID, target, conclusion), nil
 				}),
 			}, nil
 		},
@@ -582,5 +673,50 @@ func TestLifecycleReviewsSettledReplacementHeadOnce(t *testing.T) {
 	}
 	if fmt.Sprint(heads) != "[head-a head-b]" {
 		t.Fatalf("reviewed heads = %v, want [head-a head-b]", heads)
+	}
+}
+
+func TestLifecycleMapsControllerStopAndEscalation(t *testing.T) {
+	tests := []struct {
+		kind store.LoopDecisionKindV1
+		want watch.ExitReason
+	}{
+		{kind: store.LoopDecisionStop, want: watch.ReasonStopped},
+		{kind: store.LoopDecisionEscalate, want: watch.ReasonEscalated},
+	}
+	for _, test := range tests {
+		t.Run(string(test.kind), func(t *testing.T) {
+			key := schedulerKey(1)
+			target := schedulerTarget(key, "head-1")
+			clock := &advancingClock{now: time.Now()}
+			lifecycle, err := NewLifecycle(watch.Config{
+				PollInterval:    time.Minute,
+				SettleTime:      time.Minute,
+				MaxReviews:      2,
+				MaxDuration:     time.Hour,
+				UncertainPolicy: watch.UncertainWait,
+			}, watch.Polling{
+				Clock: clock,
+				State: func(context.Context) (watch.PRState, error) {
+					return watch.PRState{HeadSHA: "head-1"}, nil
+				},
+			}, BackgroundReview{
+				Key:        key,
+				Controller: &controllerStub{decision: automatic.Decision{Kind: test.kind, Reason: "controlled"}},
+				Runs:       store.NewFilesystemRunStore(t.TempDir()),
+				Prepare: func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error) {
+					return PreparedCycle{Work: schedulerWork("run-controlled", target, func(context.Context) (*domain.ReviewRun, error) {
+						t.Fatal("controlled termination executed review work")
+						return nil, nil
+					})}, nil
+				},
+			}, nil, watch.Presentation{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if reason := lifecycle.Run(context.Background()); reason != test.want {
+				t.Fatalf("reason = %v, want %v", reason, test.want)
+			}
+		})
 	}
 }

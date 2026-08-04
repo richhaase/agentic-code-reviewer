@@ -54,6 +54,7 @@ type ReviewStats struct {
 	SummarizerDuration  time.Duration
 	FPFilterDuration    time.Duration
 	FPFilteredCount     int
+	ModelCallCount      int
 }
 
 func (s *ReviewStats) AllFailed() bool {

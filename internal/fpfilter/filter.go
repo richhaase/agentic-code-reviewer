@@ -22,14 +22,15 @@ type EvaluatedFinding struct {
 }
 
 type Result struct {
-	Grouped      domain.GroupedFindings
-	Removed      []EvaluatedFinding
-	RemovedCount int
-	Duration     time.Duration
-	EvalErrors   int
-	Skipped      bool
-	SkipReason   string
-	Warnings     []string
+	Grouped        domain.GroupedFindings
+	Removed        []EvaluatedFinding
+	RemovedCount   int
+	Duration       time.Duration
+	EvalErrors     int
+	ModelCallCount int
+	Skipped        bool
+	SkipReason     string
+	Warnings       []string
 }
 
 type Filter struct {
@@ -161,9 +162,17 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 	execResult, err := ag.ExecuteSummary(ctx, &agent.SummaryConfig{Prompt: prompt, Input: payload, WorkDir: f.workDir})
 	if err != nil {
 		if ctx.Err() != nil {
-			return skippedResult(grouped, start, "context canceled")
+			result := skippedResult(grouped, start, "context canceled")
+			result.ModelCallCount = 1
+			return result
 		}
-		return skippedResult(grouped, start, "LLM execution failed: "+err.Error())
+		result := skippedResult(grouped, start, "LLM execution failed: "+err.Error())
+		result.ModelCallCount = 1
+		return result
+	}
+	withModelCall := func(result *Result) *Result {
+		result.ModelCallCount = 1
+		return result
 	}
 
 	output, err := io.ReadAll(execResult)
@@ -176,26 +185,30 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 	}
 	if err != nil {
 		if ctx.Err() != nil {
-			return withWarnings(skippedResult(grouped, start, "context canceled"), warnings)
+			result := withWarnings(skippedResult(grouped, start, "context canceled"), warnings)
+			result.ModelCallCount = 1
+			return result
 		}
-		return withWarnings(skippedResult(grouped, start, "response read failed: "+err.Error()), warnings)
+		result := withWarnings(skippedResult(grouped, start, "response read failed: "+err.Error()), warnings)
+		result.ModelCallCount = 1
+		return result
 	}
 
 	parser, err := agent.NewSummaryParser(ag.Name())
 	if err != nil {
-		return withWarnings(skippedResult(grouped, start, "parser creation failed: "+err.Error()), warnings)
+		return withModelCall(withWarnings(skippedResult(grouped, start, "parser creation failed: "+err.Error()), warnings))
 	}
 
 	responseText, err := parser.ExtractText(output)
 	if err != nil {
-		return withWarnings(skippedResult(grouped, start, "response extraction failed: "+err.Error()), warnings)
+		return withModelCall(withWarnings(skippedResult(grouped, start, "response extraction failed: "+err.Error()), warnings))
 	}
 
 	var response evaluationResponse
 	if err := json.Unmarshal([]byte(responseText), &response); err != nil {
 		r := skippedResult(grouped, start, "response parse failed: "+err.Error())
 		r.EvalErrors = len(grouped.Findings)
-		return withWarnings(r, warnings)
+		return withModelCall(withWarnings(r, warnings))
 	}
 
 	evalMap := make(map[int]findingEvaluation)
@@ -229,7 +242,7 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 		}
 	}
 
-	return withWarnings(&Result{
+	return withModelCall(withWarnings(&Result{
 		Grouped: domain.GroupedFindings{
 			Findings: kept,
 			Info:     grouped.Info,
@@ -238,5 +251,5 @@ func (f *Filter) Apply(ctx context.Context, grouped domain.GroupedFindings, prio
 		RemovedCount: len(removed),
 		Duration:     time.Since(start),
 		EvalErrors:   evalErrors,
-	}, warnings)
+	}, warnings))
 }

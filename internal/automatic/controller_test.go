@@ -1,6 +1,7 @@
 package automatic
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/config"
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/store"
 )
 
@@ -64,6 +66,8 @@ func testTarget() store.ReviewTargetV1 {
 		Revision: store.RevisionEvidenceV1{
 			RequestedBaseRef: "main",
 			ResolvedBaseRef:  "refs/remotes/origin/main",
+			HeadObjectID:     "head-object",
+			BaseObjectID:     "base-object",
 		},
 		PullRequest: &key,
 	}
@@ -91,6 +95,7 @@ func testController(t *testing.T, dir string, now *time.Time) *Controller {
 	controller, err := NewController(
 		store.NewFilesystemLoopDecisionStore(dir),
 		store.NewFilesystemEconomicsStore(dir),
+		store.NewFilesystemRunStore(dir),
 	)
 	if err != nil {
 		t.Fatalf("NewController: %v", err)
@@ -113,7 +118,122 @@ func testUserAuthorization(t *testing.T) Authorization {
 
 func testAuthorize(t *testing.T, controller *Controller, key store.PullRequestKeyV1, runID string) (Decision, error) {
 	t.Helper()
-	return controller.AuthorizeReview(key, testTarget(), testPolicy(t, 1, time.Hour, 0), runID)
+	target := testTarget()
+	target.Revision.HeadObjectID = "head-" + runID
+	policy, err := NewTrustedPolicy(store.AdjudicationPolicyV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		Source:        store.PolicySourceV1{Kind: config.SourceKindDefaults},
+		Budget:        store.BudgetPolicyV1{MaxIterations: 1, MaxDuration: time.Hour},
+	}, target)
+	if err != nil {
+		t.Fatalf("NewTrustedPolicy: %v", err)
+	}
+	return controller.AuthorizeReview(key, target, policy, runID)
+}
+
+func authorizeWithHead(t *testing.T, controller *Controller, key store.PullRequestKeyV1, policy TrustedPolicy, runID string) (Decision, error) {
+	t.Helper()
+	target := testTarget()
+	target.Revision.HeadObjectID = "head-" + runID
+	policy.target = target
+	return controller.AuthorizeReview(key, target, policy, runID)
+}
+
+func saveAutomaticRun(t *testing.T, dir, runID string, target store.ReviewTargetV1, status domain.ReviewStatus) {
+	t.Helper()
+	configuration, err := domain.NewReviewConfiguration(domain.ReviewConfigurationValues{
+		Reviewers:         1,
+		Concurrency:       1,
+		Timeout:           time.Minute,
+		ReviewerAgents:    []string{"inert"},
+		SummarizerAgent:   "inert",
+		SummarizerTimeout: time.Minute,
+		FPFilterTimeout:   time.Minute,
+		FPThreshold:       75,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := domain.ReviewRun{
+		ID:                       runID,
+		Target:                   target.ToDomain(),
+		Trigger:                  domain.ReviewTriggerDesk,
+		Engine:                   domain.ReviewEngine{Name: "acr", Version: "test"},
+		StartedAt:                time.Unix(1, 0),
+		CompletedAt:              time.Unix(2, 0),
+		Configuration:            configuration,
+		ConfigurationSource:      domain.ConfigurationSourceIdentity{Kind: "test"},
+		ConfigurationFingerprint: configuration.Fingerprint(),
+		Status:                   status,
+	}
+	if status == domain.ReviewStatusCompleted {
+		run.Conclusion = domain.ReviewConclusionClean
+	} else {
+		run.Failure = &domain.ReviewFailure{Phase: domain.ReviewPhaseReviewers, Message: string(status)}
+	}
+	schema, err := store.ToReviewRunSchema(run, store.RenderedOutcomeV1{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.NewFilesystemRunStore(dir).SaveRun(schema); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestControllerDeduplicatesCompletedRevisionButAllowsFailedAndInterruptedRetries(t *testing.T) {
+	now := time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	controller := testController(t, dir, &now)
+	key := testKey()
+	target := testTarget()
+	policy, err := NewTrustedPolicy(store.AdjudicationPolicyV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		Source:        store.PolicySourceV1{Kind: config.SourceKindDefaults},
+		Budget:        store.BudgetPolicyV1{MaxIterations: 10},
+	}, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.Commission(key, target, policy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.AuthorizeReview(key, target, policy, "failed-run"); err != nil {
+		t.Fatal(err)
+	}
+	saveAutomaticRun(t, dir, "failed-run", target, domain.ReviewStatusFailed)
+	if _, err := controller.AuthorizeReview(key, target, policy, "interrupted-run"); err != nil {
+		t.Fatalf("failed revision was not retryable: %v", err)
+	}
+	saveAutomaticRun(t, dir, "interrupted-run", target, domain.ReviewStatusInterrupted)
+	if _, err := controller.AuthorizeReview(key, target, policy, "completed-run"); err != nil {
+		t.Fatalf("interrupted revision was not retryable: %v", err)
+	}
+	saveAutomaticRun(t, dir, "completed-run", target, domain.ReviewStatusCompleted)
+	if _, err := controller.Escalate(key, "trusted review"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.Resume(key, target, policy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.AuthorizeReview(key, target, policy, "duplicate-run"); !errors.Is(err, ErrRevisionAlreadyAuthorized) {
+		t.Fatalf("completed revision after resume error = %v, want duplicate rejection", err)
+	}
+}
+
+func TestControllerRejectsUnresolvedAutomaticTarget(t *testing.T) {
+	now := time.Now()
+	controller := testController(t, t.TempDir(), &now)
+	key := testKey()
+	target := testTarget()
+	policy := testPolicy(t, 2, time.Hour, 0)
+	if _, err := controller.Commission(key, target, policy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	target.Revision.HeadObjectID = ""
+	policy.target = target
+	if _, err := controller.AuthorizeReview(key, target, policy, "unresolved-run"); err == nil || !strings.Contains(err.Error(), "resolved object ids") {
+		t.Fatalf("AuthorizeReview error = %v, want unresolved target rejection", err)
+	}
 }
 
 func TestControllerRequiresTrustedCommissionAndRecordsAdmission(t *testing.T) {
@@ -270,6 +390,7 @@ func TestControllerSamplesAdmissionClockOnce(t *testing.T) {
 	controller, err := NewController(
 		store.NewFilesystemLoopDecisionStore(dir),
 		store.NewFilesystemEconomicsStore(dir),
+		store.NewFilesystemRunStore(dir),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -441,7 +562,7 @@ func TestControllerClassifiesCorruptEconomicsByConfiguredBudget(t *testing.T) {
 			if _, err := controller.Commission(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := controller.AuthorizeReview(key, testTarget(), policy, "run-before-corruption"); err != nil {
+			if _, err := authorizeWithHead(t, controller, key, policy, "run-before-corruption"); err != nil {
 				t.Fatal(err)
 			}
 			economicsDir := filepath.Join(dir, "prs", key.Host, key.Owner, key.Repository, fmt.Sprintf("%d", key.Number), "economics")
@@ -451,7 +572,7 @@ func TestControllerClassifiesCorruptEconomicsByConfiguredBudget(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(economicsDir, "20260731T120001.000000000Z-corrupt.json"), []byte("not json"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			decision, err := controller.AuthorizeReview(key, testTarget(), policy, "run-after-corruption")
+			decision, err := authorizeWithHead(t, controller, key, policy, "run-after-corruption")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -484,7 +605,7 @@ func TestControllerFailsClosedForCorruptActiveEconomicsWithValidReplacement(t *t
 			if _, err := controller.Commission(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := controller.AuthorizeReview(key, testTarget(), policy, "run-with-corruption"); err != nil {
+			if _, err := authorizeWithHead(t, controller, key, policy, "run-with-corruption"); err != nil {
 				t.Fatal(err)
 			}
 			economicsDir := filepath.Join(dir, "prs", key.Host, key.Owner, key.Repository, fmt.Sprintf("%d", key.Number), "economics")
@@ -501,7 +622,7 @@ func TestControllerFailsClosedForCorruptActiveEconomicsWithValidReplacement(t *t
 			}); err != nil {
 				t.Fatal(err)
 			}
-			decision, err := controller.AuthorizeReview(key, testTarget(), policy, "run-after-corruption")
+			decision, err := authorizeWithHead(t, controller, key, policy, "run-after-corruption")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -521,7 +642,7 @@ func TestControllerIgnoresCorruptEconomicsOutsideActiveSession(t *testing.T) {
 	if _, err := controller.Commission(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := controller.AuthorizeReview(key, testTarget(), policy, "old-session-run"); err != nil {
+	if _, err := authorizeWithHead(t, controller, key, policy, "old-session-run"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := controller.Escalate(key, "trusted restart requested"); err != nil {
@@ -537,7 +658,7 @@ func TestControllerIgnoresCorruptEconomicsOutsideActiveSession(t *testing.T) {
 	if _, err := controller.Resume(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := controller.AuthorizeReview(key, testTarget(), policy, "active-session-run"); err != nil {
+	if _, err := authorizeWithHead(t, controller, key, policy, "active-session-run"); err != nil {
 		t.Fatal(err)
 	}
 	if err := controller.RecordEconomics(key, now, store.ReviewEconomicsV1{
@@ -549,7 +670,7 @@ func TestControllerIgnoresCorruptEconomicsOutsideActiveSession(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	decision, err := controller.AuthorizeReview(key, testTarget(), policy, "next-active-run")
+	decision, err := authorizeWithHead(t, controller, key, policy, "next-active-run")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,7 +686,7 @@ func TestControllerSkipsBudgetEconomicsReadWithoutCostLimit(t *testing.T) {
 		EconomicsStore: store.NewFilesystemEconomicsStore(dir),
 		failAfter:      2,
 	}
-	controller, err := NewController(store.NewFilesystemLoopDecisionStore(dir), economics)
+	controller, err := NewController(store.NewFilesystemLoopDecisionStore(dir), economics, store.NewFilesystemRunStore(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -578,10 +699,10 @@ func TestControllerSkipsBudgetEconomicsReadWithoutCostLimit(t *testing.T) {
 	if _, err := controller.Commission(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := controller.AuthorizeReview(key, testTarget(), policy, "run-one"); err != nil {
+	if _, err := authorizeWithHead(t, controller, key, policy, "run-one"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := controller.AuthorizeReview(key, testTarget(), policy, "run-two"); err != nil {
+	if _, err := authorizeWithHead(t, controller, key, policy, "run-two"); err != nil {
 		t.Fatal(err)
 	}
 	if economics.listCalls != 2 {
@@ -906,7 +1027,7 @@ func TestControllerRejectsResumeForUnacknowledgeableCorruption(t *testing.T) {
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
 	dir := t.TempDir()
 	decisionStore := &unreadableCorruptDecisionStore{LoopDecisionStore: store.NewFilesystemLoopDecisionStore(dir)}
-	controller, err := NewController(decisionStore, store.NewFilesystemEconomicsStore(dir))
+	controller, err := NewController(decisionStore, store.NewFilesystemEconomicsStore(dir), store.NewFilesystemRunStore(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -981,7 +1102,7 @@ func TestControllerTreatsZeroCallEconomicsAsKnownZero(t *testing.T) {
 	if _, err := controller.Commission(key, testTarget(), policy, testUserAuthorization(t)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := controller.AuthorizeReview(key, testTarget(), policy, "zero-call-run"); err != nil {
+	if _, err := authorizeWithHead(t, controller, key, policy, "zero-call-run"); err != nil {
 		t.Fatal(err)
 	}
 	if err := controller.RecordEconomics(key, now, store.ReviewEconomicsV1{
@@ -990,7 +1111,7 @@ func TestControllerTreatsZeroCallEconomicsAsKnownZero(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	decision, err := controller.AuthorizeReview(key, testTarget(), policy, "run-after-zero-call")
+	decision, err := authorizeWithHead(t, controller, key, policy, "run-after-zero-call")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1005,6 +1126,7 @@ func TestControllerPropagatesDecisionLockReleaseFailure(t *testing.T) {
 	controller, err := NewController(
 		&releaseFailingDecisionStore{LoopDecisionStore: store.NewFilesystemLoopDecisionStore(dir)},
 		store.NewFilesystemEconomicsStore(dir),
+		store.NewFilesystemRunStore(dir),
 	)
 	if err != nil {
 		t.Fatal(err)

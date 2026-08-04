@@ -60,12 +60,13 @@ Rules:
 - If the input is empty, return: {"findings": [], "info": []}`
 
 type Result struct {
-	Grouped  domain.GroupedFindings
-	ExitCode int
-	Stderr   string
-	RawOut   string
-	Duration time.Duration
-	Warnings []string
+	Grouped        domain.GroupedFindings
+	ExitCode       int
+	Stderr         string
+	RawOut         string
+	Duration       time.Duration
+	Warnings       []string
+	ModelCallCount int
 }
 
 type inputItem struct {
@@ -132,12 +133,13 @@ func summarize(ctx context.Context, ag agent.Agent, aggregated []domain.Aggregat
 
 		if ctx.Err() != nil {
 			return &Result{
-				ExitCode: -1,
-				Stderr:   "context canceled",
-				Duration: time.Since(start),
+				ExitCode:       -1,
+				Stderr:         "context canceled",
+				Duration:       time.Since(start),
+				ModelCallCount: 1,
 			}, nil
 		}
-		return nil, err
+		return &Result{Duration: time.Since(start), ModelCallCount: 1}, err
 	}
 
 	closed := false
@@ -162,10 +164,11 @@ func summarize(ctx context.Context, ag agent.Agent, aggregated []domain.Aggregat
 
 		if ctx.Err() != nil {
 			return &Result{
-				ExitCode: -1,
-				Stderr:   "context canceled",
-				Duration: time.Since(start),
-				Warnings: append([]string(nil), warnings...),
+				ExitCode:       -1,
+				Stderr:         "context canceled",
+				Duration:       time.Since(start),
+				Warnings:       append([]string(nil), warnings...),
+				ModelCallCount: 1,
 			}, nil
 		}
 		readErr := fmt.Errorf("read summarizer output: %w", err)
@@ -179,11 +182,12 @@ func summarize(ctx context.Context, ag agent.Agent, aggregated []domain.Aggregat
 		}
 		stderr += readErr.Error()
 		return &Result{
-			ExitCode: exitCode,
-			Stderr:   stderr,
-			RawOut:   string(output),
-			Duration: time.Since(start),
-			Warnings: append([]string(nil), warnings...),
+			ExitCode:       exitCode,
+			Stderr:         stderr,
+			RawOut:         string(output),
+			Duration:       time.Since(start),
+			Warnings:       append([]string(nil), warnings...),
+			ModelCallCount: 1,
 		}, readErr
 	}
 
@@ -195,28 +199,30 @@ func summarize(ctx context.Context, ag agent.Agent, aggregated []domain.Aggregat
 
 	if exitCode != 0 && agent.IsAuthFailure(agentName, exitCode, stderr, rawOut) {
 		return &Result{
-			Grouped:  domain.GroupedFindings{},
-			ExitCode: exitCode,
-			Stderr:   fmt.Sprintf("%s authentication failed: %s", agentName, agent.AuthHint(agentName)),
-			RawOut:   rawOut,
-			Duration: duration,
-			Warnings: append([]string(nil), warnings...),
+			Grouped:        domain.GroupedFindings{},
+			ExitCode:       exitCode,
+			Stderr:         fmt.Sprintf("%s authentication failed: %s", agentName, agent.AuthHint(agentName)),
+			RawOut:         rawOut,
+			Duration:       duration,
+			Warnings:       append([]string(nil), warnings...),
+			ModelCallCount: 1,
 		}, nil
 	}
 
 	if len(output) == 0 {
 		return &Result{
-			Grouped:  domain.GroupedFindings{},
-			ExitCode: exitCode,
-			Stderr:   stderr,
-			Duration: duration,
-			Warnings: append([]string(nil), warnings...),
+			Grouped:        domain.GroupedFindings{},
+			ExitCode:       exitCode,
+			Stderr:         stderr,
+			Duration:       duration,
+			Warnings:       append([]string(nil), warnings...),
+			ModelCallCount: 1,
 		}, nil
 	}
 
 	parser, err := agent.NewSummaryParser(agentName)
 	if err != nil {
-		return nil, err
+		return &Result{Duration: duration, ModelCallCount: 1}, err
 	}
 
 	grouped, err := parser.Parse(output)
@@ -226,21 +232,23 @@ func summarize(ctx context.Context, ag agent.Agent, aggregated []domain.Aggregat
 			parseErr = stderr + "\n" + parseErr
 		}
 		return &Result{
-			Grouped:  domain.GroupedFindings{},
-			ExitCode: 1,
-			Stderr:   parseErr,
-			RawOut:   rawOut,
-			Duration: duration,
-			Warnings: append([]string(nil), warnings...),
+			Grouped:        domain.GroupedFindings{},
+			ExitCode:       1,
+			Stderr:         parseErr,
+			RawOut:         rawOut,
+			Duration:       duration,
+			Warnings:       append([]string(nil), warnings...),
+			ModelCallCount: 1,
 		}, nil
 	}
 
 	return &Result{
-		Grouped:  *grouped,
-		ExitCode: exitCode,
-		Stderr:   stderr,
-		RawOut:   rawOut,
-		Duration: duration,
-		Warnings: append([]string(nil), warnings...),
+		Grouped:        *grouped,
+		ExitCode:       exitCode,
+		Stderr:         stderr,
+		RawOut:         rawOut,
+		Duration:       duration,
+		Warnings:       append([]string(nil), warnings...),
+		ModelCallCount: 1,
 	}, nil
 }

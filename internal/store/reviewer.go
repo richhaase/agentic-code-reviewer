@@ -227,6 +227,7 @@ type ReviewStatsV1 struct {
 	SummarizerDuration  time.Duration         `json:"summarizer_duration"`
 	FPFilterDuration    time.Duration         `json:"fp_filter_duration"`
 	FPFilteredCount     int                   `json:"fp_filtered_count"`
+	ModelCallCount      int                   `json:"model_call_count"`
 }
 
 func cloneIntDurationMap(m map[int]time.Duration) map[int]time.Duration {
@@ -265,6 +266,7 @@ func ToReviewStatsSchema(s domain.ReviewStats) ReviewStatsV1 {
 		SummarizerDuration:  s.SummarizerDuration,
 		FPFilterDuration:    s.FPFilterDuration,
 		FPFilteredCount:     s.FPFilteredCount,
+		ModelCallCount:      s.ModelCallCount,
 	}
 }
 
@@ -282,5 +284,6 @@ func (s ReviewStatsV1) ToDomain() domain.ReviewStats {
 		SummarizerDuration:  s.SummarizerDuration,
 		FPFilterDuration:    s.FPFilterDuration,
 		FPFilteredCount:     s.FPFilteredCount,
+		ModelCallCount:      s.ModelCallCount,
 	}
 }

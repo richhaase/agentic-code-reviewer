@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
 	"github.com/richhaase/agentic-code-reviewer/internal/store"
 )
 
@@ -82,21 +83,26 @@ type Decision struct {
 type Controller struct {
 	decisions store.LoopDecisionStore
 	economics store.EconomicsStore
+	runs      store.RunStore
 	now       func() time.Time
 	newID     func() (string, error)
 	mu        sync.Mutex
 }
 
-func NewController(decisions store.LoopDecisionStore, economics store.EconomicsStore) (*Controller, error) {
+func NewController(decisions store.LoopDecisionStore, economics store.EconomicsStore, runs store.RunStore) (*Controller, error) {
 	if decisions == nil {
 		return nil, fmt.Errorf("automatic review decision store is required")
 	}
 	if economics == nil {
 		return nil, fmt.Errorf("automatic review economics store is required")
 	}
+	if runs == nil {
+		return nil, fmt.Errorf("automatic review run store is required")
+	}
 	return &Controller{
 		decisions: decisions,
 		economics: economics,
+		runs:      runs,
 		now:       time.Now,
 		newID:     randomID,
 	}, nil
@@ -113,7 +119,6 @@ func (c *Controller) Commission(key store.PullRequestKeyV1, target store.ReviewT
 	if err := validateTrustedTarget(key, target, policy); err != nil {
 		return Decision{}, err
 	}
-
 	decisions, corrupt, err := c.decisions.ListLoopDecisions(key)
 	if err != nil {
 		return Decision{}, fmt.Errorf("load automatic review decisions: %w", err)
@@ -140,7 +145,6 @@ func (c *Controller) Resume(key store.PullRequestKeyV1, target store.ReviewTarge
 	if err := validateTrustedTarget(key, target, policy); err != nil {
 		return Decision{}, err
 	}
-
 	decisions, corrupt, err := c.decisions.ListLoopDecisions(key)
 	if err != nil {
 		return Decision{}, fmt.Errorf("load automatic review decisions: %w", err)
@@ -167,6 +171,9 @@ func (c *Controller) AuthorizeReview(key store.PullRequestKeyV1, target store.Re
 	if err := validateTrustedTarget(key, target, policy); err != nil {
 		return Decision{}, err
 	}
+	if target.Revision.HeadObjectID == "" || target.Revision.BaseObjectID == "" {
+		return Decision{}, fmt.Errorf("automatic review target must have resolved object ids")
+	}
 
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
@@ -191,6 +198,17 @@ func (c *Controller) AuthorizeReview(key store.PullRequestKeyV1, target store.Re
 	if hasUnacknowledgedCorruptDecisions(corrupt, session) {
 		return c.recordDecision(key, session, store.LoopDecisionEscalate, "automatic review history is incomplete because durable decision records are corrupt", "", nil, store.BudgetStateV1{}, false)
 	}
+	runs, corruptRuns, err := c.runs.ListRuns(key)
+	if err != nil {
+		return Decision{}, fmt.Errorf("load automatic review runs: %w", err)
+	}
+	if len(corruptRuns) != 0 {
+		return Decision{}, fmt.Errorf("automatic review run history contains %d corrupt record(s)", len(corruptRuns))
+	}
+	runsByID := make(map[string]store.ReviewRunV1, len(runs))
+	for _, run := range runs {
+		runsByID[run.ID] = run
+	}
 	for _, decision := range allDecisions {
 		if decision.RunID == runID {
 			return Decision{}, fmt.Errorf("automatic review run %q already has a durable decision", runID)
@@ -199,7 +217,10 @@ func (c *Controller) AuthorizeReview(key store.PullRequestKeyV1, target store.Re
 			decision.Decision == store.LoopDecisionContinue &&
 			decision.ReviewTarget != nil &&
 			sameEffectiveRevision(*decision.ReviewTarget, target) {
-			return Decision{}, fmt.Errorf("%w: %s", ErrRevisionAlreadyAuthorized, target.Revision.HeadObjectID)
+			run, exists := runsByID[decision.RunID]
+			if !exists || run.Status == string(domain.ReviewStatusCompleted) {
+				return Decision{}, fmt.Errorf("%w: %s", ErrRevisionAlreadyAuthorized, target.Revision.HeadObjectID)
+			}
 		}
 	}
 	economics, _, err := c.economics.ListEconomics(key)
