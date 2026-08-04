@@ -83,6 +83,7 @@ const (
 	CycleLGTMDeclined
 	CycleLGTMSkipped
 	CycleStaleHead
+	CycleClean
 )
 
 type Cycle struct {
@@ -980,6 +981,9 @@ func (l *loop) cycle(
 		return 0, false
 	case CycleFindings:
 		l.logf("Review #%d complete (findings); resuming watch.", l.reviews)
+		return 0, false
+	case CycleClean:
+		l.logf("Review #%d complete (clean); resuming watch.", l.reviews)
 		return 0, false
 	default:
 		return ReasonError, true
