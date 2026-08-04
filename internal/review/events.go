@@ -10,15 +10,16 @@ import (
 type EventKind string
 
 const (
-	EventRunStarted        EventKind = "run_started"
-	EventPhaseStarted      EventKind = "phase_started"
-	EventPhaseCompleted    EventKind = "phase_completed"
-	EventWarning           EventKind = "warning"
-	EventReviewerStarted   EventKind = "reviewer_started"
-	EventReviewerOutput    EventKind = "reviewer_output"
-	EventReviewerRetrying  EventKind = "reviewer_retrying"
-	EventReviewerCompleted EventKind = "reviewer_completed"
-	EventRunCompleted      EventKind = "run_completed"
+	EventRunStarted            EventKind = "run_started"
+	EventPhaseStarted          EventKind = "phase_started"
+	EventPhaseCompleted        EventKind = "phase_completed"
+	EventWarning               EventKind = "warning"
+	EventReviewerStarted       EventKind = "reviewer_started"
+	EventReviewerOutput        EventKind = "reviewer_output"
+	EventReviewerRetrying      EventKind = "reviewer_retrying"
+	EventReviewerCompleted     EventKind = "reviewer_completed"
+	EventReviewerTimeoutScaled EventKind = "reviewer_timeout_scaled"
+	EventRunCompleted          EventKind = "run_completed"
 )
 
 type Event struct {

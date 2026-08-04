@@ -253,14 +253,15 @@ func (r *Runner) runReviewerWithRetry(ctx context.Context, reviewerID int) domai
 			return result
 		}
 
+		if result.TimedOut {
+			return result
+		}
+
 		if attempt < r.config.Retries {
 			base := time.Duration(1<<attempt) * time.Second
 			jitter := time.Duration(rand.Int64N(int64(base / 2)))
 			delay := base + jitter
 			reason := "failed"
-			if result.TimedOut {
-				reason = "timed out"
-			}
 			if r.logger != nil {
 				r.logger.Logf(terminal.StyleWarning, "Reviewer #%d %s (exit %d), retry %d/%d in %v",
 					reviewerID, reason, result.ExitCode, attempt+1, r.config.Retries, delay)
@@ -308,6 +309,7 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) (result domain
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, r.config.Timeout)
 	defer cancel()
+	timeoutDeadline, _ := timeoutCtx.Deadline()
 
 	reviewConfig := &agent.ReviewConfig{
 		BaseRef:         r.config.BaseRef,
@@ -385,6 +387,16 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) (result domain
 		}
 
 		finding, err := parser.ReadFinding(scanner)
+		readCompletedAt := time.Now()
+		completedBeforeTimeout := !readCompletedAt.After(timeoutDeadline)
+		if !completedBeforeTimeout {
+			result.ParseErrors += parser.ParseErrors()
+			result.TimedOut = true
+			result.ExitCode = -1
+			result.Duration = time.Since(start)
+			result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureTimeout, Message: context.DeadlineExceeded.Error()}
+			return result
+		}
 		if err != nil {
 			if agent.IsRecoverable(err) {
 
@@ -397,25 +409,41 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) (result domain
 			result.ParseErrors++
 			break
 		}
+		if finding != nil {
+			result.Findings = append(result.Findings, *finding)
+			if r.config.Events.ReviewerOutput != nil {
+				r.config.Events.ReviewerOutput(reviewerID, finding.Text)
+			}
+
+			if r.verbose() {
+				text := finding.Text
+				if len(text) > maxFindingPreviewLength {
+					text = text[:maxFindingPreviewLength] + "..."
+				}
+				r.logger.Logf(terminal.StyleDim, "%s#%d:%s %s%s%s",
+					terminal.Color(terminal.Dim), reviewerID, terminal.Color(terminal.Reset),
+					terminal.Color(terminal.Dim), text, terminal.Color(terminal.Reset))
+			}
+		}
+		if ctx.Err() != nil {
+			result.ParseErrors += parser.ParseErrors()
+			result.ExitCode = -1
+			result.Duration = time.Since(start)
+			result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureInterrupted, Message: ctx.Err().Error()}
+			return result
+		}
+		if timeoutCtx.Err() == context.DeadlineExceeded {
+			result.ParseErrors += parser.ParseErrors()
+			result.TimedOut = true
+			result.ExitCode = -1
+			result.Duration = time.Since(start)
+			result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureTimeout, Message: context.DeadlineExceeded.Error()}
+			return result
+		}
 
 		if finding == nil {
 
 			break
-		}
-
-		result.Findings = append(result.Findings, *finding)
-		if r.config.Events.ReviewerOutput != nil {
-			r.config.Events.ReviewerOutput(reviewerID, finding.Text)
-		}
-
-		if r.verbose() {
-			text := finding.Text
-			if len(text) > maxFindingPreviewLength {
-				text = text[:maxFindingPreviewLength] + "..."
-			}
-			r.logger.Logf(terminal.StyleDim, "%s#%d:%s %s%s%s",
-				terminal.Color(terminal.Dim), reviewerID, terminal.Color(terminal.Reset),
-				terminal.Color(terminal.Dim), text, terminal.Color(terminal.Reset))
 		}
 	}
 

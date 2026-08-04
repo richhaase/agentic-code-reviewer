@@ -18,6 +18,8 @@ const antigravityDefaultPrintTimeout = 30 * time.Minute
 
 const antigravityPrintTimeoutGrace = 5 * time.Second
 
+const maxAntigravityPrintTimeout = time.Duration(1<<63-1) / time.Second * time.Second
+
 func NewAntigravityAgent(_ string) *AntigravityAgent {
 	return &AntigravityAgent{}
 }
@@ -93,7 +95,7 @@ func antigravityPrintTimeoutCeiling(timeout time.Duration) time.Duration {
 	if timeout <= 0 {
 		return 0
 	}
-	return timeout + antigravityPrintTimeoutGrace
+	return addAntigravityPrintTimeoutGrace(timeout)
 }
 
 func antigravityPrintTimeoutCeilingFromContext(ctx context.Context, now time.Time) time.Duration {
@@ -105,5 +107,12 @@ func antigravityPrintTimeoutCeilingFromContext(ctx context.Context, now time.Tim
 	if remaining <= 0 {
 		return time.Second
 	}
-	return remaining + antigravityPrintTimeoutGrace
+	return addAntigravityPrintTimeoutGrace(remaining)
+}
+
+func addAntigravityPrintTimeoutGrace(timeout time.Duration) time.Duration {
+	if timeout > maxAntigravityPrintTimeout-antigravityPrintTimeoutGrace {
+		return maxAntigravityPrintTimeout
+	}
+	return timeout + antigravityPrintTimeoutGrace
 }

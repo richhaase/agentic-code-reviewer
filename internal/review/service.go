@@ -207,7 +207,11 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 		emitter.setBeforeCompletion(feedbackTask.stop)
 	}
 
+	reviewerTimeout := scaledReviewerTimeout(values.Timeout, len(diff))
 	emitter.emit(Event{Kind: EventPhaseStarted, Phase: domain.ReviewPhaseReviewers})
+	if reviewerTimeout != values.Timeout {
+		emitter.emit(Event{Kind: EventReviewerTimeoutScaled, Phase: domain.ReviewPhaseReviewers, Message: reviewerTimeoutScaledMessage(len(diff), values.Timeout, reviewerTimeout)})
+	}
 	reviewerEvents := runner.Events{
 		ReviewerStarted: func(reviewerID int, agentName string) {
 			emitter.emit(Event{Kind: EventReviewerStarted, Phase: domain.ReviewPhaseReviewers, ReviewerID: reviewerID, AgentName: agentName})
@@ -223,6 +227,9 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 			for _, warning := range result.Warnings {
 				emitter.emit(Event{Kind: EventWarning, Phase: domain.ReviewPhaseReviewers, ReviewerID: result.ReviewerID, AgentName: result.AgentName, Message: warning.Message})
 			}
+			if result.TimedOut {
+				emitter.emit(Event{Kind: EventWarning, Phase: domain.ReviewPhaseReviewers, ReviewerID: result.ReviewerID, AgentName: result.AgentName, Message: fmt.Sprintf("timed out after %s", formatReviewerTimeout(reviewerTimeout))})
+			}
 			emitter.emit(Event{Kind: EventReviewerCompleted, Phase: domain.ReviewPhaseReviewers, ReviewerID: result.ReviewerID, AgentName: result.AgentName, ReviewerResult: cloneReviewerResult(result)})
 		},
 	}
@@ -230,7 +237,7 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 		Reviewers:       values.Reviewers,
 		Concurrency:     values.Concurrency,
 		BaseRef:         run.Target.Revision.BaseObjectID,
-		Timeout:         values.Timeout,
+		Timeout:         reviewerTimeout,
 		Retries:         values.Retries,
 		WorkDir:         run.Target.WorktreeRoot,
 		Guidance:        values.Guidance,
@@ -261,7 +268,8 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	if err := validateResolvedRevision(run.Target.Revision, confirmedRevision); err != nil {
 		return s.fail(run, domain.ReviewPhaseReviewers, err, emitter), nil
 	}
-	if run.Stats.AllFailed() {
+	reviewerOutputs := reviewerOutputsForAgreement(run.ReviewerResults, run.Stats.SuccessfulReviewers)
+	if run.Stats.AllFailed() && reviewerOutputs == 0 {
 		return s.fail(run, domain.ReviewPhaseReviewers, fmt.Errorf("all reviewers failed"), emitter), nil
 	}
 	s.emitReviewerWarnings(run.Stats, emitter)
@@ -344,7 +352,7 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	if values.FPFilterEnabled && len(finalGrouped.Findings) > 0 {
 		emitter.emit(Event{Kind: EventPhaseStarted, Phase: domain.ReviewPhaseFalsePositiveFilter})
 		fpCtx, fpCancel := context.WithTimeout(ctx, values.FPFilterTimeout)
-		fpResult := fpfilter.NewWithAgent(summarizerAgent, values.FPThreshold, postProcessDir).Apply(fpCtx, finalGrouped, priorFeedback, run.Stats.SuccessfulReviewers)
+		fpResult := fpfilter.NewWithAgent(summarizerAgent, values.FPThreshold, postProcessDir).Apply(fpCtx, finalGrouped, priorFeedback, reviewerOutputs)
 		fpCancel()
 		if fpResult != nil {
 			finalGrouped = cloneGroupedFindings(fpResult.Grouped)
@@ -429,6 +437,16 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 		return s.complete(run, domain.ReviewConclusionClean, emitter), nil
 	}
 	return s.complete(run, domain.ReviewConclusionFindings, emitter), nil
+}
+
+func reviewerOutputsForAgreement(results []domain.ReviewerResult, successful int) int {
+	outputs := successful
+	for _, result := range results {
+		if result.TimedOut && len(result.Findings) > 0 {
+			outputs++
+		}
+	}
+	return outputs
 }
 
 func validateRequest(request Request) error {

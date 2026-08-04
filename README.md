@@ -125,8 +125,8 @@ acr --verbose
 | `--reviewers`       | `-r`  | 5       | Number of parallel reviewers             |
 | `--concurrency`     | `-c`  | -r      | Max concurrent reviewers (see below)     |
 | `--base`            | `-b`  | main    | Base ref for diff comparison             |
-| `--timeout`         | `-t`  | 10m     | Timeout per reviewer                     |
-| `--retries`         | `-R`  | 1       | Retry failed reviewers N times           |
+| `--timeout`         | `-t`  | 10m     | Timeout per reviewer (auto-scales up to 10× for diffs over 100KB) |
+| `--retries`         | `-R`  | 1       | Retry non-timeout reviewer failures N times |
 | `--verbose`         | `-v`  | false   | Print agent messages in real-time        |
 | `--local`           | `-l`  | false   | Skip posting to GitHub PR                |
 | `--worktree-branch` | `-B`  |         | Review a branch in a temp worktree (supports `user:branch` for forks) |
@@ -146,6 +146,12 @@ acr --verbose
 | `--summarizer-agent`| `-s`  | codex   | Agent for summarization (agy, codex, claude, gemini) |
 | `--reviewer-model`  |       |         | LLM model for review agents (env: ACR_REVIEWER_MODEL) |
 | `--summarizer-model`|       |         | LLM model for summarizer/FP filter agents (env: ACR_SUMMARIZER_MODEL) |
+
+When the review diff exceeds 100KB, the reviewer timeout scales linearly with
+diff size, up to 10× the configured timeout (for example, a 500KB diff with a
+10m timeout gives each reviewer 50m), and ACR logs the effective timeout at
+review start. Timed-out reviewers are not retried; findings parsed before the
+timeout remain part of the review.
 
 ### Trusted Review Configuration
 

@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -897,6 +898,138 @@ func TestRunReviewerWithRetry_RetriesNonAuthFailure(t *testing.T) {
 	}
 	if result.AuthFailed {
 		t.Error("expected AuthFailed to be false for non-auth failure")
+	}
+}
+
+type delayedEOFReader struct {
+	delay time.Duration
+}
+
+func (r delayedEOFReader) Read([]byte) (int, error) {
+	time.Sleep(r.delay)
+	return 0, io.EOF
+}
+
+type timedOutReviewAgent struct {
+	name      string
+	output    string
+	delay     time.Duration
+	callCount atomic.Int32
+}
+
+func (a *timedOutReviewAgent) Name() string       { return a.name }
+func (a *timedOutReviewAgent) IsAvailable() error { return nil }
+
+func (a *timedOutReviewAgent) ExecuteReview(_ context.Context, _ *agent.ReviewConfig) (*agent.ExecutionResult, error) {
+	a.callCount.Add(1)
+	reader := io.NopCloser(io.MultiReader(strings.NewReader(a.output), delayedEOFReader{delay: a.delay}))
+	return agent.NewExecutionResult(reader, func() int { return 124 }, func() string { return "" }), nil
+}
+
+func (a *timedOutReviewAgent) ExecuteSummary(_ context.Context, _ *agent.SummaryConfig) (*agent.ExecutionResult, error) {
+	return nil, nil
+}
+
+func TestRunReviewerWithRetryTimeoutHandling(t *testing.T) {
+	findingLine := `{"item":{"type":"agent_message","text":"partial finding before timeout"}}` + "\n"
+	tests := []struct {
+		name            string
+		agentFor        func() (agent.Agent, func() int32)
+		retries         int
+		wantCalls       int32
+		wantTimedOut    bool
+		wantAttempts    int
+		wantRetryEvents int32
+		wantFindings    int
+	}{
+		{
+			name: "timeout returns after one attempt and keeps parsed findings",
+			agentFor: func() (agent.Agent, func() int32) {
+				mock := &timedOutReviewAgent{name: "codex", output: findingLine, delay: 300 * time.Millisecond}
+				return mock, mock.callCount.Load
+			},
+			retries:      2,
+			wantCalls:    1,
+			wantTimedOut: true,
+			wantAttempts: 1,
+			wantFindings: 1,
+		},
+		{
+			name: "timeout discards finding parsed after deadline",
+			agentFor: func() (agent.Agent, func() int32) {
+				mock := &timedOutReviewAgent{name: "gemini", output: `{"response":"truncated`, delay: 300 * time.Millisecond}
+				return mock, mock.callCount.Load
+			},
+			retries:      2,
+			wantCalls:    1,
+			wantTimedOut: true,
+			wantAttempts: 1,
+			wantFindings: 0,
+		},
+		{
+			name: "timeout classifies parser error returned after deadline",
+			agentFor: func() (agent.Agent, func() int32) {
+				mock := &timedOutReviewAgent{name: "codex", output: "invalid json", delay: 300 * time.Millisecond}
+				return mock, mock.callCount.Load
+			},
+			retries:      2,
+			wantCalls:    1,
+			wantTimedOut: true,
+			wantAttempts: 1,
+			wantFindings: 0,
+		},
+		{
+			name: "non-timeout failure still retries with retry events",
+			agentFor: func() (agent.Agent, func() int32) {
+				mock := &mockAuthFailAgent{name: "codex", exitCode: 1, stderr: "some error"}
+				return mock, mock.callCount.Load
+			},
+			retries:         1,
+			wantCalls:       2,
+			wantAttempts:    2,
+			wantRetryEvents: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reviewAgent, calls := tt.agentFor()
+			var retryEvents atomic.Int32
+			r := &Runner{
+				config: Config{
+					Reviewers: 1,
+					Retries:   tt.retries,
+					Timeout:   50 * time.Millisecond,
+					Events: Events{
+						ReviewerRetrying: func(int, string, int, int, time.Duration) { retryEvents.Add(1) },
+					},
+				},
+				agents:    []agent.Agent{reviewAgent},
+				logger:    terminal.NewLogger(),
+				completed: new(atomic.Int32),
+			}
+
+			result := r.runReviewerWithRetry(context.Background(), 1)
+
+			if calls() != tt.wantCalls {
+				t.Errorf("agent calls = %d, want %d", calls(), tt.wantCalls)
+			}
+			if result.TimedOut != tt.wantTimedOut {
+				t.Errorf("TimedOut = %v, want %v", result.TimedOut, tt.wantTimedOut)
+			}
+			if result.Attempts != tt.wantAttempts {
+				t.Errorf("Attempts = %d, want %d", result.Attempts, tt.wantAttempts)
+			}
+			if retryEvents.Load() != tt.wantRetryEvents {
+				t.Errorf("retry events = %d, want %d", retryEvents.Load(), tt.wantRetryEvents)
+			}
+			if len(result.Findings) != tt.wantFindings {
+				t.Fatalf("findings = %#v, want %d", result.Findings, tt.wantFindings)
+			}
+			collected := CollectFindings([]domain.ReviewerResult{result})
+			if len(collected) != tt.wantFindings {
+				t.Errorf("collected findings = %#v, want %d", collected, tt.wantFindings)
+			}
+		})
 	}
 }
 
