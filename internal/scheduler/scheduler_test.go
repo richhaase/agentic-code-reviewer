@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -163,10 +164,12 @@ func TestSchedulerRejectsDuplicateActivePullRequestAcrossCallers(t *testing.T) {
 }
 
 type controllerStub struct {
-	mu         sync.Mutex
-	decision   automatic.Decision
-	authorized []string
-	recorded   []store.ReviewEconomicsV1
+	mu           sync.Mutex
+	decision     automatic.Decision
+	authorized   []string
+	recorded     []store.ReviewEconomicsV1
+	economicsErr error
+	order        *[]string
 }
 
 func (c *controllerStub) AuthorizeReview(_ store.PullRequestKeyV1, _ store.ReviewTargetV1, _ automatic.TrustedPolicy, runID string, _ ...string) (automatic.Decision, error) {
@@ -179,8 +182,48 @@ func (c *controllerStub) AuthorizeReview(_ store.PullRequestKeyV1, _ store.Revie
 func (c *controllerStub) RecordEconomics(_ store.PullRequestKeyV1, _ time.Time, economics store.ReviewEconomicsV1) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.order != nil {
+		*c.order = append(*c.order, "economics")
+	}
 	c.recorded = append(c.recorded, economics)
-	return nil
+	return c.economicsErr
+}
+
+type runStoreStub struct {
+	mu      sync.Mutex
+	runs    []store.ReviewRunV1
+	saveErr error
+	order   *[]string
+}
+
+func (s *runStoreStub) SaveRun(run store.ReviewRunV1) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.order != nil {
+		*s.order = append(*s.order, "run")
+	}
+	if s.saveErr != nil {
+		return "", s.saveErr
+	}
+	s.runs = append(s.runs, run)
+	return run.ID, nil
+}
+
+func (s *runStoreStub) ListRuns(store.PullRequestKeyV1) ([]store.ReviewRunV1, []store.CorruptRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]store.ReviewRunV1(nil), s.runs...), nil, nil
+}
+
+func (s *runStoreStub) LoadRun(_ store.PullRequestKeyV1, runID string) (store.ReviewRunV1, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, run := range s.runs {
+		if run.ID == runID {
+			return run, nil
+		}
+	}
+	return store.ReviewRunV1{}, fmt.Errorf("run %s not found", runID)
 }
 
 func schedulerTarget(key store.PullRequestKeyV1, head string) store.ReviewTargetV1 {
@@ -268,6 +311,152 @@ func TestBackgroundReviewAuthorizesBoundsAndRecordsRun(t *testing.T) {
 	}
 	if len(controller.recorded) != 1 || controller.recorded[0].RunID != "run-1" {
 		t.Fatalf("recorded = %v", controller.recorded)
+	}
+}
+
+func TestBackgroundReviewRetriesPreparationFailures(t *testing.T) {
+	transient := errors.New("revision lookup unavailable")
+	key := schedulerKey(1)
+	target := schedulerTarget(key, "head-1")
+	newReview := func(prepare func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error)) BackgroundReview {
+		return BackgroundReview{
+			Key:        key,
+			Controller: &controllerStub{decision: automatic.Decision{Allowed: true}},
+			Runs:       store.NewFilesystemRunStore(t.TempDir()),
+			Prepare:    prepare,
+		}
+	}
+	t.Run("preserves original error", func(t *testing.T) {
+		port, err := newReview(func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error) {
+			return PreparedCycle{}, transient
+		}).Port()
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = port.RunCycle(context.Background(), 1, "initial review", nil, "")
+		if !errors.Is(err, watch.ErrRetryableCycle) || !errors.Is(err, transient) {
+			t.Fatalf("RunCycle error = %v, want retryable wrapper preserving original", err)
+		}
+	})
+	t.Run("succeeds after retry", func(t *testing.T) {
+		attempts := 0
+		lifecycle, err := NewLifecycle(watch.Config{
+			PollInterval: time.Minute,
+			SettleTime:   time.Minute,
+			MaxReviews:   2,
+			MaxDuration:  time.Hour,
+		}, watch.Polling{
+			Clock: &advancingClock{now: time.Now()},
+			State: func(context.Context) (watch.PRState, error) {
+				if attempts >= 2 {
+					return watch.PRState{HeadSHA: "head-1", Closed: true}, nil
+				}
+				return watch.PRState{HeadSHA: "head-1"}, nil
+			},
+		}, newReview(func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error) {
+			attempts++
+			if attempts == 1 {
+				return PreparedCycle{}, transient
+			}
+			return PreparedCycle{Work: schedulerWork("prepare-retry", target, func(context.Context) (*domain.ReviewRun, error) {
+				return schedulerRun(t, "prepare-retry", target, domain.ReviewConclusionClean), nil
+			})}, nil
+		}), nil, watch.Presentation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reason := lifecycle.Run(context.Background()); reason != watch.ReasonClosed {
+			t.Fatalf("reason = %v, want closed after successful retry", reason)
+		}
+		if attempts != 2 {
+			t.Fatalf("attempts = %d, want 2", attempts)
+		}
+	})
+	t.Run("stops after bounded failures", func(t *testing.T) {
+		attempts := 0
+		lifecycle, err := NewLifecycle(watch.Config{
+			PollInterval: time.Minute,
+			SettleTime:   time.Minute,
+			MaxReviews:   10,
+			MaxDuration:  time.Hour,
+		}, watch.Polling{
+			Clock: &advancingClock{now: time.Now()},
+			State: func(context.Context) (watch.PRState, error) {
+				return watch.PRState{HeadSHA: "head-1"}, nil
+			},
+		}, newReview(func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error) {
+			attempts++
+			return PreparedCycle{}, transient
+		}), nil, watch.Presentation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reason := lifecycle.Run(context.Background()); reason != watch.ReasonError {
+			t.Fatalf("reason = %v, want error", reason)
+		}
+		if attempts != 5 {
+			t.Fatalf("attempts = %d, want bounded retry count 5", attempts)
+		}
+	})
+}
+
+func TestBackgroundReviewPersistsEconomicsBeforeTerminalRun(t *testing.T) {
+	economicsFailure := errors.New("economics unavailable")
+	runFailure := errors.New("run store unavailable")
+	tests := []struct {
+		name         string
+		economicsErr error
+		runErr       error
+		wantOrder    string
+		wantRuns     int
+		wantErr      error
+	}{
+		{name: "economics failure leaves no completed marker", economicsErr: economicsFailure, wantOrder: "economics", wantErr: economicsFailure},
+		{name: "run failure retains economics", runErr: runFailure, wantOrder: "economics,run", wantErr: runFailure},
+		{name: "success records economics then run", wantOrder: "economics,run", wantRuns: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			key := schedulerKey(1)
+			target := schedulerTarget(key, "head-1")
+			var order []string
+			controller := &controllerStub{
+				decision:     automatic.Decision{Allowed: true},
+				economicsErr: test.economicsErr,
+				order:        &order,
+			}
+			runs := &runStoreStub{saveErr: test.runErr, order: &order}
+			port, err := (BackgroundReview{
+				Key:        key,
+				Controller: controller,
+				Runs:       runs,
+				Prepare: func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error) {
+					return PreparedCycle{Work: schedulerWork("ordered-run", target, func(context.Context) (*domain.ReviewRun, error) {
+						return schedulerRun(t, "ordered-run", target, domain.ReviewConclusionClean), nil
+					})}, nil
+				},
+			}).Port()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, cycleErr := port.RunCycle(context.Background(), 1, "initial review", nil, "")
+			if test.wantErr == nil && cycleErr != nil {
+				t.Fatalf("RunCycle: %v", cycleErr)
+			}
+			if test.wantErr != nil && !errors.Is(cycleErr, test.wantErr) {
+				t.Fatalf("RunCycle error = %v, want %v", cycleErr, test.wantErr)
+			}
+			persisted, corrupt, listErr := runs.ListRuns(key)
+			if listErr != nil || len(corrupt) != 0 || len(persisted) != test.wantRuns {
+				t.Fatalf("runs = %+v, corrupt = %+v, err = %v", persisted, corrupt, listErr)
+			}
+			if strings.Join(order, ",") != test.wantOrder {
+				t.Fatalf("persistence order = %v, want %q", order, test.wantOrder)
+			}
+			if len(controller.recorded) != 1 || controller.recorded[0].RunID != "ordered-run" {
+				t.Fatalf("recorded economics = %+v", controller.recorded)
+			}
+		})
 	}
 }
 

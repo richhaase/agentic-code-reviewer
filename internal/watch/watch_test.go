@@ -1190,6 +1190,49 @@ func TestRetryablePreparationFailureSettlesChangedHead(t *testing.T) {
 	}
 }
 
+func TestManualRequestSupersedesSettledCommitRetry(t *testing.T) {
+	h := newHarness(t)
+	h.states = []PRState{open("aaa"), open("bbb")}
+	deps := h.deps()
+	attempts := 0
+	manualSent := false
+	deps.RunCycle = func(_ context.Context, _ int, trigger string, _ []Discussion, _ string) (Cycle, error) {
+		attempts++
+		h.triggers = append(h.triggers, trigger)
+		switch attempts {
+		case 1:
+			return Cycle{Result: CycleFindings}, nil
+		case 2:
+			return Cycle{Result: CycleError}, fmt.Errorf("%w: network unavailable", ErrRetryableCycle)
+		default:
+			return Cycle{Result: CycleLGTMApproved}, nil
+		}
+	}
+	deps.Wait = func(ctx context.Context, duration time.Duration) (WaitResult, error) {
+		if attempts == 2 && !manualSent {
+			manualSent = true
+			return WaitResult{ManualRequests: 1}, nil
+		}
+		return WaitResult{}, h.clock.Sleep(ctx, duration)
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if fmt.Sprint(h.triggers) != "[initial review commits settled manual request]" {
+		t.Fatalf("triggers = %v", h.triggers)
+	}
+	var started []Event
+	for _, event := range h.events {
+		if event.Type == EventManualReviewStarted {
+			started = append(started, event)
+		}
+	}
+	if len(started) != 1 || started[0].RequestCount != 1 || started[0].ReviewNumber != 2 {
+		t.Fatalf("manual review events = %#v", started)
+	}
+}
+
 func TestRetryablePreparationFailuresResetWhenHeadChanges(t *testing.T) {
 	h := newHarness(t)
 	h.states = []PRState{open("aaa"), open("bbb")}

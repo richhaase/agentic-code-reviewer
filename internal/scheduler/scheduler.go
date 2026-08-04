@@ -190,7 +190,7 @@ func (review BackgroundReview) Port() (watch.ReviewExecution, error) {
 	return watch.ReviewExecution{RunCycle: func(ctx context.Context, reviewNumber int, trigger string, discussion []watch.Discussion, discussionRevision string) (watch.Cycle, error) {
 		prepared, err := review.Prepare(ctx, reviewNumber, trigger, discussion, discussionRevision)
 		if err != nil {
-			return watch.Cycle{}, err
+			return watch.Cycle{}, fmt.Errorf("%w: prepare automatic review: %w", watch.ErrRetryableCycle, err)
 		}
 		if prepared.Work.runID == "" {
 			return watch.Cycle{}, fmt.Errorf("prepared automatic review run id is required")
@@ -238,12 +238,12 @@ func (review BackgroundReview) Port() (watch.ReviewExecution, error) {
 		if err != nil {
 			return watch.Cycle{}, fmt.Errorf("encode background semantic review run: %w", err)
 		}
-		if _, err := review.Runs.SaveRun(schema); err != nil {
-			return watch.Cycle{}, fmt.Errorf("persist background semantic review run: %w", err)
-		}
 		economics := economicsFromRun(run)
 		if err := review.Controller.RecordEconomics(review.Key, now().UTC(), economics); err != nil {
-			return watch.Cycle{}, errors.Join(runErr, err)
+			return watch.Cycle{}, fmt.Errorf("persist background semantic review economics: %w", err)
+		}
+		if _, err := review.Runs.SaveRun(schema); err != nil {
+			return watch.Cycle{}, fmt.Errorf("persist background semantic review run: %w", err)
 		}
 		return cycleFromRun(run)
 	}}, nil

@@ -911,7 +911,7 @@ func (l *loop) cycle(
 	discussion []Discussion,
 	discussionRevision string,
 ) (ExitReason, bool) {
-	retrying := l.retryPending
+	replayingRetry := l.retryPending && trigger == l.retryTrigger
 	l.retryPending = false
 	l.retryHead = ""
 	l.retryTrigger = ""
@@ -919,7 +919,7 @@ func (l *loop) cycle(
 	l.retryRevision = ""
 	l.pendingApproval = ""
 	l.reviews++
-	if trigger == "manual request" && !retrying {
+	if trigger == "manual request" && !replayingRetry {
 		l.emit(Event{Type: EventManualReviewStarted, RequestCount: l.manualRequests, ReviewNumber: l.reviews})
 		l.manualRequests = 0
 	}
