@@ -297,8 +297,8 @@ func TestBackgroundReviewPersistsFailedAndInterruptedRuns(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := port.RunCycle(context.Background(), 1, "initial review", nil, ""); err == nil {
-				t.Fatalf("expected %s cycle error", status)
+			if _, err := port.RunCycle(context.Background(), 1, "initial review", nil, ""); !errors.Is(err, watch.ErrRetryableCycle) {
+				t.Fatalf("%s cycle error = %v, want retryable", status, err)
 			}
 			runs, corrupt, err := runStore.ListRuns(key)
 			if err != nil || len(corrupt) != 0 || len(runs) != 1 || runs[0].Status != string(status) {
@@ -430,8 +430,9 @@ func TestBackgroundReviewDurablyDeduplicatesRevisionAcrossRecreation(t *testing.
 	if err != nil {
 		t.Fatalf("duplicate Port: %v", err)
 	}
-	if _, err := duplicate.RunCycle(context.Background(), 1, "initial review", nil, ""); !errors.Is(err, automatic.ErrRevisionAlreadyAuthorized) {
-		t.Fatalf("duplicate RunCycle error = %v, want durable revision rejection", err)
+	duplicateCycle, err := duplicate.RunCycle(context.Background(), 1, "initial review", nil, "")
+	if err != nil || duplicateCycle.Result != watch.CycleAlreadyReviewed {
+		t.Fatalf("duplicate cycle = %+v, err = %v, want already reviewed", duplicateCycle, err)
 	}
 	if runs.Load() != 1 {
 		t.Fatalf("runs after duplicate = %d, want 1", runs.Load())
@@ -447,6 +448,184 @@ func TestBackgroundReviewDurablyDeduplicatesRevisionAcrossRecreation(t *testing.
 	}
 	if runs.Load() != 2 {
 		t.Fatalf("runs after replacement = %d, want 2", runs.Load())
+	}
+}
+
+func TestLifecycleSkipsCompletedRevisionAfterRestartAndReviewsReplacement(t *testing.T) {
+	dataDir := t.TempDir()
+	key := schedulerKey(1)
+	targetA := schedulerTarget(key, "head-a")
+	policyRecord := store.AdjudicationPolicyV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		Source:        store.PolicySourceV1{Kind: config.SourceKindDefaults},
+		Budget:        store.BudgetPolicyV1{MaxIterations: 3},
+	}
+	newPolicy := func(target store.ReviewTargetV1) automatic.TrustedPolicy {
+		policy, err := automatic.NewTrustedPolicy(policyRecord, target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return policy
+	}
+	newController := func() *automatic.Controller {
+		controller, err := automatic.NewController(
+			store.NewFilesystemLoopDecisionStore(dataDir),
+			store.NewFilesystemEconomicsStore(dataDir),
+			store.NewFilesystemRunStore(dataDir),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return controller
+	}
+	authorization, err := automatic.WorkspaceAuthorization("restart-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := newController()
+	if _, err := controller.Commission(key, targetA, newPolicy(targetA), authorization); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.AuthorizeReview(key, targetA, newPolicy(targetA), "completed-head-a"); err != nil {
+		t.Fatal(err)
+	}
+	completed := schedulerRun(t, "completed-head-a", targetA, domain.ReviewConclusionClean)
+	schema, err := store.ToReviewRunSchema(*completed, store.RenderedOutcomeV1{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.NewFilesystemRunStore(dataDir).SaveRun(schema); err != nil {
+		t.Fatal(err)
+	}
+
+	clock := &advancingClock{now: time.Now()}
+	states := []watch.PRState{{HeadSHA: "head-a"}, {HeadSHA: "head-b"}, {HeadSHA: "head-b"}}
+	var stateIndex int
+	var mu sync.Mutex
+	var preparedHeads []string
+	var executedHeads []string
+	lifecycle, err := NewLifecycle(watch.Config{
+		PollInterval:    time.Minute,
+		SettleTime:      time.Minute,
+		MaxReviews:      1,
+		MaxDuration:     time.Hour,
+		UncertainPolicy: watch.UncertainWait,
+	}, watch.Polling{
+		Clock: clock,
+		State: func(context.Context) (watch.PRState, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			if stateIndex < len(states)-1 {
+				stateIndex++
+				return states[stateIndex-1], nil
+			}
+			return states[len(states)-1], nil
+		},
+	}, BackgroundReview{
+		Key:        key,
+		Controller: newController(),
+		Runs:       store.NewFilesystemRunStore(dataDir),
+		Prepare: func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error) {
+			mu.Lock()
+			head := states[stateIndex-1].HeadSHA
+			preparedHeads = append(preparedHeads, head)
+			mu.Unlock()
+			target := schedulerTarget(key, head)
+			runID := "restart-" + head
+			return PreparedCycle{
+				Policy: newPolicy(target),
+				Work: schedulerWork(runID, target, func(context.Context) (*domain.ReviewRun, error) {
+					executedHeads = append(executedHeads, head)
+					return schedulerRun(t, runID, target, domain.ReviewConclusionClean), nil
+				}),
+			}, nil
+		},
+	}, nil, watch.Presentation{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reason := lifecycle.Run(context.Background()); reason != watch.ReasonMaxReviews {
+		t.Fatalf("reason = %v, want max reviews", reason)
+	}
+	if fmt.Sprint(preparedHeads) != "[head-a head-b]" || fmt.Sprint(executedHeads) != "[head-b]" {
+		t.Fatalf("prepared = %v, executed = %v", preparedHeads, executedHeads)
+	}
+}
+
+func TestLifecycleRetriesTerminalFailuresWithinControllerIterationBudget(t *testing.T) {
+	dataDir := t.TempDir()
+	key := schedulerKey(1)
+	target := schedulerTarget(key, "head-1")
+	policyRecord := store.AdjudicationPolicyV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		Source:        store.PolicySourceV1{Kind: config.SourceKindDefaults},
+		Budget:        store.BudgetPolicyV1{MaxIterations: 2},
+	}
+	policy, err := automatic.NewTrustedPolicy(policyRecord, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller, err := automatic.NewController(
+		store.NewFilesystemLoopDecisionStore(dataDir),
+		store.NewFilesystemEconomicsStore(dataDir),
+		store.NewFilesystemRunStore(dataDir),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorization, err := automatic.WorkspaceAuthorization("retry-budget-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.Commission(key, target, policy, authorization); err != nil {
+		t.Fatal(err)
+	}
+	clock := &advancingClock{now: time.Now()}
+	var prepared int
+	var executed int
+	lifecycle, err := NewLifecycle(watch.Config{
+		PollInterval:    time.Minute,
+		SettleTime:      time.Minute,
+		MaxReviews:      10,
+		MaxDuration:     time.Hour,
+		UncertainPolicy: watch.UncertainWait,
+	}, watch.Polling{
+		Clock: clock,
+		State: func(context.Context) (watch.PRState, error) {
+			return watch.PRState{HeadSHA: "head-1"}, nil
+		},
+	}, BackgroundReview{
+		Key:        key,
+		Controller: controller,
+		Runs:       store.NewFilesystemRunStore(dataDir),
+		Prepare: func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error) {
+			prepared++
+			runID := fmt.Sprintf("failed-%d", prepared)
+			return PreparedCycle{
+				Policy: policy,
+				Work: schedulerWork(runID, target, func(context.Context) (*domain.ReviewRun, error) {
+					executed++
+					run := schedulerRun(t, runID, target, domain.ReviewConclusionClean)
+					run.Status = domain.ReviewStatusFailed
+					run.Conclusion = domain.ReviewConclusionNone
+					run.Failure = &domain.ReviewFailure{Phase: domain.ReviewPhaseReviewers, Message: "failed"}
+					return run, nil
+				}),
+			}, nil
+		},
+	}, nil, watch.Presentation{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reason := lifecycle.Run(context.Background()); reason != watch.ReasonStopped {
+		t.Fatalf("reason = %v, want controller stop", reason)
+	}
+	if prepared != 3 || executed != 2 {
+		t.Fatalf("prepared = %d, executed = %d, want 3 and 2", prepared, executed)
+	}
+	runs, corrupt, err := store.NewFilesystemRunStore(dataDir).ListRuns(key)
+	if err != nil || len(corrupt) != 0 || len(runs) != 2 {
+		t.Fatalf("runs = %+v, corrupt = %+v, err = %v", runs, corrupt, err)
 	}
 }
 

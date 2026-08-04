@@ -1076,21 +1076,21 @@ func TestRetryableCycleFailuresBecomeFatalAfterLimit(t *testing.T) {
 	if attempts != maxConsecutivePollErrors {
 		t.Fatalf("attempts = %d, want %d", attempts, maxConsecutivePollErrors)
 	}
-	var preparationLogs []string
+	var cycleLogs []string
 	for _, entry := range h.logs {
-		if strings.Contains(entry, "Review preparation failed") {
-			preparationLogs = append(preparationLogs, entry)
+		if strings.Contains(entry, "Review cycle failed") {
+			cycleLogs = append(cycleLogs, entry)
 		}
 	}
-	if len(preparationLogs) != maxConsecutivePollErrors {
-		t.Fatalf("preparation logs = %v", preparationLogs)
+	if len(cycleLogs) != maxConsecutivePollErrors {
+		t.Fatalf("cycle logs = %v", cycleLogs)
 	}
-	for _, entry := range preparationLogs[:len(preparationLogs)-1] {
+	for _, entry := range cycleLogs[:len(cycleLogs)-1] {
 		if !strings.Contains(entry, "will retry") {
 			t.Fatalf("retrying log = %q", entry)
 		}
 	}
-	finalLog := preparationLogs[len(preparationLogs)-1]
+	finalLog := cycleLogs[len(cycleLogs)-1]
 	if !strings.Contains(finalLog, "stopping") || strings.Contains(finalLog, "will retry") {
 		t.Fatalf("terminal log = %q", finalLog)
 	}

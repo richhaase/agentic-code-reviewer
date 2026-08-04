@@ -236,6 +236,45 @@ func TestControllerRejectsUnresolvedAutomaticTarget(t *testing.T) {
 	}
 }
 
+func TestControllerEscalatesOrphanReservationAndResumeRecovers(t *testing.T) {
+	now := time.Date(2026, 8, 4, 13, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	controller := testController(t, dir, &now)
+	key := testKey()
+	target := testTarget()
+	policy, err := NewTrustedPolicy(store.AdjudicationPolicyV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		Source:        store.PolicySourceV1{Kind: config.SourceKindDefaults},
+		Budget:        store.BudgetPolicyV1{MaxIterations: 5},
+	}, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.Commission(key, target, policy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.AuthorizeReview(key, target, policy, "orphan-run"); err != nil {
+		t.Fatal(err)
+	}
+	escalated, err := controller.AuthorizeReview(key, target, policy, "blocked-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if escalated.Allowed || escalated.Kind != store.LoopDecisionEscalate {
+		t.Fatalf("orphan decision = %+v, want controlled escalation", escalated)
+	}
+	decisions, corrupt, err := store.NewFilesystemLoopDecisionStore(dir).ListLoopDecisions(key)
+	if err != nil || len(corrupt) != 0 || decisions[len(decisions)-1].Decision != store.LoopDecisionEscalate {
+		t.Fatalf("durable decisions = %+v, corrupt = %+v, err = %v", decisions, corrupt, err)
+	}
+	if _, err := controller.Resume(key, target, policy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	if decision, err := controller.AuthorizeReview(key, target, policy, "recovered-run"); err != nil || !decision.Allowed {
+		t.Fatalf("post-resume authorization = %+v, err = %v", decision, err)
+	}
+}
+
 func TestControllerRequiresTrustedCommissionAndRecordsAdmission(t *testing.T) {
 	now := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
 	dir := t.TempDir()

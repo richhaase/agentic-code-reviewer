@@ -84,6 +84,7 @@ const (
 	CycleLGTMSkipped
 	CycleStaleHead
 	CycleClean
+	CycleAlreadyReviewed
 )
 
 type Cycle struct {
@@ -928,10 +929,10 @@ func (l *loop) cycle(
 			l.reviews--
 			l.cycleErrors++
 			if l.cycleErrors >= maxConsecutivePollErrors {
-				l.logf("Review preparation failed (%d/%d); stopping: %v", l.cycleErrors, maxConsecutivePollErrors, err)
+				l.logf("Review cycle failed (%d/%d); stopping: %v", l.cycleErrors, maxConsecutivePollErrors, err)
 				return ReasonError, true
 			}
-			l.logf("Review preparation failed (%d/%d); will retry: %v", l.cycleErrors, maxConsecutivePollErrors, err)
+			l.logf("Review cycle failed (%d/%d); will retry: %v", l.cycleErrors, maxConsecutivePollErrors, err)
 			l.retryPending = true
 			l.retryHead = head
 			return 0, false
@@ -946,6 +947,21 @@ func (l *loop) cycle(
 		}
 		l.logf("Review #%d failed: %v", l.reviews, err)
 		return ReasonError, true
+	}
+	if c.Result == CycleAlreadyReviewed {
+		l.reviews--
+		l.cycleErrors = 0
+		l.lastHead = head
+		if c.HeadSHA != "" {
+			l.lastHead = c.HeadSHA
+		}
+		l.pendingHead = ""
+		l.pendingApproval = ""
+		l.consumeDiscussion(discussion)
+		l.pendingDiscussion = nil
+		l.waitingDiscussion = ""
+		l.logf("Revision %s was already reviewed; continuing to monitor for a replacement head.", shortSHA(l.lastHead))
+		return 0, false
 	}
 	l.cycleErrors = 0
 	for _, id := range c.OwnDiscussionIDs {

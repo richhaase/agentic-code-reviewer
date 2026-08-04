@@ -218,8 +218,11 @@ func (c *Controller) AuthorizeReview(key store.PullRequestKeyV1, target store.Re
 			decision.ReviewTarget != nil &&
 			sameEffectiveRevision(*decision.ReviewTarget, target) {
 			run, exists := runsByID[decision.RunID]
-			if !exists || run.Status == string(domain.ReviewStatusCompleted) {
+			if exists && run.Status == string(domain.ReviewStatusCompleted) {
 				return Decision{}, fmt.Errorf("%w: %s", ErrRevisionAlreadyAuthorized, target.Revision.HeadObjectID)
+			}
+			if !exists && decision.SessionID == session.SessionID {
+				return c.recordDecision(key, session, store.LoopDecisionEscalate, "automatic review requires trusted intervention because an active review reservation has no durable run", "", nil, latest.Budget, false)
 			}
 		}
 	}

@@ -201,6 +201,9 @@ func (review BackgroundReview) Port() (watch.ReviewExecution, error) {
 		}
 		decision, err := review.Controller.AuthorizeReview(review.Key, prepared.Work.target, prepared.Policy, prepared.Work.runID)
 		if err != nil {
+			if errors.Is(err, automatic.ErrRevisionAlreadyAuthorized) {
+				return watch.Cycle{Result: watch.CycleAlreadyReviewed, HeadSHA: prepared.Work.target.Revision.HeadObjectID}, nil
+			}
 			return watch.Cycle{}, err
 		}
 		if !decision.Allowed {
@@ -284,11 +287,11 @@ func cycleFromRun(run *domain.ReviewRun) (watch.Cycle, error) {
 	switch run.Status {
 	case domain.ReviewStatusFailed:
 		if run.Failure != nil {
-			return watch.Cycle{}, fmt.Errorf("background semantic review failed: %s", run.Failure.Message)
+			return watch.Cycle{}, fmt.Errorf("%w: background semantic review failed: %s", watch.ErrRetryableCycle, run.Failure.Message)
 		}
-		return watch.Cycle{}, fmt.Errorf("background semantic review failed")
+		return watch.Cycle{}, fmt.Errorf("%w: background semantic review failed", watch.ErrRetryableCycle)
 	case domain.ReviewStatusInterrupted:
-		return watch.Cycle{}, fmt.Errorf("background semantic review was interrupted")
+		return watch.Cycle{}, fmt.Errorf("%w: background semantic review was interrupted", watch.ErrRetryableCycle)
 	case domain.ReviewStatusCompleted:
 		switch run.Conclusion {
 		case domain.ReviewConclusionNoChanges:
