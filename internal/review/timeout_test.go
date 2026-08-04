@@ -3,8 +3,6 @@ package review
 import (
 	"testing"
 	"time"
-
-	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 )
 
 func TestScaledReviewerTimeout(t *testing.T) {
@@ -15,11 +13,13 @@ func TestScaledReviewerTimeout(t *testing.T) {
 		want       time.Duration
 	}{
 		{name: "empty diff keeps configured timeout", configured: 15 * time.Minute, diffBytes: 0, want: 15 * time.Minute},
-		{name: "below threshold keeps configured timeout", configured: 15 * time.Minute, diffBytes: agent.RefFileSizeThreshold / 2, want: 15 * time.Minute},
-		{name: "at threshold keeps configured timeout", configured: 15 * time.Minute, diffBytes: agent.RefFileSizeThreshold, want: 15 * time.Minute},
-		{name: "half over threshold scales by 1.5", configured: 10 * time.Minute, diffBytes: agent.RefFileSizeThreshold * 3 / 2, want: 15 * time.Minute},
-		{name: "double threshold doubles timeout", configured: 10 * time.Minute, diffBytes: 2 * agent.RefFileSizeThreshold, want: 20 * time.Minute},
+		{name: "below threshold keeps configured timeout", configured: 15 * time.Minute, diffBytes: reviewerTimeoutScaleThreshold / 2, want: 15 * time.Minute},
+		{name: "at threshold keeps configured timeout", configured: 15 * time.Minute, diffBytes: reviewerTimeoutScaleThreshold, want: 15 * time.Minute},
+		{name: "half over threshold scales by 1.5", configured: 10 * time.Minute, diffBytes: reviewerTimeoutScaleThreshold * 3 / 2, want: 15 * time.Minute},
+		{name: "double threshold doubles timeout", configured: 10 * time.Minute, diffBytes: 2 * reviewerTimeoutScaleThreshold, want: 20 * time.Minute},
 		{name: "655KB diff scales 15m to 98m15s", configured: 15 * time.Minute, diffBytes: 655 * 1024, want: 5895 * time.Second},
+		{name: "scale is capped", configured: 10 * time.Minute, diffBytes: 50 * 1024 * 1024, want: 100 * time.Minute},
+		{name: "overflow saturates", configured: maxReviewerTimeout, diffBytes: 2 * reviewerTimeoutScaleThreshold, want: maxReviewerTimeout},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

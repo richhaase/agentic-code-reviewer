@@ -208,10 +208,10 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	}
 
 	reviewerTimeout := scaledReviewerTimeout(values.Timeout, len(diff))
+	emitter.emit(Event{Kind: EventPhaseStarted, Phase: domain.ReviewPhaseReviewers})
 	if reviewerTimeout != values.Timeout {
 		emitter.emit(Event{Kind: EventReviewerTimeoutScaled, Phase: domain.ReviewPhaseReviewers, Message: reviewerTimeoutScaledMessage(len(diff), values.Timeout, reviewerTimeout)})
 	}
-	emitter.emit(Event{Kind: EventPhaseStarted, Phase: domain.ReviewPhaseReviewers})
 	reviewerEvents := runner.Events{
 		ReviewerStarted: func(reviewerID int, agentName string) {
 			emitter.emit(Event{Kind: EventReviewerStarted, Phase: domain.ReviewPhaseReviewers, ReviewerID: reviewerID, AgentName: agentName})
@@ -226,6 +226,9 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 		ReviewerCompleted: func(result domain.ReviewerResult) {
 			for _, warning := range result.Warnings {
 				emitter.emit(Event{Kind: EventWarning, Phase: domain.ReviewPhaseReviewers, ReviewerID: result.ReviewerID, AgentName: result.AgentName, Message: warning.Message})
+			}
+			if result.TimedOut {
+				emitter.emit(Event{Kind: EventWarning, Phase: domain.ReviewPhaseReviewers, ReviewerID: result.ReviewerID, AgentName: result.AgentName, Message: fmt.Sprintf("timed out after %s", formatReviewerTimeout(reviewerTimeout))})
 			}
 			emitter.emit(Event{Kind: EventReviewerCompleted, Phase: domain.ReviewPhaseReviewers, ReviewerID: result.ReviewerID, AgentName: result.AgentName, ReviewerResult: cloneReviewerResult(result)})
 		},
@@ -265,7 +268,8 @@ func (s *Service) Run(ctx context.Context, request Request) (*domain.ReviewRun, 
 	if err := validateResolvedRevision(run.Target.Revision, confirmedRevision); err != nil {
 		return s.fail(run, domain.ReviewPhaseReviewers, err, emitter), nil
 	}
-	if run.Stats.AllFailed() {
+	allTimedOutWithFindings := len(run.Stats.TimedOutReviewers) == run.Stats.TotalReviewers && len(run.RawFindings) > 0
+	if run.Stats.AllFailed() && !allTimedOutWithFindings {
 		return s.fail(run, domain.ReviewPhaseReviewers, fmt.Errorf("all reviewers failed"), emitter), nil
 	}
 	s.emitReviewerWarnings(run.Stats, emitter)

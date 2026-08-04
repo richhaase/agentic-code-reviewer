@@ -4,15 +4,23 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 )
 
+const reviewerTimeoutScaleThreshold = 100 * 1024
+const maxReviewerTimeoutScale = 10
+const maxReviewerTimeout = time.Duration(1<<63 - 1)
+
 func scaledReviewerTimeout(configured time.Duration, diffBytes int) time.Duration {
-	if diffBytes <= agent.RefFileSizeThreshold {
+	if diffBytes <= reviewerTimeoutScaleThreshold {
 		return configured
 	}
-	factor := float64(diffBytes) / float64(agent.RefFileSizeThreshold)
+	factor := float64(diffBytes) / float64(reviewerTimeoutScaleThreshold)
+	if factor > maxReviewerTimeoutScale {
+		factor = maxReviewerTimeoutScale
+	}
+	if float64(configured) > float64(maxReviewerTimeout)/factor {
+		return maxReviewerTimeout
+	}
 	return time.Duration(float64(configured) * factor)
 }
 

@@ -21,6 +21,7 @@ import (
 type mockReviewAgent struct {
 	name                string
 	review              func(context.Context, *agent.ReviewConfig) (string, int, string, error)
+	reviewExecution     func(context.Context, *agent.ReviewConfig) (*agent.ExecutionResult, error)
 	summary             func(context.Context, int64, string, []byte) (string, int, string, error)
 	reviewClose         error
 	summaryClose        error
@@ -56,6 +57,9 @@ func (m *mockReviewAgent) IsAvailable() error {
 }
 
 func (m *mockReviewAgent) ExecuteReview(ctx context.Context, config *agent.ReviewConfig) (*agent.ExecutionResult, error) {
+	if m.reviewExecution != nil {
+		return m.reviewExecution(ctx, config)
+	}
 	output := codexReviewOutput("src/service.go:10: missing validation")
 	exitCode := 0
 	stderr := ""
@@ -71,6 +75,15 @@ func (m *mockReviewAgent) ExecuteReview(ctx context.Context, config *agent.Revie
 		return agent.NewExecutionResult(reader, func() int { return exitCode }, func() string { return stderr }), nil
 	}
 	return executionResult(output, exitCode, stderr), nil
+}
+
+type delayedReviewEOFReader struct {
+	delay time.Duration
+}
+
+func (r delayedReviewEOFReader) Read([]byte) (int, error) {
+	time.Sleep(r.delay)
+	return 0, io.EOF
 }
 
 func (m *mockReviewAgent) ExecuteSummary(ctx context.Context, config *agent.SummaryConfig) (*agent.ExecutionResult, error) {
@@ -1669,8 +1682,14 @@ func TestServiceScalesReviewerTimeoutWithDiffSize(t *testing.T) {
 				t.Errorf("summarizer deadline remaining = %v, want within configured %v", remaining, time.Minute)
 			}
 			var scaledMessages []string
-			for _, event := range events {
+			reviewerPhaseStarted := -1
+			timeoutScaled := -1
+			for i, event := range events {
+				if event.Kind == EventPhaseStarted && event.Phase == domain.ReviewPhaseReviewers {
+					reviewerPhaseStarted = i
+				}
 				if event.Kind == EventReviewerTimeoutScaled {
+					timeoutScaled = i
 					scaledMessages = append(scaledMessages, event.Message)
 				}
 			}
@@ -1683,6 +1702,52 @@ func TestServiceScalesReviewerTimeoutWithDiffSize(t *testing.T) {
 			if len(scaledMessages) != 1 || scaledMessages[0] != tt.wantMessage {
 				t.Errorf("timeout scaling events = %v, want [%s]", scaledMessages, tt.wantMessage)
 			}
+			if reviewerPhaseStarted < 0 || timeoutScaled <= reviewerPhaseStarted {
+				t.Errorf("reviewer phase start index = %d, timeout scaling index = %d", reviewerPhaseStarted, timeoutScaled)
+			}
 		})
+	}
+}
+
+func TestServiceCompletesWithPartialFindingsWhenAllReviewersTimeout(t *testing.T) {
+	reviewAgent := &mockReviewAgent{
+		name: "codex",
+		reviewExecution: func(context.Context, *agent.ReviewConfig) (*agent.ExecutionResult, error) {
+			output := codexReviewOutput("src/service.go:10: partial finding before timeout")
+			reader := io.NopCloser(io.MultiReader(strings.NewReader(output), delayedReviewEOFReader{delay: 50 * time.Millisecond}))
+			return agent.NewExecutionResult(reader, func() int { return 124 }, func() string { return "" }), nil
+		},
+	}
+	service := serviceForTest(t, reviewAgent, "diff")
+	request := validRequest(t, t.TempDir())
+	values := request.Configuration.Values()
+	values.Timeout = 5 * time.Millisecond
+	configuration, err := domain.NewReviewConfiguration(values)
+	if err != nil {
+		t.Fatalf("create timeout configuration: %v", err)
+	}
+	request.Configuration = configuration
+	var timeoutWarnings int
+	request.Events = EventSinkFunc(func(event Event) {
+		if event.Kind == EventWarning && event.Phase == domain.ReviewPhaseReviewers && event.ReviewerID != 0 && strings.Contains(event.Message, "timed out") {
+			timeoutWarnings++
+		}
+	})
+
+	run, err := service.Run(context.Background(), request)
+	if err != nil {
+		t.Fatalf("run review: %v", err)
+	}
+	if run.Status != domain.ReviewStatusCompleted || run.Conclusion != domain.ReviewConclusionFindings {
+		t.Fatalf("partial timeout outcome: status=%q conclusion=%q failure=%#v", run.Status, run.Conclusion, run.Failure)
+	}
+	if len(run.Stats.TimedOutReviewers) != values.Reviewers || len(run.RawFindings) != values.Reviewers {
+		t.Fatalf("partial timeout evidence: timed out=%v raw findings=%v", run.Stats.TimedOutReviewers, run.RawFindings)
+	}
+	if reviewAgent.summaryCalls.Load() != 1 {
+		t.Fatalf("summary calls = %d, want 1", reviewAgent.summaryCalls.Load())
+	}
+	if timeoutWarnings != values.Reviewers {
+		t.Fatalf("timeout warnings = %d, want %d", timeoutWarnings, values.Reviewers)
 	}
 }
