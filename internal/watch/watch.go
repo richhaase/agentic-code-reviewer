@@ -706,6 +706,7 @@ func run(ctx context.Context, cfg Config, deps Deps) ExitReason {
 		if trigger == "" && l.retryPending {
 			trigger = l.retryTrigger
 			cycleDiscussion = mergeRetryDiscussion(l.retryDiscussion, unprocessed)
+			cycleRevision = DiscussionRevision(cycleDiscussion)
 			if cycleRevision == "" {
 				cycleRevision = l.retryRevision
 			}

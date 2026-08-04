@@ -309,6 +309,56 @@ func TestTerminalDiscussionRetryIncludesNewDiscussionEvidence(t *testing.T) {
 	}
 }
 
+func TestDiscussionRetryEvidenceIncludesSavedAndCurrentItems(t *testing.T) {
+	saved := discussion("issue_comment", 1, "v1", "reviewer", "The nil case changes the conclusion.")
+	current := discussion("review_comment", 2, "v1", "reviewer", "The error path also needs reconsideration.")
+	h := newHarness(t)
+	h.routes = []RoutingDecision{RoutingReviewRequired}
+	deps := h.deps()
+	attempts := 0
+	stateCalls := 0
+	deps.State = func(context.Context) (PRState, error) {
+		stateCalls++
+		if stateCalls == 1 {
+			return open("aaa"), nil
+		}
+		if attempts >= 2 {
+			return discussed("aaa", current), nil
+		}
+		return discussed("aaa", saved), nil
+	}
+	var cycleDiscussion [][]Discussion
+	var revisions []string
+	deps.RunCycle = func(_ context.Context, _ int, trigger string, discussion []Discussion, revision string) (Cycle, error) {
+		attempts++
+		h.triggers = append(h.triggers, trigger)
+		cycleDiscussion = append(cycleDiscussion, append([]Discussion(nil), discussion...))
+		revisions = append(revisions, revision)
+		switch attempts {
+		case 1:
+			return Cycle{Result: CycleFindings}, nil
+		case 2:
+			return Cycle{Result: CycleError}, fmt.Errorf("%w: network unavailable", ErrRetryableCycle)
+		default:
+			return Cycle{Result: CycleLGTMApproved}, nil
+		}
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if len(cycleDiscussion[2]) != 2 || cycleDiscussion[2][0].ID != saved.ID || cycleDiscussion[2][1].ID != current.ID {
+		t.Fatalf("retry discussion = %#v", cycleDiscussion[2])
+	}
+	wantRevision := DiscussionRevision([]Discussion{saved, current})
+	if revisions[2] != wantRevision {
+		t.Fatalf("retry revision = %q, want merged evidence %q", revisions[2], wantRevision)
+	}
+	if revisions[2] == DiscussionRevision([]Discussion{current}) {
+		t.Fatalf("retry revision retained current-only evidence: %q", revisions[2])
+	}
+}
+
 func TestNoReviewDiscussionConsumesWithoutReviewSlot(t *testing.T) {
 	item := discussion("issue_comment", 1, "v1", "reviewer", "Thanks.")
 	h := newHarness(t)
