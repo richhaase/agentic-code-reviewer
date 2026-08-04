@@ -239,11 +239,15 @@ func (review BackgroundReview) Port() (watch.ReviewExecution, error) {
 			return watch.Cycle{}, fmt.Errorf("encode background semantic review run: %w", err)
 		}
 		economics := economicsFromRun(run)
+		var persistenceErrors []error
 		if err := review.Controller.RecordEconomics(review.Key, now().UTC(), economics); err != nil {
-			return watch.Cycle{}, fmt.Errorf("persist background semantic review economics: %w", err)
+			persistenceErrors = append(persistenceErrors, fmt.Errorf("persist background semantic review economics: %w", err))
 		}
 		if _, err := review.Runs.SaveRun(schema); err != nil {
-			return watch.Cycle{}, fmt.Errorf("persist background semantic review run: %w", err)
+			persistenceErrors = append(persistenceErrors, fmt.Errorf("persist background semantic review run: %w", err))
+		}
+		if len(persistenceErrors) > 0 {
+			return watch.Cycle{}, errors.Join(persistenceErrors...)
 		}
 		return cycleFromRun(run)
 	}}, nil

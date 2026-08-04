@@ -439,6 +439,68 @@ func TestHeadAndDiscussionChangesCoalesceIntoOneReview(t *testing.T) {
 	}
 }
 
+func TestAlreadyReviewedReturningHeadPreservesNewDiscussionForRouting(t *testing.T) {
+	item := discussion("issue_comment", 1, "v1", "reviewer", "The returning head needs another look in this context.")
+	h := newHarness(t)
+	h.routes = []RoutingDecision{RoutingReviewRequired}
+	deps := h.deps()
+	attempts := 0
+	deps.State = func(context.Context) (PRState, error) {
+		switch attempts {
+		case 0:
+			return open("aaa"), nil
+		case 1:
+			return open("bbb"), nil
+		default:
+			return discussed("aaa", item), nil
+		}
+	}
+	var cycleDiscussion [][]Discussion
+	deps.RunCycle = func(_ context.Context, _ int, trigger string, discussion []Discussion, _ string) (Cycle, error) {
+		attempts++
+		h.triggers = append(h.triggers, trigger)
+		cycleDiscussion = append(cycleDiscussion, append([]Discussion(nil), discussion...))
+		switch attempts {
+		case 1, 2:
+			return Cycle{Result: CycleFindings}, nil
+		case 3:
+			return Cycle{Result: CycleAlreadyReviewed, HeadSHA: "aaa"}, nil
+		default:
+			return Cycle{Result: CycleLGTMApproved}, nil
+		}
+	}
+
+	if reason := Run(context.Background(), defaultConfig(PostModeApprove), deps); reason != ReasonLGTM {
+		t.Fatalf("reason = %v, want ReasonLGTM", reason)
+	}
+	if fmt.Sprint(h.triggers) != "[initial review commits settled commits settled discussion requires reconsideration]" {
+		t.Fatalf("triggers = %v", h.triggers)
+	}
+	if len(h.routed) != 1 || len(h.routed[0]) != 1 || h.routed[0][0].ID != item.ID {
+		t.Fatalf("routed discussion = %#v", h.routed)
+	}
+	if len(cycleDiscussion[3]) != 1 || cycleDiscussion[3][0].ID != item.ID {
+		t.Fatalf("discussion review payload = %#v", cycleDiscussion[3])
+	}
+}
+
+func TestAlreadyReviewedDiscussionEvidenceConsumesDiscussion(t *testing.T) {
+	item := discussion("issue_comment", 1, "v1", "reviewer", "Please reconsider this path.")
+	h := newHarness(t)
+	h.states = []PRState{open("aaa"), discussed("aaa", item)}
+	h.cycles = []Cycle{{Result: CycleFindings}, {Result: CycleAlreadyReviewed, HeadSHA: "aaa"}}
+	h.routes = []RoutingDecision{RoutingReviewRequired}
+	cfg := defaultConfig(PostModeComment)
+	cfg.MaxDuration = 15 * time.Minute
+
+	if reason := Run(context.Background(), cfg, h.deps()); reason != ReasonMaxDuration {
+		t.Fatalf("reason = %v, want ReasonMaxDuration", reason)
+	}
+	if len(h.routed) != 1 || len(h.triggers) != 2 || h.triggers[1] != "discussion requires reconsideration" {
+		t.Fatalf("routes = %#v triggers = %v", h.routed, h.triggers)
+	}
+}
+
 func TestHeadWaitsForLaterDiscussionSettleDeadline(t *testing.T) {
 	item := discussion("issue_comment", 1, "v1", "reviewer", "Please reconsider.")
 	h := newHarness(t)

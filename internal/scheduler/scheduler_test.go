@@ -409,10 +409,11 @@ func TestBackgroundReviewPersistsEconomicsBeforeTerminalRun(t *testing.T) {
 		runErr       error
 		wantOrder    string
 		wantRuns     int
-		wantErr      error
+		wantErrors   []error
 	}{
-		{name: "economics failure leaves no completed marker", economicsErr: economicsFailure, wantOrder: "economics", wantErr: economicsFailure},
-		{name: "run failure retains economics", runErr: runFailure, wantOrder: "economics,run", wantErr: runFailure},
+		{name: "economics failure still saves terminal run", economicsErr: economicsFailure, wantOrder: "economics,run", wantRuns: 1, wantErrors: []error{economicsFailure}},
+		{name: "run failure retains economics", runErr: runFailure, wantOrder: "economics,run", wantErrors: []error{runFailure}},
+		{name: "both failures preserve both causes", economicsErr: economicsFailure, runErr: runFailure, wantOrder: "economics,run", wantErrors: []error{economicsFailure, runFailure}},
 		{name: "success records economics then run", wantOrder: "economics,run", wantRuns: 1},
 	}
 	for _, test := range tests {
@@ -440,11 +441,13 @@ func TestBackgroundReviewPersistsEconomicsBeforeTerminalRun(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, cycleErr := port.RunCycle(context.Background(), 1, "initial review", nil, "")
-			if test.wantErr == nil && cycleErr != nil {
+			if len(test.wantErrors) == 0 && cycleErr != nil {
 				t.Fatalf("RunCycle: %v", cycleErr)
 			}
-			if test.wantErr != nil && !errors.Is(cycleErr, test.wantErr) {
-				t.Fatalf("RunCycle error = %v, want %v", cycleErr, test.wantErr)
+			for _, wantErr := range test.wantErrors {
+				if !errors.Is(cycleErr, wantErr) {
+					t.Fatalf("RunCycle error = %v, want cause %v", cycleErr, wantErr)
+				}
 			}
 			persisted, corrupt, listErr := runs.ListRuns(key)
 			if listErr != nil || len(corrupt) != 0 || len(persisted) != test.wantRuns {

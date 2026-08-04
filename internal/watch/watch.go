@@ -372,6 +372,11 @@ func mergeRetryDiscussion(saved, current []Discussion) []Discussion {
 	return merged
 }
 
+func triggerCoversDiscussionEvidence(trigger string) bool {
+	return trigger == "discussion requires reconsideration" ||
+		trigger == "uncertain discussion requires reconsideration"
+}
+
 func (l *loop) initializeDiscussion(items []Discussion) {
 	l.discussionCursor = make(map[DiscussionID]string, len(items))
 	l.ownDiscussion = make(map[DiscussionID]struct{})
@@ -1000,10 +1005,12 @@ func (l *loop) cycle(
 		}
 		l.pendingHead = ""
 		l.pendingApproval = ""
-		l.consumeDiscussion(discussion)
-		l.pendingDiscussion = nil
-		l.waitingDiscussion = ""
-		l.logf("Revision %s was already reviewed; continuing to monitor for a replacement head.", shortSHA(l.lastHead))
+		if len(discussion) == 0 || triggerCoversDiscussionEvidence(trigger) {
+			l.consumeDiscussion(discussion)
+			l.pendingDiscussion = nil
+			l.waitingDiscussion = ""
+		}
+		l.logf("Revision %s was already reviewed; continuing lifecycle monitoring.", shortSHA(l.lastHead))
 		return 0, false
 	}
 	l.cycleErrors = 0
