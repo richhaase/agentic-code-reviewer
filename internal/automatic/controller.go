@@ -14,6 +14,8 @@ import (
 	"github.com/richhaase/agentic-code-reviewer/internal/store"
 )
 
+var ErrRevisionAlreadyAuthorized = errors.New("effective pull request revision already authorized for automatic review")
+
 type AuthorizationKind string
 
 const (
@@ -187,11 +189,17 @@ func (c *Controller) AuthorizeReview(key store.PullRequestKeyV1, target store.Re
 		return decisionFromRecord(latest, false), nil
 	}
 	if hasUnacknowledgedCorruptDecisions(corrupt, session) {
-		return c.recordDecision(key, session, store.LoopDecisionEscalate, "automatic review history is incomplete because durable decision records are corrupt", "", store.BudgetStateV1{}, false)
+		return c.recordDecision(key, session, store.LoopDecisionEscalate, "automatic review history is incomplete because durable decision records are corrupt", "", nil, store.BudgetStateV1{}, false)
 	}
 	for _, decision := range allDecisions {
 		if decision.RunID == runID {
 			return Decision{}, fmt.Errorf("automatic review run %q already has a durable decision", runID)
+		}
+		if decision.Scope == store.LoopDecisionScopeAutomaticExecution &&
+			decision.Decision == store.LoopDecisionContinue &&
+			decision.ReviewTarget != nil &&
+			sameEffectiveRevision(*decision.ReviewTarget, target) {
+			return Decision{}, fmt.Errorf("%w: %s", ErrRevisionAlreadyAuthorized, target.Revision.HeadObjectID)
 		}
 	}
 	economics, _, err := c.economics.ListEconomics(key)
@@ -209,20 +217,20 @@ func (c *Controller) AuthorizeReview(key store.PullRequestKeyV1, target store.Re
 		return Decision{}, err
 	}
 	if budget.IterationsLimit > 0 && budget.IterationsUsed >= budget.IterationsLimit {
-		return c.recordDecision(key, session, store.LoopDecisionStop, "automatic review stopped because the review bound was reached", "", budget, false)
+		return c.recordDecision(key, session, store.LoopDecisionStop, "automatic review stopped because the review bound was reached", "", nil, budget, false)
 	}
 	if budget.DurationLimit > 0 && budget.Elapsed >= budget.DurationLimit {
-		return c.recordDecision(key, session, store.LoopDecisionStop, "automatic review stopped because the lifecycle duration bound was reached", "", budget, false)
+		return c.recordDecision(key, session, store.LoopDecisionStop, "automatic review stopped because the lifecycle duration bound was reached", "", nil, budget, false)
 	}
 	if budget.CostUSDLimit > 0 && !usageAvailable {
-		return c.recordDecision(key, session, store.LoopDecisionEscalate, "automatic review requires trusted intervention because configured provider usage could not be measured", "", budget, false)
+		return c.recordDecision(key, session, store.LoopDecisionEscalate, "automatic review requires trusted intervention because configured provider usage could not be measured", "", nil, budget, false)
 	}
 	if budget.CostUSDLimit > 0 && budget.CostUSDUsed >= budget.CostUSDLimit {
-		return c.recordDecision(key, session, store.LoopDecisionStop, "automatic review stopped because the provider usage bound was reached", "", budget, false)
+		return c.recordDecision(key, session, store.LoopDecisionStop, "automatic review stopped because the provider usage bound was reached", "", nil, budget, false)
 	}
 
 	budget.IterationsUsed++
-	return c.recordDecision(key, session, store.LoopDecisionContinue, "automatic review admitted within the configured lifecycle bounds", runID, budget, true)
+	return c.recordDecision(key, session, store.LoopDecisionContinue, "automatic review admitted within the configured lifecycle bounds", runID, &target, budget, true)
 }
 
 func (c *Controller) RecordEconomics(key store.PullRequestKeyV1, recordedAt time.Time, economics store.ReviewEconomicsV1) (err error) {
@@ -283,13 +291,13 @@ func (c *Controller) Escalate(key store.PullRequestKeyV1, reason string) (_ Deci
 		return Decision{}, err
 	}
 	if hasUnacknowledgedCorruptDecisions(corrupt, session) {
-		return c.recordDecision(key, session, store.LoopDecisionEscalate, reason, "", store.BudgetStateV1{}, false)
+		return c.recordDecision(key, session, store.LoopDecisionEscalate, reason, "", nil, store.BudgetStateV1{}, false)
 	}
 	budget, _, err := c.currentBudget(key, session, sessionDecisions)
 	if err != nil {
 		return Decision{}, err
 	}
-	return c.recordDecision(key, session, store.LoopDecisionEscalate, reason, "", budget, false)
+	return c.recordDecision(key, session, store.LoopDecisionEscalate, reason, "", nil, budget, false)
 }
 
 func (c *Controller) admit(key store.PullRequestKeyV1, policy TrustedPolicy, authorization Authorization, reason string, corrupt []store.CorruptRecord) (Decision, error) {
@@ -452,7 +460,7 @@ func activeSession(decisions []store.LoopDecisionV1) (store.LoopDecisionV1, []st
 	return store.LoopDecisionV1{}, nil, fmt.Errorf("automatic review has no durable trusted admission")
 }
 
-func (c *Controller) recordDecision(key store.PullRequestKeyV1, admission store.LoopDecisionV1, kind store.LoopDecisionKindV1, reason, runID string, budget store.BudgetStateV1, allowed bool) (Decision, error) {
+func (c *Controller) recordDecision(key store.PullRequestKeyV1, admission store.LoopDecisionV1, kind store.LoopDecisionKindV1, reason, runID string, target *store.ReviewTargetV1, budget store.BudgetStateV1, allowed bool) (Decision, error) {
 	id, err := c.newID()
 	if err != nil {
 		return Decision{}, fmt.Errorf("create automatic review decision id: %w", err)
@@ -474,10 +482,25 @@ func (c *Controller) recordDecision(key store.PullRequestKeyV1, admission store.
 		Budget:         budget,
 		DecidedAt:      decidedAt,
 	}
+	if target != nil {
+		targetCopy := *target
+		if target.PullRequest != nil {
+			keyCopy := *target.PullRequest
+			targetCopy.PullRequest = &keyCopy
+		}
+		record.ReviewTarget = &targetCopy
+	}
 	if _, err := c.decisions.SaveLoopDecision(record); err != nil {
 		return Decision{}, fmt.Errorf("record automatic review decision: %w", err)
 	}
 	return decisionFromRecord(record, allowed), nil
+}
+
+func sameEffectiveRevision(left, right store.ReviewTargetV1) bool {
+	return left.Revision.HeadObjectID != "" &&
+		left.Revision.BaseObjectID != "" &&
+		left.Revision.HeadObjectID == right.Revision.HeadObjectID &&
+		left.Revision.BaseObjectID == right.Revision.BaseObjectID
 }
 
 func (c *Controller) nextDecisionTime(key store.PullRequestKeyV1, now time.Time) (time.Time, error) {

@@ -192,6 +192,19 @@ func (d LoopDecisionV1) Validate() error {
 		}
 	} else if len(d.AcknowledgedCorruptRecords) != 0 {
 		return fmt.Errorf("acknowledged corrupt decision files require an admission decision")
+	} else if d.ReviewTarget != nil {
+		if d.Scope != LoopDecisionScopeAutomaticExecution || d.Decision != LoopDecisionContinue {
+			return fmt.Errorf("loop decision review target requires an automatic execution continue decision")
+		}
+		if d.ReviewTarget.PullRequest == nil {
+			return fmt.Errorf("automatic execution continue decision requires a pull-request review target")
+		}
+		if err := d.ReviewTarget.Validate(); err != nil {
+			return fmt.Errorf("automatic execution continue review target: %w", err)
+		}
+		if *d.ReviewTarget.PullRequest != d.PullRequest {
+			return fmt.Errorf("automatic execution continue review target does not match pull request")
+		}
 	}
 	if err := d.Decision.Validate(); err != nil {
 		return err

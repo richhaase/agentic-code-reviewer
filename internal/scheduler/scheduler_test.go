@@ -4,17 +4,41 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/richhaase/agentic-code-reviewer/internal/agent"
 	"github.com/richhaase/agentic-code-reviewer/internal/automatic"
+	"github.com/richhaase/agentic-code-reviewer/internal/config"
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
+	reviewpkg "github.com/richhaase/agentic-code-reviewer/internal/review"
 	"github.com/richhaase/agentic-code-reviewer/internal/store"
 	"github.com/richhaase/agentic-code-reviewer/internal/watch"
 )
 
 type lifecycleFunc func(context.Context) watch.ExitReason
+
+type inertAgent struct{}
+
+func (inertAgent) Name() string {
+	return "inert"
+}
+
+func (inertAgent) IsAvailable() error {
+	return nil
+}
+
+func (inertAgent) ExecuteReview(context.Context, *agent.ReviewConfig) (*agent.ExecutionResult, error) {
+	return nil, fmt.Errorf("review execution was not expected")
+}
+
+func (inertAgent) ExecuteSummary(context.Context, *agent.SummaryConfig) (*agent.ExecutionResult, error) {
+	return nil, fmt.Errorf("summary execution was not expected")
+}
 
 func (f lifecycleFunc) Run(ctx context.Context) watch.ExitReason {
 	return f(ctx)
@@ -159,10 +183,40 @@ func (c *controllerStub) RecordEconomics(_ store.PullRequestKeyV1, _ time.Time, 
 	return nil
 }
 
+func schedulerTarget(key store.PullRequestKeyV1, head string) store.ReviewTargetV1 {
+	return store.ReviewTargetV1{
+		RepositoryRoot: "/repo",
+		WorktreeRoot:   "/repo/worktree",
+		Revision: store.RevisionEvidenceV1{
+			RequestedBaseRef: "main",
+			ResolvedBaseRef:  "origin/main",
+			HeadObjectID:     head,
+			BaseObjectID:     "base-1",
+		},
+		PullRequest: &key,
+	}
+}
+
+func schedulerWork(target store.ReviewTargetV1, run func(context.Context) (*domain.ReviewRun, error)) BackgroundWork {
+	return BackgroundWork{target: target, run: run}
+}
+
+func schedulerRun(id string, target store.ReviewTargetV1, conclusion domain.ReviewConclusion) *domain.ReviewRun {
+	return &domain.ReviewRun{
+		ID:          id,
+		Target:      target.ToDomain(),
+		StartedAt:   time.Unix(10, 0),
+		CompletedAt: time.Unix(20, 0),
+		Status:      domain.ReviewStatusCompleted,
+		Conclusion:  conclusion,
+	}
+}
+
 func TestBackgroundReviewAuthorizesBoundsAndRecordsRun(t *testing.T) {
 	deadline := time.Now().Add(time.Minute).Round(0)
 	controller := &controllerStub{decision: automatic.Decision{Allowed: true, Deadline: deadline}}
 	key := schedulerKey(1)
+	target := schedulerTarget(key, "head-1")
 	port, err := (BackgroundReview{
 		Key:        key,
 		Controller: controller,
@@ -170,15 +224,14 @@ func TestBackgroundReviewAuthorizesBoundsAndRecordsRun(t *testing.T) {
 		Prepare: func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error) {
 			return PreparedCycle{
 				RunID:  "run-1",
-				Target: store.ReviewTargetV1{PullRequest: &key},
-				Run: func(ctx context.Context) (watch.Cycle, *store.ReviewEconomicsV1, error) {
+				Target: target,
+				Work: schedulerWork(target, func(ctx context.Context) (*domain.ReviewRun, error) {
 					gotDeadline, ok := ctx.Deadline()
 					if !ok || !gotDeadline.Equal(deadline) {
 						t.Fatalf("deadline = %v, %t, want %v", gotDeadline, ok, deadline)
 					}
-					economics := &store.ReviewEconomicsV1{SchemaVersion: store.CurrentSchemaVersion, RunID: "run-1"}
-					return watch.Cycle{Result: watch.CycleFindings, HeadSHA: "head-1"}, economics, nil
-				},
+					return schedulerRun("run-1", target, domain.ReviewConclusionFindings), nil
+				}),
 			}, nil
 		},
 	}).Port()
@@ -203,18 +256,20 @@ func TestBackgroundReviewAuthorizesBoundsAndRecordsRun(t *testing.T) {
 func TestBackgroundReviewHonorsStopAndResumeDecision(t *testing.T) {
 	controller := &controllerStub{decision: automatic.Decision{Reason: "review budget exhausted"}}
 	key := schedulerKey(1)
+	target := schedulerTarget(key, "head-1")
 	var runs atomic.Int32
 	review := BackgroundReview{
 		Key:        key,
 		Controller: controller,
 		Prepare: func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error) {
+			runID := fmt.Sprintf("run-%d", len(controller.authorized)+1)
 			return PreparedCycle{
-				RunID:  fmt.Sprintf("run-%d", len(controller.authorized)+1),
-				Target: store.ReviewTargetV1{PullRequest: &key},
-				Run: func(context.Context) (watch.Cycle, *store.ReviewEconomicsV1, error) {
+				RunID:  runID,
+				Target: target,
+				Work: schedulerWork(target, func(context.Context) (*domain.ReviewRun, error) {
 					runs.Add(1)
-					return watch.Cycle{Result: watch.CycleFindings}, nil, nil
-				},
+					return schedulerRun(runID, target, domain.ReviewConclusionFindings), nil
+				}),
 			}, nil
 		},
 	}
@@ -237,27 +292,176 @@ func TestBackgroundReviewHonorsStopAndResumeDecision(t *testing.T) {
 	}
 }
 
-func TestBackgroundReviewRejectsPostingResults(t *testing.T) {
-	controller := &controllerStub{decision: automatic.Decision{Allowed: true}}
+func TestBackgroundReviewDurablyDeduplicatesRevisionAcrossRecreation(t *testing.T) {
+	dataDir := t.TempDir()
 	key := schedulerKey(1)
+	policyRecord := store.AdjudicationPolicyV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		Source:        store.PolicySourceV1{Kind: config.SourceKindDefaults},
+		Budget:        store.BudgetPolicyV1{MaxIterations: 3},
+	}
+	newPolicy := func(target store.ReviewTargetV1) automatic.TrustedPolicy {
+		policy, err := automatic.NewTrustedPolicy(policyRecord, target)
+		if err != nil {
+			t.Fatalf("NewTrustedPolicy: %v", err)
+		}
+		return policy
+	}
+	newController := func() *automatic.Controller {
+		controller, err := automatic.NewController(
+			store.NewFilesystemLoopDecisionStore(dataDir),
+			store.NewFilesystemEconomicsStore(dataDir),
+		)
+		if err != nil {
+			t.Fatalf("NewController: %v", err)
+		}
+		return controller
+	}
+	authorization, err := automatic.WorkspaceAuthorization("scheduler-test")
+	if err != nil {
+		t.Fatalf("WorkspaceAuthorization: %v", err)
+	}
+	targetA := schedulerTarget(key, "head-a")
+	controller := newController()
+	if _, err := controller.Commission(key, targetA, newPolicy(targetA), authorization); err != nil {
+		t.Fatalf("Commission: %v", err)
+	}
+	var runs atomic.Int32
+	prepare := func(runID string, target store.ReviewTargetV1, policy automatic.TrustedPolicy) PrepareCycle {
+		return func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error) {
+			return PreparedCycle{
+				RunID:  runID,
+				Target: target,
+				Policy: policy,
+				Work: schedulerWork(target, func(context.Context) (*domain.ReviewRun, error) {
+					runs.Add(1)
+					return schedulerRun(runID, target, domain.ReviewConclusionFindings), nil
+				}),
+			}, nil
+		}
+	}
+	first, err := (BackgroundReview{Key: key, Controller: controller, Prepare: prepare("run-a-1", targetA, newPolicy(targetA))}).Port()
+	if err != nil {
+		t.Fatalf("first Port: %v", err)
+	}
+	if _, err := first.RunCycle(context.Background(), 1, "initial review", nil, ""); err != nil {
+		t.Fatalf("first RunCycle: %v", err)
+	}
+
+	restarted := newController()
+	duplicate, err := (BackgroundReview{Key: key, Controller: restarted, Prepare: prepare("run-a-2", targetA, newPolicy(targetA))}).Port()
+	if err != nil {
+		t.Fatalf("duplicate Port: %v", err)
+	}
+	if _, err := duplicate.RunCycle(context.Background(), 1, "initial review", nil, ""); !errors.Is(err, automatic.ErrRevisionAlreadyAuthorized) {
+		t.Fatalf("duplicate RunCycle error = %v, want durable revision rejection", err)
+	}
+	if runs.Load() != 1 {
+		t.Fatalf("runs after duplicate = %d, want 1", runs.Load())
+	}
+
+	targetB := schedulerTarget(key, "head-b")
+	replacement, err := (BackgroundReview{Key: key, Controller: restarted, Prepare: prepare("run-b-1", targetB, newPolicy(targetB))}).Port()
+	if err != nil {
+		t.Fatalf("replacement Port: %v", err)
+	}
+	if _, err := replacement.RunCycle(context.Background(), 1, "commits settled", nil, ""); err != nil {
+		t.Fatalf("replacement RunCycle: %v", err)
+	}
+	if runs.Load() != 2 {
+		t.Fatalf("runs after replacement = %d, want 2", runs.Load())
+	}
+}
+
+func TestBackgroundWorkExposesNoSubmissionCapability(t *testing.T) {
+	workType := reflect.TypeOf(BackgroundWork{})
+	for i := 0; i < workType.NumField(); i++ {
+		if workType.Field(i).IsExported() {
+			t.Fatalf("background work exposes configurable field %q", workType.Field(i).Name)
+		}
+	}
+	if workType.NumMethod() != 0 {
+		t.Fatalf("background work exposes %d public method(s)", workType.NumMethod())
+	}
+	preparedType := reflect.TypeOf(PreparedCycle{})
+	for i := 0; i < preparedType.NumField(); i++ {
+		if preparedType.Field(i).Type.Kind() == reflect.Func {
+			t.Fatalf("prepared background cycle accepts executable function %q", preparedType.Field(i).Name)
+		}
+	}
+
+	repositoryRoot := t.TempDir()
+	if output, err := exec.Command("git", "init", repositoryRoot).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	key := schedulerKey(1)
+	target := schedulerTarget(key, "head-1")
+	target.RepositoryRoot = repositoryRoot
+	target.WorktreeRoot = repositoryRoot
+	configuration, err := domain.NewReviewConfiguration(domain.ReviewConfigurationValues{
+		Reviewers:         1,
+		Concurrency:       1,
+		Timeout:           time.Minute,
+		ReviewerAgents:    []string{"inert"},
+		SummarizerAgent:   "inert",
+		SummarizerTimeout: time.Minute,
+		FPFilterTimeout:   time.Minute,
+		FPThreshold:       75,
+	})
+	if err != nil {
+		t.Fatalf("NewReviewConfiguration: %v", err)
+	}
+	service, err := reviewpkg.NewService(
+		reviewpkg.WithRunIDGenerator(func(time.Time) (string, error) { return "run-clean", nil }),
+		reviewpkg.WithAgentFactory(func(string, string) (agent.Agent, error) { return inertAgent{}, nil }),
+		reviewpkg.WithRevisionProvider(func(context.Context, domain.ReviewTarget) (domain.RevisionEvidence, error) {
+			return target.Revision.ToDomain(), nil
+		}),
+		reviewpkg.WithDiffProvider(func(context.Context, domain.ReviewTarget) (string, error) { return "", nil }),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	var submissionCalls atomic.Int32
+	work, err := NewBackgroundWork(service, reviewpkg.Request{
+		Target:        target.ToDomain(),
+		Trigger:       domain.ReviewTriggerDesk,
+		Engine:        domain.ReviewEngine{Name: "acr", Version: "test"},
+		Configuration: configuration,
+		ConfigurationSource: domain.ConfigurationSourceIdentity{
+			Kind: "test",
+		},
+		Events: reviewpkg.EventSinkFunc(func(reviewpkg.Event) {
+			submissionCalls.Add(1)
+		}),
+	})
+	if err != nil {
+		t.Fatalf("NewBackgroundWork: %v", err)
+	}
+	controller := &controllerStub{decision: automatic.Decision{Allowed: true}}
 	port, err := (BackgroundReview{
 		Key:        key,
 		Controller: controller,
 		Prepare: func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error) {
 			return PreparedCycle{
-				RunID:  "run-post",
-				Target: store.ReviewTargetV1{PullRequest: &key},
-				Run: func(context.Context) (watch.Cycle, *store.ReviewEconomicsV1, error) {
-					return watch.Cycle{Result: watch.CycleLGTMComment}, nil, nil
-				},
+				RunID:  "run-clean",
+				Target: target,
+				Work:   work,
 			}, nil
 		},
 	}).Port()
 	if err != nil {
 		t.Fatalf("Port: %v", err)
 	}
-	if _, err := port.RunCycle(context.Background(), 1, "initial review", nil, ""); err == nil {
-		t.Fatal("expected posting result rejection")
+	cycle, err := port.RunCycle(context.Background(), 1, "initial review", nil, "")
+	if err != nil {
+		t.Fatalf("RunCycle: %v", err)
+	}
+	if cycle.Result != watch.CycleNoChanges {
+		t.Fatalf("cycle result = %d, want no changes", cycle.Result)
+	}
+	if submissionCalls.Load() != 0 {
+		t.Fatalf("background work invoked supplied submission callback %d time(s)", submissionCalls.Load())
 	}
 }
 
@@ -348,16 +552,18 @@ func TestLifecycleReviewsSettledReplacementHeadOnce(t *testing.T) {
 			head := states[stateIndex-1].HeadSHA
 			heads = append(heads, head)
 			mu.Unlock()
+			target := schedulerTarget(key, head)
+			runID := "run-" + head
 			return PreparedCycle{
-				RunID:  "run-" + head,
-				Target: store.ReviewTargetV1{PullRequest: &key},
-				Run: func(context.Context) (watch.Cycle, *store.ReviewEconomicsV1, error) {
-					result := watch.CycleFindings
+				RunID:  runID,
+				Target: target,
+				Work: schedulerWork(target, func(context.Context) (*domain.ReviewRun, error) {
+					conclusion := domain.ReviewConclusionFindings
 					if head == "head-b" {
-						result = watch.CycleClean
+						conclusion = domain.ReviewConclusionClean
 					}
-					return watch.Cycle{Result: result, HeadSHA: head}, nil, nil
-				},
+					return schedulerRun(runID, target, conclusion), nil
+				}),
 			}, nil
 		},
 	}

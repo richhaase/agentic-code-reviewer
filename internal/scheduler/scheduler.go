@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 
 	"github.com/richhaase/agentic-code-reviewer/internal/automatic"
+	"github.com/richhaase/agentic-code-reviewer/internal/domain"
+	reviewpkg "github.com/richhaase/agentic-code-reviewer/internal/review"
 	"github.com/richhaase/agentic-code-reviewer/internal/store"
 	"github.com/richhaase/agentic-code-reviewer/internal/watch"
 )
@@ -112,10 +115,35 @@ type PreparedCycle struct {
 	RunID  string
 	Target store.ReviewTargetV1
 	Policy automatic.TrustedPolicy
-	Run    func(context.Context) (watch.Cycle, *store.ReviewEconomicsV1, error)
+	Work   BackgroundWork
 }
 
 type PrepareCycle func(context.Context, int, string, []watch.Discussion, string) (PreparedCycle, error)
+
+type BackgroundWork struct {
+	target store.ReviewTargetV1
+	run    func(context.Context) (*domain.ReviewRun, error)
+}
+
+func NewBackgroundWork(service *reviewpkg.Service, request reviewpkg.Request) (BackgroundWork, error) {
+	if service == nil {
+		return BackgroundWork{}, fmt.Errorf("background semantic review service is required")
+	}
+	if request.Trigger != domain.ReviewTriggerDesk {
+		return BackgroundWork{}, fmt.Errorf("background review trigger must be %q", domain.ReviewTriggerDesk)
+	}
+	target := store.ToReviewTargetSchema(request.Target)
+	if target.PullRequest == nil {
+		return BackgroundWork{}, fmt.Errorf("background review target must identify a pull request")
+	}
+	request.Events = nil
+	return BackgroundWork{
+		target: target,
+		run: func(ctx context.Context) (*domain.ReviewRun, error) {
+			return service.Run(ctx, request)
+		},
+	}, nil
+}
 
 type BackgroundReview struct {
 	Key        store.PullRequestKeyV1
@@ -146,8 +174,11 @@ func (review BackgroundReview) Port() (watch.ReviewExecution, error) {
 		if prepared.RunID == "" {
 			return watch.Cycle{}, fmt.Errorf("prepared automatic review run id is required")
 		}
-		if prepared.Run == nil {
-			return watch.Cycle{}, fmt.Errorf("prepared automatic review runner is required")
+		if prepared.Work.run == nil {
+			return watch.Cycle{}, fmt.Errorf("prepared background review work is required")
+		}
+		if !reflect.DeepEqual(prepared.Work.target, prepared.Target) {
+			return watch.Cycle{}, fmt.Errorf("prepared background review work does not match its authorized target")
 		}
 		decision, err := review.Controller.AuthorizeReview(review.Key, prepared.Target, prepared.Policy, prepared.RunID)
 		if err != nil {
@@ -161,26 +192,75 @@ func (review BackgroundReview) Port() (watch.ReviewExecution, error) {
 		if !decision.Deadline.IsZero() {
 			runCtx, cancel = context.WithDeadline(ctx, decision.Deadline)
 		}
-		cycle, economics, runErr := prepared.Run(runCtx)
+		run, runErr := prepared.Work.run(runCtx)
 		cancel()
-		if economics != nil {
-			if economics.RunID != prepared.RunID {
-				return watch.Cycle{}, fmt.Errorf("automatic review economics run id %q does not match prepared run %q", economics.RunID, prepared.RunID)
-			}
-			if err := review.Controller.RecordEconomics(review.Key, now().UTC(), *economics); err != nil {
-				return watch.Cycle{}, errors.Join(runErr, err)
-			}
-		}
 		if runErr != nil {
-			return cycle, runErr
+			return watch.Cycle{}, runErr
 		}
-		switch cycle.Result {
-		case watch.CycleError, watch.CycleNoChanges, watch.CycleFindings, watch.CycleStaleHead, watch.CycleClean:
-			return cycle, nil
-		default:
-			return watch.Cycle{}, fmt.Errorf("background review returned posting result %d", cycle.Result)
+		if run == nil {
+			return watch.Cycle{}, fmt.Errorf("background semantic review returned no run")
 		}
+		if run.ID != prepared.RunID {
+			return watch.Cycle{}, fmt.Errorf("background semantic review run id %q does not match prepared run %q", run.ID, prepared.RunID)
+		}
+		economics := economicsFromRun(run)
+		if err := review.Controller.RecordEconomics(review.Key, now().UTC(), economics); err != nil {
+			return watch.Cycle{}, errors.Join(runErr, err)
+		}
+		return cycleFromRun(run)
 	}}, nil
+}
+
+func economicsFromRun(run *domain.ReviewRun) store.ReviewEconomicsV1 {
+	reviewerCalls := 0
+	for _, result := range run.ReviewerResults {
+		reviewerCalls += result.Attempts
+	}
+	modelCalls := reviewerCalls
+	if run.Stats.SummarizerDuration > 0 {
+		modelCalls++
+	}
+	if run.Stats.FPFilterDuration > 0 {
+		modelCalls++
+	}
+	duration := run.CompletedAt.Sub(run.StartedAt)
+	if duration < 0 {
+		duration = 0
+	}
+	return store.ReviewEconomicsV1{
+		SchemaVersion:     store.CurrentSchemaVersion,
+		RunID:             run.ID,
+		ReviewerCallCount: reviewerCalls,
+		ModelCallCount:    modelCalls,
+		Duration:          duration,
+	}
+}
+
+func cycleFromRun(run *domain.ReviewRun) (watch.Cycle, error) {
+	cycle := watch.Cycle{HeadSHA: run.Target.Revision.HeadObjectID}
+	switch run.Status {
+	case domain.ReviewStatusFailed:
+		if run.Failure != nil {
+			return watch.Cycle{}, fmt.Errorf("background semantic review failed: %s", run.Failure.Message)
+		}
+		return watch.Cycle{}, fmt.Errorf("background semantic review failed")
+	case domain.ReviewStatusInterrupted:
+		return watch.Cycle{}, fmt.Errorf("background semantic review was interrupted")
+	case domain.ReviewStatusCompleted:
+		switch run.Conclusion {
+		case domain.ReviewConclusionNoChanges:
+			cycle.Result = watch.CycleNoChanges
+		case domain.ReviewConclusionFindings:
+			cycle.Result = watch.CycleFindings
+		case domain.ReviewConclusionClean:
+			cycle.Result = watch.CycleClean
+		default:
+			return watch.Cycle{}, fmt.Errorf("background semantic review completed without a supported conclusion")
+		}
+		return cycle, nil
+	default:
+		return watch.Cycle{}, fmt.Errorf("background semantic review returned unknown status %q", run.Status)
+	}
 }
 
 type ControlHistory interface {
