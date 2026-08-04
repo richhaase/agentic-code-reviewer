@@ -388,6 +388,15 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) (result domain
 
 		finding, err := parser.ReadFinding(scanner)
 		readCompletedAt := time.Now()
+		completedBeforeTimeout := !readCompletedAt.After(timeoutDeadline)
+		if !completedBeforeTimeout {
+			result.ParseErrors += parser.ParseErrors()
+			result.TimedOut = true
+			result.ExitCode = -1
+			result.Duration = time.Since(start)
+			result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureTimeout, Message: context.DeadlineExceeded.Error()}
+			return result
+		}
 		if err != nil {
 			if agent.IsRecoverable(err) {
 
@@ -400,8 +409,7 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) (result domain
 			result.ParseErrors++
 			break
 		}
-		completedBeforeTimeout := !readCompletedAt.After(timeoutDeadline)
-		if finding != nil && completedBeforeTimeout {
+		if finding != nil {
 			result.Findings = append(result.Findings, *finding)
 			if r.config.Events.ReviewerOutput != nil {
 				r.config.Events.ReviewerOutput(reviewerID, finding.Text)
@@ -424,7 +432,7 @@ func (r *Runner) runReviewer(ctx context.Context, reviewerID int) (result domain
 			result.Failure = &domain.ReviewerFailure{Kind: domain.ReviewerFailureInterrupted, Message: ctx.Err().Error()}
 			return result
 		}
-		if !completedBeforeTimeout || timeoutCtx.Err() == context.DeadlineExceeded {
+		if timeoutCtx.Err() == context.DeadlineExceeded {
 			result.ParseErrors += parser.ParseErrors()
 			result.TimedOut = true
 			result.ExitCode = -1
