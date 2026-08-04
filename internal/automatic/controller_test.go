@@ -128,7 +128,11 @@ func testAuthorize(t *testing.T, controller *Controller, key store.PullRequestKe
 	if err != nil {
 		t.Fatalf("NewTrustedPolicy: %v", err)
 	}
-	return controller.AuthorizeReview(key, target, policy, runID)
+	decision, err := controller.AuthorizeReview(key, target, policy, runID)
+	if err == nil && decision.Allowed {
+		saveAutomaticRunToStore(t, controller.runs, runID, target, domain.ReviewStatusCompleted)
+	}
+	return decision, err
 }
 
 func authorizeWithHead(t *testing.T, controller *Controller, key store.PullRequestKeyV1, policy TrustedPolicy, runID string) (Decision, error) {
@@ -136,10 +140,19 @@ func authorizeWithHead(t *testing.T, controller *Controller, key store.PullReque
 	target := testTarget()
 	target.Revision.HeadObjectID = "head-" + runID
 	policy.target = target
-	return controller.AuthorizeReview(key, target, policy, runID)
+	decision, err := controller.AuthorizeReview(key, target, policy, runID)
+	if err == nil && decision.Allowed {
+		saveAutomaticRunToStore(t, controller.runs, runID, target, domain.ReviewStatusCompleted)
+	}
+	return decision, err
 }
 
 func saveAutomaticRun(t *testing.T, dir, runID string, target store.ReviewTargetV1, status domain.ReviewStatus) {
+	t.Helper()
+	saveAutomaticRunToStore(t, store.NewFilesystemRunStore(dir), runID, target, status)
+}
+
+func saveAutomaticRunToStore(t *testing.T, runStore store.RunStore, runID string, target store.ReviewTargetV1, status domain.ReviewStatus) {
 	t.Helper()
 	configuration, err := domain.NewReviewConfiguration(domain.ReviewConfigurationValues{
 		Reviewers:         1,
@@ -175,7 +188,7 @@ func saveAutomaticRun(t *testing.T, dir, runID string, target store.ReviewTarget
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.NewFilesystemRunStore(dir).SaveRun(schema); err != nil {
+	if _, err := runStore.SaveRun(schema); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -272,6 +285,97 @@ func TestControllerEscalatesOrphanReservationAndResumeRecovers(t *testing.T) {
 	}
 	if decision, err := controller.AuthorizeReview(key, target, policy, "recovered-run"); err != nil || !decision.Allowed {
 		t.Fatalf("post-resume authorization = %+v, err = %v", decision, err)
+	}
+}
+
+func TestControllerEscalatesCrossControllerOrphanForDifferentRevision(t *testing.T) {
+	now := time.Date(2026, 8, 4, 13, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	first := testController(t, dir, &now)
+	second := testController(t, dir, &now)
+	key := testKey()
+	firstTarget := testTarget()
+	secondTarget := testTarget()
+	secondTarget.Revision.HeadObjectID = "replacement-head"
+	policyRecord := store.AdjudicationPolicyV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		Source:        store.PolicySourceV1{Kind: config.SourceKindDefaults},
+		Budget:        store.BudgetPolicyV1{MaxIterations: 5},
+	}
+	firstPolicy, err := NewTrustedPolicy(policyRecord, firstTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondPolicy, err := NewTrustedPolicy(policyRecord, secondTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.Commission(key, firstTarget, firstPolicy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.AuthorizeReview(key, firstTarget, firstPolicy, "active-first-head"); err != nil {
+		t.Fatal(err)
+	}
+	escalated, err := second.AuthorizeReview(key, secondTarget, secondPolicy, "blocked-replacement-head")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if escalated.Allowed || escalated.Kind != store.LoopDecisionEscalate {
+		t.Fatalf("different-head orphan decision = %+v, want controlled escalation", escalated)
+	}
+	decisions, corrupt, err := store.NewFilesystemLoopDecisionStore(dir).ListLoopDecisions(key)
+	if err != nil || len(corrupt) != 0 {
+		t.Fatalf("decisions = %+v, corrupt = %+v, err = %v", decisions, corrupt, err)
+	}
+	var continues int
+	for _, decision := range decisions {
+		if decision.Decision == store.LoopDecisionContinue {
+			continues++
+		}
+	}
+	if continues != 1 || decisions[len(decisions)-1].Decision != store.LoopDecisionEscalate {
+		t.Fatalf("durable decisions = %+v", decisions)
+	}
+}
+
+func TestControllerOrphanEscalationRefreshesBudget(t *testing.T) {
+	now := time.Date(2026, 8, 4, 13, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	controller := testController(t, dir, &now)
+	key := testKey()
+	target := testTarget()
+	policy, err := NewTrustedPolicy(store.AdjudicationPolicyV1{
+		SchemaVersion: store.CurrentSchemaVersion,
+		Source:        store.PolicySourceV1{Kind: config.SourceKindDefaults},
+		Budget: store.BudgetPolicyV1{
+			MaxIterations: 5,
+			MaxDuration:   2 * time.Hour,
+		},
+	}, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.Commission(key, target, policy, testUserAuthorization(t)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.AuthorizeReview(key, target, policy, "orphan-budget-run"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(37 * time.Minute)
+	escalated, err := controller.AuthorizeReview(key, target, policy, "blocked-budget-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if escalated.Kind != store.LoopDecisionEscalate || escalated.Budget.Elapsed != 37*time.Minute || escalated.Budget.IterationsUsed != 1 {
+		t.Fatalf("refreshed orphan budget = %+v", escalated)
+	}
+	decisions, corrupt, err := store.NewFilesystemLoopDecisionStore(dir).ListLoopDecisions(key)
+	if err != nil || len(corrupt) != 0 {
+		t.Fatalf("decisions = %+v, corrupt = %+v, err = %v", decisions, corrupt, err)
+	}
+	latest := decisions[len(decisions)-1]
+	if latest.Budget.Elapsed != 37*time.Minute || latest.Budget.IterationsUsed != 1 {
+		t.Fatalf("durable refreshed budget = %+v", latest.Budget)
 	}
 }
 

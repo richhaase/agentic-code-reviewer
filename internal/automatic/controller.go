@@ -215,6 +215,21 @@ func (c *Controller) AuthorizeReview(key store.PullRequestKeyV1, target store.Re
 	for _, run := range runs {
 		runsByID[run.ID] = run
 	}
+	for _, decision := range sessionDecisions {
+		if decision.Scope != store.LoopDecisionScopeAutomaticExecution ||
+			decision.Decision != store.LoopDecisionContinue ||
+			decision.SessionID != session.SessionID {
+			continue
+		}
+		if _, exists := runsByID[decision.RunID]; exists {
+			continue
+		}
+		budget, _, err := c.currentBudget(key, session, sessionDecisions)
+		if err != nil {
+			return Decision{}, err
+		}
+		return c.recordDecision(key, session, store.LoopDecisionEscalate, "automatic review requires trusted intervention because an active review reservation has no durable run", "", nil, "", budget, false)
+	}
 	for _, decision := range allDecisions {
 		if decision.RunID == runID {
 			return Decision{}, fmt.Errorf("automatic review run %q already has a durable decision", runID)
@@ -224,9 +239,6 @@ func (c *Controller) AuthorizeReview(key store.PullRequestKeyV1, target store.Re
 			decision.ReviewTarget != nil &&
 			sameEffectiveRevision(*decision.ReviewTarget, target) {
 			run, exists := runsByID[decision.RunID]
-			if !exists && decision.SessionID == session.SessionID {
-				return c.recordDecision(key, session, store.LoopDecisionEscalate, "automatic review requires trusted intervention because an active review reservation has no durable run", "", nil, "", latest.Budget, false)
-			}
 			if exists && run.Status == string(domain.ReviewStatusCompleted) && sameReviewEvidence(decision.EvidenceIdentity, evidenceIdentity) {
 				return Decision{}, fmt.Errorf("%w: %s", ErrRevisionAlreadyAuthorized, target.Revision.HeadObjectID)
 			}
