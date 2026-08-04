@@ -19,12 +19,13 @@ func TestScaledReviewerTimeout(t *testing.T) {
 		{name: "double threshold doubles timeout", configured: 10 * time.Minute, diffBytes: 2 * reviewerTimeoutScaleThreshold, want: 20 * time.Minute},
 		{name: "655KB diff scales 15m to 98m15s", configured: 15 * time.Minute, diffBytes: 655 * 1024, want: 5895 * time.Second},
 		{name: "scale is capped", configured: 10 * time.Minute, diffBytes: 50 * 1024 * 1024, want: 100 * time.Minute},
+		{name: "rounding boundary scales exactly", configured: maxReviewerTimeout / 2, diffBytes: 2 * reviewerTimeoutScaleThreshold, want: maxReviewerTimeout - 1},
 		{name: "overflow saturates", configured: maxReviewerTimeout, diffBytes: 2 * reviewerTimeoutScaleThreshold, want: maxReviewerTimeout},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := scaledReviewerTimeout(tt.configured, tt.diffBytes)
-			if got.Round(time.Second) != tt.want {
+			if got != tt.want {
 				t.Errorf("scaledReviewerTimeout(%v, %d) = %v, want %v", tt.configured, tt.diffBytes, got, tt.want)
 			}
 		})

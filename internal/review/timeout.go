@@ -14,14 +14,22 @@ func scaledReviewerTimeout(configured time.Duration, diffBytes int) time.Duratio
 	if diffBytes <= reviewerTimeoutScaleThreshold {
 		return configured
 	}
-	factor := float64(diffBytes) / float64(reviewerTimeoutScaleThreshold)
-	if factor > maxReviewerTimeoutScale {
-		factor = maxReviewerTimeoutScale
+	scaledDiffBytes := diffBytes
+	if scaledDiffBytes > reviewerTimeoutScaleThreshold*maxReviewerTimeoutScale {
+		scaledDiffBytes = reviewerTimeoutScaleThreshold * maxReviewerTimeoutScale
 	}
-	if float64(configured) > float64(maxReviewerTimeout)/factor {
+	whole := time.Duration(scaledDiffBytes / reviewerTimeoutScaleThreshold)
+	remainder := time.Duration(scaledDiffBytes % reviewerTimeoutScaleThreshold)
+	if configured > maxReviewerTimeout/whole {
 		return maxReviewerTimeout
 	}
-	return time.Duration(float64(configured) * factor)
+	fraction := configured/time.Duration(reviewerTimeoutScaleThreshold)*remainder +
+		configured%time.Duration(reviewerTimeoutScaleThreshold)*remainder/time.Duration(reviewerTimeoutScaleThreshold)
+	scaled := configured * whole
+	if scaled > maxReviewerTimeout-fraction {
+		return maxReviewerTimeout
+	}
+	return scaled + fraction
 }
 
 func reviewerTimeoutScaledMessage(diffBytes int, configured, effective time.Duration) string {
