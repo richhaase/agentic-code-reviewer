@@ -1,6 +1,6 @@
 module github.com/richhaase/agentic-code-reviewer
 
-go 1.26.0
+go 1.26.8
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
