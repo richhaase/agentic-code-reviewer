@@ -1,5 +1,9 @@
 # ACR - Agentic Code Reviewer
 
+> **Archived: ACR is no longer actively maintained.** I built it to run parallel code reviews and combine the results. The coding harnesses I use now can run those reviews in parallel themselves, and I can use skills for more targeted reviews. I no longer need a separate runner, even with its PR-watching features.
+>
+> The [existing releases](https://github.com/richhaase/agentic-code-reviewer/releases) remain available as-is. I wrote more about why I moved on in [Throw It Away](https://richhaase.com/blog/2026-10-12-throwing-it-away/).
+
 A CLI tool that runs parallel AI-powered code reviews using LLM agents ([Antigravity CLI](https://antigravity.google/docs/cli), [Codex](https://github.com/openai/codex), [Claude Code](https://github.com/anthropics/claude-code), or Gemini CLI for enterprise users) and aggregates findings intelligently.
 
 > **Warning: Gemini CLI is deprecated for most ACR users as of ACR v0.16.0.**
